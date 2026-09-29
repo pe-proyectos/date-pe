@@ -52,7 +52,7 @@ async function seed() {
   );
   await adminPool.query(
     `INSERT INTO memberships (user_id, tenant_id, role) VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING`,
-    [u.rows[0].id, tenantId],
+    [u.rows[0]!.id, tenantId],
   );
 
   // Local
@@ -65,7 +65,7 @@ async function seed() {
      RETURNING id`,
     [tenantId, distr.rows[0]?.id ?? null],
   );
-  const locationId = loc.rows[0].id;
+  const locationId = loc.rows[0]!.id;
 
   // Barberos
   const barbers = [
@@ -79,7 +79,7 @@ async function seed() {
        VALUES ($1, $2, $3, $4, $5, true, $6) RETURNING id`,
       [tenantId, locationId, b.name, b.bio, b.spec, i],
     );
-    staffIds.push(s.rows[0].id);
+    staffIds.push(s.rows[0]!.id);
   }
 
   // Horarios: lunes(1)-sábado(6), 10:00-20:00
