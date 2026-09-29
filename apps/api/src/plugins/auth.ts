@@ -34,6 +34,15 @@ const plugin: FastifyPluginAsync = async (app) => {
     }
   });
 
+  app.decorate('requirePlatformAdmin', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+    } catch {
+      return reply.code(401).send({ error: 'no_autenticado' });
+    }
+    if (!request.user.isPlatformAdmin) return reply.code(403).send({ error: 'solo_superadmin' });
+  });
+
   app.decorate(
     'requireTenant',
     async (request: FastifyRequest, reply: FastifyReply) => {
@@ -56,6 +65,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireTenant: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requirePlatformAdmin: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 

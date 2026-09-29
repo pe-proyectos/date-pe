@@ -1,0 +1,26 @@
+# Web date.pe (Next.js) — build standalone
+FROM node:24-alpine AS build
+RUN corepack enable && corepack prepare pnpm@12.6.0 --activate
+WORKDIR /app
+# Variables públicas necesarias en build (se inyectan en el bundle)
+ARG NEXT_PUBLIC_API_BASE=https://date.pe
+ARG NEXT_PUBLIC_BASE_DOMAIN=date.pe
+ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
+ENV NEXT_PUBLIC_BASE_DOMAIN=$NEXT_PUBLIC_BASE_DOMAIN
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.base.json ./
+COPY apps/web/package.json apps/web/package.json
+COPY apps/api/package.json apps/api/package.json
+RUN pnpm install --frozen-lockfile --filter @datepe/web...
+COPY apps/web ./apps/web
+RUN pnpm --filter @datepe/web build
+
+FROM node:24-alpine AS run
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+# Salida standalone (incluye node_modules mínimos + server.js)
+COPY --from=build /app/apps/web/.next/standalone ./
+COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
+EXPOSE 3000
+CMD ["node", "apps/web/server.js"]

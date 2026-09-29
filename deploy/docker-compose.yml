@@ -1,0 +1,104 @@
+# Despliegue date.pe en el VPS usando el proxy Traefik de Coolify.
+# Rutas:  date.pe/api/*  -> api   |   date.pe y *.date.pe -> web
+name: datepe
+
+services:
+  datepe-db:
+    image: postgres:16-alpine
+    container_name: datepe-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: datepe
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-datepe}
+      POSTGRES_DB: datepe
+    volumes:
+      - datepe-pgdata:/var/lib/postgresql/data
+    networks: [datepe-internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datepe -d datepe"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile.api
+    container_name: datepe-api
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      APP_BASE_DOMAIN: date.pe
+      COOKIE_DOMAIN: .date.pe
+      APP_PUBLIC_URL: https://date.pe
+      DATABASE_URL: postgres://datepe:${POSTGRES_PASSWORD:-datepe}@datepe-db:5432/datepe
+      DATABASE_APP_URL: postgres://datepe_app:datepe_app@datepe-db:5432/datepe
+    depends_on:
+      datepe-db:
+        condition: service_healthy
+    networks: [datepe-internal, coolify]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=coolify
+      # API en date.pe/api (prioridad alta para ganarle a la web)
+      - traefik.http.routers.datepe-api.entrypoints=https
+      - traefik.http.routers.datepe-api.rule=Host(`date.pe`) && PathPrefix(`/api`)
+      - traefik.http.routers.datepe-api.priority=100
+      - traefik.http.routers.datepe-api.tls=true
+      - traefik.http.routers.datepe-api.tls.certresolver=letsencrypt
+      - traefik.http.routers.datepe-api-http.entrypoints=http
+      - traefik.http.routers.datepe-api-http.rule=Host(`date.pe`) && PathPrefix(`/api`)
+      - traefik.http.routers.datepe-api-http.priority=100
+      - traefik.http.services.datepe-api.loadbalancer.server.port=3001
+
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_BASE: https://date.pe
+        NEXT_PUBLIC_BASE_DOMAIN: date.pe
+    container_name: datepe-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      # server-side llama a la API por la red interna del proxy
+      API_BASE: http://datepe-api:3001
+      NEXT_PUBLIC_API_BASE: https://date.pe
+      NEXT_PUBLIC_BASE_DOMAIN: date.pe
+    depends_on: [api]
+    networks: [datepe-internal, coolify]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=coolify
+      # Apex date.pe
+      - traefik.http.routers.datepe-web.entrypoints=https
+      - traefik.http.routers.datepe-web.rule=Host(`date.pe`)
+      - traefik.http.routers.datepe-web.priority=10
+      - traefik.http.routers.datepe-web.tls=true
+      - traefik.http.routers.datepe-web.tls.certresolver=letsencrypt
+      - traefik.http.routers.datepe-web-http.entrypoints=http
+      - traefik.http.routers.datepe-web-http.rule=Host(`date.pe`)
+      - traefik.http.routers.datepe-web-http.priority=10
+      # Subdominios de barberías *.date.pe
+      - traefik.http.routers.datepe-tenants.entrypoints=https
+      - traefik.http.routers.datepe-tenants.rule=HostRegexp(`^.+\.date\.pe$`)
+      - traefik.http.routers.datepe-tenants.priority=5
+      - traefik.http.routers.datepe-tenants.tls=true
+      - traefik.http.routers.datepe-tenants.tls.certresolver=letsencrypt
+      - traefik.http.routers.datepe-tenants-http.entrypoints=http
+      - traefik.http.routers.datepe-tenants-http.rule=HostRegexp(`^.+\.date\.pe$`)
+      - traefik.http.routers.datepe-tenants-http.priority=5
+      - traefik.http.services.datepe-web.loadbalancer.server.port=3000
+
+networks:
+  coolify:
+    external: true
+  datepe-internal:
+    driver: bridge
+
+volumes:
+  datepe-pgdata:

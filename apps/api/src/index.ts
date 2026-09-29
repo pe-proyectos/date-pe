@@ -14,6 +14,9 @@ import { adminRoutes } from './routes/admin.js';
 import { searchRoutes } from './routes/search.js';
 import { blogRoutes } from './routes/blog.js';
 import { onboardingRoutes } from './routes/onboarding.js';
+import { platformRoutes } from './routes/platform.js';
+import { paymentRoutes } from './routes/payments.js';
+import { uploadRoutes } from './routes/uploads.js';
 import { wsRoutes } from './routes/ws.js';
 
 async function main() {
@@ -56,6 +59,9 @@ async function main() {
       await api.register(searchRoutes);
       await api.register(blogRoutes);
       await api.register(onboardingRoutes);
+      await api.register(platformRoutes);
+      await api.register(paymentRoutes);
+      await api.register(uploadRoutes);
       await api.register(wsRoutes);
     },
     { prefix: '/api' },

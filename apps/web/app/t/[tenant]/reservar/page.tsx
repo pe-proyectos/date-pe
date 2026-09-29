@@ -7,6 +7,7 @@ import { API_BASE_CLIENT } from '@/lib/config';
 interface Service { id: string; name: string; duration_min: number; price_cents: number }
 interface Staff { id: string; name: string; photo_url: string | null; bio: string | null }
 interface Slot { start: string; end: string; staffId: string }
+type PayProvider = 'mercadopago' | 'paypal' | 'culqi';
 
 const soles = (c: number) => `S/ ${(c / 100).toFixed(2)}`;
 const fmtTime = (iso: string) =>
@@ -18,15 +19,18 @@ export default function ReservarPage() {
 
   const [services, setServices] = useState<Service[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
+  const [requireDeposit, setRequireDeposit] = useState(false);
+  const [depositPct, setDepositPct] = useState(0);
+
   const [service, setService] = useState<Service | null>(null);
-  const [staffId, setStaffId] = useState<string | null>(null); // null => cualquiera
+  const [staffId, setStaffId] = useState<string | null>(null);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [slots, setSlots] = useState<Slot[]>([]);
   const [slot, setSlot] = useState<Slot | null>(null);
   const [client, setClient] = useState({ name: '', phone: '', email: '' });
-  const [otp, setOtp] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-  const [verified, setVerified] = useState(false);
+
+  const [appointmentId, setAppointmentId] = useState<string | null>(null);
+  const [paying, setPaying] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState('');
 
@@ -36,6 +40,8 @@ export default function ReservarPage() {
       .then((d) => {
         setServices(d.services ?? []);
         setStaff(d.staff ?? []);
+        setRequireDeposit(d.settings?.require_deposit ?? false);
+        setDepositPct(d.settings?.deposit_percent ?? 0);
       })
       .catch(() => setError('No se pudo cargar la barbería.'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -59,49 +65,22 @@ export default function ReservarPage() {
     if (service) loadSlots();
   }, [service, staffId, date, loadSlots]);
 
-  // Disponibilidad en tiempo real: si el local cambia algo, recargamos slots.
+  // Disponibilidad en tiempo real
   useEffect(() => {
     const proto = API_BASE_CLIENT.startsWith('https') ? 'wss' : 'ws';
-    const wsUrl = `${proto}://${API_BASE_CLIENT.replace(/^https?:\/\//, '')}/api/ws?tenant=${tenant}`;
     let ws: WebSocket | null = null;
     try {
-      ws = new WebSocket(wsUrl);
+      ws = new WebSocket(`${proto}://${API_BASE_CLIENT.replace(/^https?:\/\//, '')}/api/ws?tenant=${tenant}`);
       ws.onmessage = (ev) => {
         try {
-          const msg = JSON.parse(ev.data);
-          if (msg.type === 'availability_changed') loadSlots();
-        } catch {
-          /* ignore */
-        }
+          if (JSON.parse(ev.data).type === 'availability_changed') loadSlots();
+        } catch { /* */ }
       };
-    } catch {
-      /* ignore */
-    }
+    } catch { /* */ }
     return () => ws?.close();
   }, [tenant, loadSlots]);
 
-  async function requestOtp() {
-    setError('');
-    const res = await fetch(`${API_BASE_CLIENT}/api/auth/otp/request`, {
-      method: 'POST',
-      headers: h,
-      body: JSON.stringify({ phone: client.phone }),
-    });
-    if (res.ok) setOtpSent(true);
-    else setError('No se pudo enviar el código.');
-  }
-
-  async function verifyOtp() {
-    const res = await fetch(`${API_BASE_CLIENT}/api/auth/otp/verify`, {
-      method: 'POST',
-      headers: h,
-      body: JSON.stringify({ phone: client.phone, code: otp }),
-    });
-    if (res.ok) setVerified(true);
-    else setError('Código inválido.');
-  }
-
-  async function book() {
+  async function createBooking() {
     if (!service || !slot) return;
     setError('');
     const res = await fetch(`${API_BASE_CLIENT}/api/bookings`, {
@@ -115,19 +94,84 @@ export default function ReservarPage() {
       }),
     });
     const d = await res.json();
-    if (res.ok) setDone(true);
-    else setError(d.error === 'slot_ocupado' ? 'Ese horario se acaba de ocupar, elige otro.' : 'No se pudo reservar.');
-    if (d.error === 'slot_ocupado') loadSlots();
+    if (!res.ok) {
+      setError(d.error === 'slot_ocupado' ? 'Ese horario se acaba de ocupar, elige otro.' : 'No se pudo reservar.');
+      if (d.error === 'slot_ocupado') loadSlots();
+      return;
+    }
+    if (requireDeposit && depositPct > 0) {
+      setAppointmentId(d.appointmentId); // pasa al paso de pago
+    } else {
+      setDone(true);
+    }
   }
+
+  async function pay(provider: PayProvider) {
+    if (!appointmentId) return;
+    setPaying(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_BASE_CLIENT}/api/payments/intent`, {
+        method: 'POST',
+        headers: h,
+        body: JSON.stringify({ appointmentId, provider }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setError('No se pudo iniciar el pago.'); return; }
+
+      if (d.noDeposit) { setDone(true); return; }
+      if (d.redirectUrl) { window.location.href = d.redirectUrl; return; } // MercadoPago / PayPal
+      if (d.devSimulated) {
+        // Modo dev sin llaves: confirmamos la seña simulada
+        await fetch(`${API_BASE_CLIENT}${d.devConfirmUrl}`, { method: 'POST', headers: h });
+        setDone(true);
+        return;
+      }
+      if (d.clientConfig) {
+        // Culqi: requiere Culqi.js para tokenizar (pendiente en frontend)
+        setError('Pago con tarjeta (Culqi) disponible próximamente. Usa MercadoPago o PayPal.');
+      }
+    } finally {
+      setPaying(false);
+    }
+  }
+
+  const depositAmount = service ? Math.round((service.price_cents * depositPct) / 100) : 0;
 
   if (done) {
     return (
       <main className="mx-auto max-w-md px-6 py-20 text-center">
         <h1 className="text-3xl font-bold">¡Reserva confirmada! ✅</h1>
-        <p className="mt-4 text-slate-600">
-          Te esperamos el {new Date(slot!.start).toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' })} a las {fmtTime(slot!.start)}.
+        {slot && (
+          <p className="mt-4 text-slate-600">
+            Te esperamos el{' '}
+            {new Date(slot.start).toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' })} a las {fmtTime(slot.start)}.
+          </p>
+        )}
+      </main>
+    );
+  }
+
+  // Paso de pago
+  if (appointmentId) {
+    return (
+      <main className="mx-auto max-w-md px-6 py-16">
+        <h1 className="text-2xl font-bold">Asegura tu cita con una seña</h1>
+        <p className="mt-2 text-slate-600">
+          Paga una seña de {soles(depositAmount)} ({depositPct}%) para confirmar. El resto lo pagas en el local.
         </p>
-        <p className="mt-2 text-sm text-slate-500">Te enviaremos un recordatorio por WhatsApp.</p>
+        {error && <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+        <div className="mt-6 space-y-3">
+          <button onClick={() => pay('mercadopago')} disabled={paying} className="w-full rounded-xl bg-sky-500 py-3 font-semibold text-white disabled:opacity-50">
+            Pagar con MercadoPago / Yape
+          </button>
+          <button onClick={() => pay('paypal')} disabled={paying} className="w-full rounded-xl bg-[#003087] py-3 font-semibold text-white disabled:opacity-50">
+            Pagar con PayPal
+          </button>
+          <button onClick={() => pay('culqi')} disabled={paying} className="w-full rounded-xl border border-slate-300 py-3 font-semibold disabled:opacity-50">
+            Pagar con tarjeta (Culqi)
+          </button>
+        </div>
       </main>
     );
   }
@@ -137,7 +181,6 @@ export default function ReservarPage() {
       <h1 className="text-3xl font-bold">Reservar cita</h1>
       {error && <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
-      {/* 1. Servicio */}
       <Step n={1} title="Elige un servicio">
         <div className="grid gap-2">
           {services.map((s) => (
@@ -153,22 +196,14 @@ export default function ReservarPage() {
         </div>
       </Step>
 
-      {/* 2. Barbero */}
       {service && (
         <Step n={2} title="Elige tu barbero">
           <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => { setStaffId(null); setSlot(null); }}
-              className={`rounded-xl border px-4 py-2 ${staffId === null ? 'border-slate-900 bg-slate-50' : 'border-slate-200'}`}
-            >
+            <button onClick={() => { setStaffId(null); setSlot(null); }} className={`rounded-xl border px-4 py-2 ${staffId === null ? 'border-slate-900 bg-slate-50' : 'border-slate-200'}`}>
               Cualquiera disponible
             </button>
             {staff.map((b) => (
-              <button
-                key={b.id}
-                onClick={() => { setStaffId(b.id); setSlot(null); }}
-                className={`rounded-xl border px-4 py-2 ${staffId === b.id ? 'border-slate-900 bg-slate-50' : 'border-slate-200'}`}
-              >
+              <button key={b.id} onClick={() => { setStaffId(b.id); setSlot(null); }} className={`rounded-xl border px-4 py-2 ${staffId === b.id ? 'border-slate-900 bg-slate-50' : 'border-slate-200'}`}>
                 {b.name}
               </button>
             ))}
@@ -176,7 +211,6 @@ export default function ReservarPage() {
         </Step>
       )}
 
-      {/* 3. Fecha y hora */}
       {service && (
         <Step n={3} title="Elige fecha y hora">
           <input
@@ -201,33 +235,19 @@ export default function ReservarPage() {
         </Step>
       )}
 
-      {/* 4. Datos + OTP */}
       {slot && (
         <Step n={4} title="Tus datos">
           <div className="space-y-3">
             <input placeholder="Nombre" value={client.name} onChange={(e) => setClient({ ...client, name: e.target.value })} className="w-full rounded-xl border border-slate-300 px-3 py-2" />
             <input placeholder="Celular (+51…)" value={client.phone} onChange={(e) => setClient({ ...client, phone: e.target.value })} className="w-full rounded-xl border border-slate-300 px-3 py-2" />
             <input placeholder="Email (opcional)" value={client.email} onChange={(e) => setClient({ ...client, email: e.target.value })} className="w-full rounded-xl border border-slate-300 px-3 py-2" />
-
-            {!verified && !otpSent && (
-              <button onClick={requestOtp} disabled={!client.name || client.phone.length < 6} className="rounded-xl bg-slate-200 px-4 py-2 text-sm font-semibold disabled:opacity-50">
-                Verificar por WhatsApp
-              </button>
-            )}
-            {otpSent && !verified && (
-              <div className="flex gap-2">
-                <input placeholder="Código de 6 dígitos" value={otp} onChange={(e) => setOtp(e.target.value)} className="flex-1 rounded-xl border border-slate-300 px-3 py-2" />
-                <button onClick={verifyOtp} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Verificar</button>
-              </div>
-            )}
-            {verified && <p className="text-sm text-green-700">✓ Número verificado</p>}
-
+            {/* Verificación por WhatsApp: desactivada por ahora */}
             <button
-              onClick={book}
-              disabled={!verified}
+              onClick={createBooking}
+              disabled={!client.name || client.phone.length < 6}
               className="w-full rounded-xl bg-slate-900 py-3 font-semibold text-white disabled:opacity-40"
             >
-              Confirmar reserva
+              {requireDeposit && depositPct > 0 ? 'Continuar al pago de seña' : 'Confirmar reserva'}
             </button>
           </div>
         </Step>

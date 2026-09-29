@@ -107,9 +107,18 @@ async function seed() {
     );
   }
 
+  // Superadmin de plataforma
+  await adminPool.query(
+    `INSERT INTO users (email, password_hash, name, is_platform_admin)
+     VALUES ('admin@date.pe', $1, 'Superadmin', true)
+     ON CONFLICT (email) DO UPDATE SET is_platform_admin = true, password_hash = EXCLUDED.password_hash`,
+    [hashPassword('superadmin123')],
+  );
+
   console.log('✔ Seed completo.');
   console.log('  Tenant: barberiajuana  ->  http://barberiajuana.lvh.me:3000');
   console.log('  Login panel: juana@date.pe / barberia123');
+  console.log('  Superadmin: admin@date.pe / superadmin123  ->  /superadmin');
   await adminPool.end();
 }
 

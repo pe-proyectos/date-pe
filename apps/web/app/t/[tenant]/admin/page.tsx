@@ -6,8 +6,9 @@ import FullCalendar from '@fullcalendar/react';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import { API_BASE_CLIENT } from '@/lib/config';
+import { uploadImage } from '@/lib/upload';
 
-interface Staff { id: string; name: string; is_bookable: boolean; bio: string | null }
+interface Staff { id: string; name: string; is_bookable: boolean; bio: string | null; photo_url?: string | null }
 type Tab = 'agenda' | 'equipo' | 'horarios';
 
 const DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
@@ -199,6 +200,15 @@ function Equipo({ headers }: { headers: Record<string, string> }) {
     await fetch(`${API_BASE_CLIENT}/api/admin/staff/${id}`, { method: 'DELETE', headers });
     load();
   }
+  async function uploadPhoto(s: Staff, file: File) {
+    try {
+      const url = await uploadImage(file, 'staff', headers);
+      await fetch(`${API_BASE_CLIENT}/api/admin/staff/${s.id}`, { method: 'PATCH', headers, body: JSON.stringify({ photoUrl: url }) });
+      load();
+    } catch {
+      alert('No se pudo subir la foto');
+    }
+  }
 
   return (
     <div className="max-w-xl">
@@ -209,11 +219,28 @@ function Equipo({ headers }: { headers: Record<string, string> }) {
       <ul className="space-y-2">
         {staff.map((s) => (
           <li key={s.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-3">
-            <span className="font-medium">{s.name}</span>
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 overflow-hidden rounded-full bg-slate-200">
+                {s.photo_url && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={s.photo_url} alt={s.name} className="h-full w-full object-cover" />
+                )}
+              </div>
+              <span className="font-medium">{s.name}</span>
+            </div>
             <div className="flex items-center gap-3 text-sm">
+              <label className="cursor-pointer text-slate-500 hover:text-slate-900">
+                Foto
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(e) => e.target.files?.[0] && uploadPhoto(s, e.target.files[0])}
+                />
+              </label>
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={s.is_bookable} onChange={() => toggle(s)} />
-                Visible para reservas
+                Visible
               </label>
               <button onClick={() => remove(s.id)} className="text-red-600">Eliminar</button>
             </div>

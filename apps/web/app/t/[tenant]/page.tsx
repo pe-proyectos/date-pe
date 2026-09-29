@@ -106,6 +106,18 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
       <footer className="mx-auto max-w-4xl px-6 py-8 text-center text-xs text-slate-400">
         {site.tenant.name} · Reservas con date.pe
       </footer>
+
+      {/* WhatsApp de contacto (solo si la barbería lo configuró) */}
+      {site.branding?.whatsapp && (
+        <a
+          href={`https://wa.me/${site.branding.whatsapp.replace(/[^0-9]/g, '')}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="fixed bottom-5 right-5 z-30 flex items-center gap-2 rounded-full bg-green-500 px-5 py-3 font-semibold text-white shadow-lg hover:bg-green-600"
+        >
+          WhatsApp
+        </a>
+      )}
     </main>
   );
 }

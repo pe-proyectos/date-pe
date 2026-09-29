@@ -49,4 +49,14 @@ export const env = {
   r2Bucket: process.env.R2_BUCKET ?? 'datepe',
   r2AccessKeyId: process.env.R2_ACCESS_KEY_ID ?? '',
   r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY ?? '',
+  // Pagos
+  appPublicUrl: process.env.APP_PUBLIC_URL ?? 'http://localhost:3005',
+  paymentsDevMode: (process.env.PAYMENTS_DEV_MODE ?? 'true') === 'true',
+  culqiPublicKey: process.env.CULQI_PUBLIC_KEY ?? '',
+  culqiSecretKey: process.env.CULQI_SECRET_KEY ?? '',
+  mercadopagoAccessToken: process.env.MERCADOPAGO_ACCESS_TOKEN ?? '',
+  mercadopagoPublicKey: process.env.MERCADOPAGO_PUBLIC_KEY ?? '',
+  paypalClientId: process.env.PAYPAL_CLIENT_ID ?? '',
+  paypalClientSecret: process.env.PAYPAL_CLIENT_SECRET ?? '',
+  paypalEnv: process.env.PAYPAL_ENV ?? 'sandbox',
 };
