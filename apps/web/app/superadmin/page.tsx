@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { API_BASE_CLIENT } from '@/lib/config';
+import { Toaster } from '@/components/Toaster';
+import { toast } from '@/lib/toast';
+import { Logo } from '@/components/Logo';
 
 const soles = (c: number) => `S/ ${((c ?? 0) / 100).toFixed(2)}`;
 const TOKEN_KEY = 'datepe_admin_token';
@@ -65,13 +68,15 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
   async function setStatus(id: string, status: string) {
     await fetch(`${API_BASE_CLIENT}/api/platform/tenants/${id}`, { method: 'PATCH', headers, body: JSON.stringify({ status }) });
     load();
+    toast.success(status === 'active' ? 'Barbería activada' : 'Barbería suspendida');
   }
 
   const t = overview?.totals ?? {};
   return (
     <main className="mx-auto max-w-6xl px-4 py-6">
+      <Toaster />
       <header className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-bold">date.pe · Superadmin</h1>
+        <div className="flex items-center gap-2"><Logo size={26} /><span className="rounded-full bg-brand/10 px-2 py-0.5 text-xs font-semibold text-brand">Superadmin</span></div>
         <div className="flex gap-2">
           <button onClick={() => setShowCreate(true)} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">+ Barbería</button>
           <button onClick={onLogout} className="text-sm text-slate-500">Salir</button>
@@ -175,7 +180,7 @@ function CreateTenant({ headers, onClose, onDone }: { headers: Record<string, st
       body: JSON.stringify({ shopName: f.shopName, slug: f.slug || slugify(f.shopName), owner: { name: f.name, email: f.email, password: f.password }, status: 'active' }),
     });
     const d = await res.json();
-    if (res.ok) onDone();
+    if (res.ok) { toast.success('Barbería creada'); onDone(); }
     else setError(d.error === 'slug_en_uso' ? 'Subdominio en uso' : 'No se pudo crear');
   }
   return (

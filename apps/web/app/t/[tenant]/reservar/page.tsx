@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { API_BASE_CLIENT } from '@/lib/config';
+import { Toaster } from '@/components/Toaster';
+import { toast } from '@/lib/toast';
 
 interface Service { id: string; name: string; duration_min: number; price_cents: number }
 interface Staff { id: string; name: string; photo_url: string | null; bio: string | null }
@@ -95,14 +98,18 @@ export default function ReservarPage() {
     });
     const d = await res.json();
     if (!res.ok) {
-      setError(d.error === 'slot_ocupado' ? 'Ese horario se acaba de ocupar, elige otro.' : 'No se pudo reservar.');
+      const msg = d.error === 'slot_ocupado' ? 'Ese horario se acaba de ocupar, elige otro.' : 'No se pudo reservar.';
+      setError(msg);
+      toast.error(msg);
       if (d.error === 'slot_ocupado') loadSlots();
       return;
     }
     if (requireDeposit && depositPct > 0) {
       setAppointmentId(d.appointmentId); // pasa al paso de pago
+      toast.info('Casi listo: asegura tu cita con la seña');
     } else {
       setDone(true);
+      toast.success('¡Reserva confirmada!');
     }
   }
 
@@ -117,19 +124,19 @@ export default function ReservarPage() {
         body: JSON.stringify({ appointmentId, provider }),
       });
       const d = await res.json();
-      if (!res.ok) { setError('No se pudo iniciar el pago.'); return; }
+      if (!res.ok) { setError('No se pudo iniciar el pago.'); toast.error('No se pudo iniciar el pago.'); return; }
 
-      if (d.noDeposit) { setDone(true); return; }
-      if (d.redirectUrl) { window.location.href = d.redirectUrl; return; } // MercadoPago / PayPal
+      if (d.noDeposit) { setDone(true); toast.success('¡Reserva confirmada!'); return; }
+      if (d.redirectUrl) { toast.info('Redirigiendo a la pasarela…'); window.location.href = d.redirectUrl; return; }
       if (d.devSimulated) {
-        // Modo dev sin llaves: confirmamos la seña simulada
         await fetch(`${API_BASE_CLIENT}${d.devConfirmUrl}`, { method: 'POST', headers: h });
         setDone(true);
+        toast.success('¡Seña confirmada! Tu cita está reservada.');
         return;
       }
       if (d.clientConfig) {
-        // Culqi: requiere Culqi.js para tokenizar (pendiente en frontend)
         setError('Pago con tarjeta (Culqi) disponible próximamente. Usa MercadoPago o PayPal.');
+        toast.info('Culqi próximamente. Usa MercadoPago o PayPal.');
       }
     } finally {
       setPaying(false);
@@ -141,7 +148,9 @@ export default function ReservarPage() {
   if (done) {
     return (
       <main className="mx-auto max-w-md px-6 py-20 text-center">
-        <h1 className="text-3xl font-bold">¡Reserva confirmada! ✅</h1>
+        <Toaster />
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-3xl">✅</div>
+        <h1 className="text-3xl font-bold">¡Reserva confirmada!</h1>
         {slot && (
           <p className="mt-4 text-slate-600">
             Te esperamos el{' '}
@@ -156,6 +165,7 @@ export default function ReservarPage() {
   if (appointmentId) {
     return (
       <main className="mx-auto max-w-md px-6 py-16">
+        <Toaster />
         <h1 className="text-2xl font-bold">Asegura tu cita con una seña</h1>
         <p className="mt-2 text-slate-600">
           Paga una seña de {soles(depositAmount)} ({depositPct}%) para confirmar. El resto lo pagas en el local.
@@ -177,8 +187,11 @@ export default function ReservarPage() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-10">
-      <h1 className="text-3xl font-bold">Reservar cita</h1>
+    <main className="relative mx-auto max-w-2xl px-6 py-10">
+      <div className="mesh-light absolute inset-0 -z-10" />
+      <Toaster />
+      <Link href="/" className="text-sm text-slate-500 hover:text-slate-900">← Volver</Link>
+      <h1 className="mt-2 text-3xl font-bold">Reservar cita</h1>
       {error && <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
       <Step n={1} title="Elige un servicio">
@@ -258,9 +271,9 @@ export default function ReservarPage() {
 
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
-    <section className="mt-8">
-      <h2 className="mb-3 text-lg font-semibold">
-        <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-xs text-white">{n}</span>
+    <section className="mt-6 glass rounded-3xl p-6">
+      <h2 className="mb-4 flex items-center text-lg font-semibold">
+        <span className="btn-primary mr-3 inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold">{n}</span>
         {title}
       </h2>
       {children}

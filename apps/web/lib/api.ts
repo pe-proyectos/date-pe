@@ -42,6 +42,8 @@ export interface TenantSite {
   locations: Array<{ id: string; name: string; address: string | null; district: string | null; province: string | null; phone: string | null }>;
   staff: Array<{ id: string; name: string; photo_url: string | null; bio: string | null; specialties: string[] | null; rating_avg: string; rating_count: number }>;
   services: Array<{ id: string; category: string | null; name: string; description: string | null; photo_url: string | null; duration_min: number; price_cents: number }>;
+  reviews?: Array<{ stars: number; comment: string | null; created_at: string; staff_name: string | null }>;
+  rating?: { avg: string | null; count: string };
 }
 
 export interface SearchResult {

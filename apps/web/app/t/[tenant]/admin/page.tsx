@@ -7,6 +7,9 @@ import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import { API_BASE_CLIENT } from '@/lib/config';
 import { uploadImage } from '@/lib/upload';
+import { Toaster } from '@/components/Toaster';
+import { toast } from '@/lib/toast';
+import { Logo } from '@/components/Logo';
 
 interface Staff { id: string; name: string; is_bookable: boolean; bio: string | null; photo_url?: string | null }
 type Tab = 'agenda' | 'equipo' | 'horarios';
@@ -28,8 +31,9 @@ export default function AdminPage() {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6">
+      <Toaster />
       <header className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-bold">Panel · {tenant}</h1>
+        <div className="flex items-center gap-3"><Logo size={28} /><span className="hidden text-sm text-slate-400 sm:inline">/ {tenant}</span></div>
         <nav className="flex gap-1 rounded-xl bg-slate-100 p-1 text-sm">
           {(['agenda', 'equipo', 'horarios'] as Tab[]).map((t) => (
             <button
@@ -205,8 +209,9 @@ function Equipo({ headers }: { headers: Record<string, string> }) {
       const url = await uploadImage(file, 'staff', headers);
       await fetch(`${API_BASE_CLIENT}/api/admin/staff/${s.id}`, { method: 'PATCH', headers, body: JSON.stringify({ photoUrl: url }) });
       load();
+      toast.success('Foto actualizada');
     } catch {
-      alert('No se pudo subir la foto');
+      toast.error('No se pudo subir la foto');
     }
   }
 
@@ -275,7 +280,7 @@ function Horarios({ headers }: { headers: Record<string, string> }) {
       .filter(([, v]) => v.on)
       .map(([dow, v]) => ({ dayOfWeek: Number(dow), startTime: v.start, endTime: v.end }));
     await fetch(`${API_BASE_CLIENT}/api/admin/staff/${selected}/schedules`, { method: 'PUT', headers, body: JSON.stringify({ schedules }) });
-    alert('Horario guardado');
+    toast.success('Horario guardado');
   }
 
   return (

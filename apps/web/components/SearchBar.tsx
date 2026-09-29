@@ -56,7 +56,7 @@ export function SearchBar({ compact = false }: { compact?: boolean }) {
 
   return (
     <div
-      className={`flex flex-col gap-2 rounded-2xl bg-white p-2 shadow-xl md:flex-row md:items-center ${
+      className={`flex flex-col gap-2 rounded-3xl bg-white/95 p-2 shadow-2xl ring-1 ring-black/5 backdrop-blur md:flex-row md:items-center ${
         compact ? '' : 'md:p-3'
       }`}
     >
@@ -114,8 +114,9 @@ export function SearchBar({ compact = false }: { compact?: boolean }) {
 
       <button
         onClick={submit}
-        className="rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-700"
+        className="btn-primary flex items-center justify-center gap-2 rounded-2xl px-7 py-3.5 text-sm font-semibold"
       >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
         Buscar
       </button>
     </div>

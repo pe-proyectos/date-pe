@@ -25,6 +25,15 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       const services = await sql(
         'SELECT id, category, name, description, photo_url, duration_min, price_cents FROM services WHERE is_active ORDER BY sort_order, name',
       );
+      const reviews = await sql(
+        `SELECT r.stars, r.comment, r.created_at, s.name AS staff_name
+           FROM reviews r LEFT JOIN staff s ON s.id = r.staff_id
+          WHERE r.is_published AND r.comment IS NOT NULL
+          ORDER BY r.created_at DESC LIMIT 8`,
+      );
+      const ratingAgg = await sql<{ avg: string | null; count: string }>(
+        'SELECT round(avg(stars),1) AS avg, count(*) AS count FROM reviews WHERE is_published',
+      );
       return {
         tenant: { slug: request.tenant!.slug, name: request.tenant!.name },
         branding: branding.rows[0] ?? null,
@@ -32,6 +41,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         locations: locations.rows,
         staff: staff.rows,
         services: services.rows,
+        reviews: reviews.rows,
+        rating: ratingAgg.rows[0] ?? { avg: null, count: '0' },
       };
     });
   });

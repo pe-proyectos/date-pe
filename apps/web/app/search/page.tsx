@@ -1,8 +1,9 @@
-import Link from 'next/link';
 import type { Metadata } from 'next';
-import { apiFetch, soles, type SearchResult } from '@/lib/api';
-import { tenantUrl } from '@/lib/config';
+import { apiFetch, type SearchResult } from '@/lib/api';
+import { Header, Footer } from '@/components/site';
+import { ShopCard } from '@/components/ShopCard';
 import { SearchBar } from '@/components/SearchBar';
+import Link from 'next/link';
 
 interface Props {
   searchParams: Promise<{ district?: string; service?: string; date?: string }>;
@@ -14,6 +15,7 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   return {
     title: `Barberías${where}`,
     description: `Reserva las mejores barberías${where}. Elige barbero, horario y paga tu seña con Yape.`,
+    alternates: { canonical: 'https://date.pe/search' },
   };
 }
 
@@ -27,55 +29,35 @@ export default async function SearchPage({ searchParams }: Props) {
   try {
     const data = await apiFetch<{ results: SearchResult[] }>(`/api/search?${qs.toString()}`);
     results = data.results;
-  } catch {
-    results = [];
-  }
+  } catch { results = []; }
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-8">
-      <Link href="/" className="text-sm text-slate-500 hover:text-slate-900">
-        ← date.pe
-      </Link>
-      <div className="my-6">
-        <SearchBar compact />
-      </div>
+    <>
+      <Header />
+      <section className="relative overflow-hidden">
+        <div className="mesh-light absolute inset-0 -z-10" />
+        <div className="mx-auto max-w-6xl px-6 pb-6 pt-12">
+          <h1 className="text-3xl font-bold md:text-4xl">
+            {results.length} barbería{results.length === 1 ? '' : 's'}
+            {p.district ? <> en <span className="text-gradient">{p.district}</span></> : ''}
+          </h1>
+          <div className="mt-6 max-w-3xl"><SearchBar compact /></div>
+        </div>
+      </section>
 
-      <h1 className="text-2xl font-bold">
-        {results.length} barbería{results.length === 1 ? '' : 's'}
-        {p.district ? ` en ${p.district}` : ''}
-      </h1>
-
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
-        {results.map((r) => (
-          <a
-            key={r.location_id}
-            href={tenantUrl(r.slug)}
-            className="block overflow-hidden rounded-2xl border border-slate-200 transition hover:border-slate-400"
-          >
-            <div className="h-32 bg-slate-100">
-              {r.cover_url && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={r.cover_url} alt={r.name} className="h-full w-full object-cover" />
-              )}
-            </div>
-            <div className="p-4">
-              <h2 className="text-lg font-semibold">{r.name}</h2>
-              <p className="text-sm text-slate-500">
-                {r.location_name} · {r.district}
-              </p>
-              {r.tagline && <p className="mt-1 text-sm text-slate-600">{r.tagline}</p>}
-              <div className="mt-3 flex items-center gap-4 text-sm">
-                <span className="font-semibold">Desde {soles(r.desde_cents)}</span>
-                {r.rating && <span className="text-amber-600">★ {r.rating}</span>}
-                <span className="text-slate-400">{r.barberos} barberos</span>
-              </div>
-            </div>
-          </a>
-        ))}
+      <section className="mx-auto max-w-6xl px-6 py-8">
+        <div className="grid gap-5 md:grid-cols-3">
+          {results.map((r) => <ShopCard key={r.location_id} r={r} />)}
+        </div>
         {results.length === 0 && (
-          <p className="text-slate-500">No encontramos barberías con esos filtros. Prueba otra zona.</p>
+          <div className="glass rounded-3xl p-12 text-center">
+            <p className="text-lg text-slate-600">No encontramos barberías con esos filtros.</p>
+            <p className="mt-1 text-sm text-slate-400">Prueba otra zona o servicio.</p>
+            <Link href="/" className="btn-primary mt-6 inline-block rounded-xl px-6 py-3 font-semibold">Volver al inicio</Link>
+          </div>
         )}
-      </div>
-    </main>
+      </section>
+      <Footer />
+    </>
   );
 }
