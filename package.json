@@ -1,0 +1,20 @@
+{
+  "name": "date-pe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.6.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "dev:api": "pnpm --filter @datepe/api dev",
+    "dev:web": "pnpm --filter @datepe/web dev",
+    "build": "pnpm -r build",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

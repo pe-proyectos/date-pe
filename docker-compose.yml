@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: datepe-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: datepe
+      POSTGRES_PASSWORD: datepe
+      POSTGRES_DB: datepe
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datepe -d datepe"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
