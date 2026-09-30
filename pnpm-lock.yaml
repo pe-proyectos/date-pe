@@ -232,12 +232,21 @@ importers:
       '@fullcalendar/interaction':
         specifier: ^6.1.15
         version: 6.1.21(@fullcalendar/core@6.1.21)
+      '@fullcalendar/luxon3':
+        specifier: ^6.1.21
+        version: 6.1.21(@fullcalendar/core@6.1.21)(luxon@3.7.2)
       '@fullcalendar/react':
         specifier: ^6.1.15
         version: 6.1.21(@fullcalendar/core@6.1.21)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@fullcalendar/timegrid':
         specifier: ^6.1.15
         version: 6.1.21(@fullcalendar/core@6.1.21)
+      lucide-react:
+        specifier: ^1.48.0
+        version: 1.48.0(react@19.3.0)
+      luxon:
+        specifier: ^3.7.2
+        version: 3.7.2
       next:
         specifier: ^15.1.4
         version: 15.5.26(@types/node@22.20.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -251,6 +260,9 @@ importers:
       '@tailwindcss/postcss':
         specifier: ^4.0.0
         version: 4.3.3
+      '@types/luxon':
+        specifier: ^3.7.5
+        version: 3.7.5
       '@types/node':
         specifier: ^22.10.5
         version: 22.20.4
@@ -550,6 +562,12 @@ packages:
     resolution: {integrity: sha512-WPYpqtljDWmU0Xm2cOtFrLlocgxv7cgkOppj34Q6OUUat8a6Cnd6kYo2JR+irP223PE5lBYHFNp1qh7SIpJc0w==}
     peerDependencies:
       '@fullcalendar/core': ~6.1.21
+
+  '@fullcalendar/luxon3@6.1.21':
+    resolution: {integrity: sha512-jlRhmxyut94fH7RbdsAexkmR9eJsVeavjVTk94M8GKPiAgEf2q3urFe4rFI5+ThwSTkOX8MPcfFIg8+uvKKZCQ==}
+    peerDependencies:
+      '@fullcalendar/core': ~6.1.21
+      luxon: ^3.0.0
 
   '@fullcalendar/react@6.1.21':
     resolution: {integrity: sha512-TLpmGUd5k/PMdCh8XbeFC9PW9wuGvMms1oCxWgXyjK3EFPXAAd0PLfcvwKdyxoAS5eK1E4RJFkjMHvsYHpimcg==}
@@ -1206,6 +1224,11 @@ packages:
     resolution: {integrity: sha512-NXYBzinNrblfraPGyrbPoD19C1h9lfI/1mzgWYvXUTe414Gz/X1FD2XBZSZM7rRTrMA8JL3OtAaGifrIKhQ5yQ==}
     engines: {node: '>= 12.0.0'}
 
+  lucide-react@1.48.0:
+    resolution: {integrity: sha512-R0CIKY/fXiC6y9xRBADgsK+VW2p/pcTJOMhLZf1T+uG+vJUvyUR02nGOgmIIC7MPkiNK4Ox8QDnbqF8rJYWPZQ==}
+    peerDependencies:
+      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   luxon@3.7.2:
     resolution: {integrity: sha512-vtEhXh/gNjI9Yg1u4jX/0YVPMvxzHuGgCm6tC5kZyb08yjGWGnqAjGJvcXbqQR2P3MyMEFnRbpcdFS6PBcLqew==}
     engines: {node: '>=12'}
@@ -1843,6 +1866,11 @@ snapshots:
     dependencies:
       '@fullcalendar/core': 6.1.21
 
+  '@fullcalendar/luxon3@6.1.21(@fullcalendar/core@6.1.21)(luxon@3.7.2)':
+    dependencies:
+      '@fullcalendar/core': 6.1.21
+      luxon: 3.7.2
+
   '@fullcalendar/react@6.1.21(@fullcalendar/core@6.1.21)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@fullcalendar/core': 6.1.21
@@ -2429,6 +2457,10 @@ snapshots:
       lightningcss-linux-x64-musl: 1.32.0
       lightningcss-win32-arm64-msvc: 1.32.0
       lightningcss-win32-x64-msvc: 1.32.0
+
+  lucide-react@1.48.0(react@19.3.0):
+    dependencies:
+      react: 19.3.0
 
   luxon@3.7.2: {}
 

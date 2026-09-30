@@ -58,7 +58,7 @@ async function confirmCaptured(paymentId: string, providerRef?: string): Promise
     if (emailInfo) {
       void sendEmail({
         to: emailInfo.email,
-        subject: `Reserva confirmada — ${emailInfo.tenant}`,
+        subject: `Reserva confirmada en ${emailInfo.tenant}`,
         html: bookingConfirmationHtml({
           tenantName: emailInfo.tenant,
           clientName: emailInfo.client,
@@ -77,7 +77,7 @@ async function confirmCaptured(paymentId: string, providerRef?: string): Promise
 }
 
 export const paymentRoutes: FastifyPluginAsync = async (app) => {
-  // Crear intención de pago (seña) para una cita
+  // Crear intención de pago (adelanto) para una cita
   const intentBody = z.object({
     appointmentId: z.string().uuid(),
     provider: z.enum(['mercadopago', 'paypal', 'culqi']),
@@ -112,7 +112,7 @@ export const paymentRoutes: FastifyPluginAsync = async (app) => {
 
     if (!prepared) return reply.code(404).send({ error: 'cita_no_encontrada' });
     if (prepared.amount === 0) {
-      // Sin seña requerida: confirmamos directo.
+      // Sin adelanto requerida: confirmamos directo.
       await confirmCaptured(prepared.paymentId);
       return { ok: true, noDeposit: true, paymentId: prepared.paymentId };
     }
@@ -120,7 +120,7 @@ export const paymentRoutes: FastifyPluginAsync = async (app) => {
     const provider = b.provider as Provider;
     const intent = await createIntent(provider, {
       amountCents: prepared.amount,
-      description: `Seña reserva ${request.tenant.name}`,
+      description: `Adelanto reserva ${request.tenant.name}`,
       email: prepared.email,
       externalReference: prepared.paymentId,
     });

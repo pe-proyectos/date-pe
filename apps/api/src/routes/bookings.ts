@@ -4,19 +4,28 @@ import { DateTime } from 'luxon';
 import { withTenant } from '../db.js';
 import { emitAvailabilityChange } from '../lib/realtime.js';
 import { sendEmail, bookingConfirmationHtml } from '../lib/email.js';
+import { quote } from '../lib/pricing.js';
 
 const createSchema = z.object({
   serviceId: z.string().uuid(),
   staffId: z.string().uuid(),
   locationId: z.string().uuid().optional(),
-  startsAt: z.string(), // ISO
+  startsAt: z.string(),
+  promoCode: z.string().max(40).optional(),
+  giftCardCode: z.string().max(40).optional(),
   client: z.object({
     phone: z.string().min(6),
     name: z.string().min(1),
     email: z.string().email().optional(),
   }),
-  note: z.string().optional(),
+  note: z.string().max(500).optional(),
 });
+
+class HttpError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
 
 export const bookingRoutes: FastifyPluginAsync = async (app) => {
   app.post('/bookings', async (request, reply) => {
@@ -29,24 +38,21 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
 
     try {
       const result = await withTenant(tenantId, async (sql) => {
-        const svc = await sql<{ name: string; duration_min: number; price_cents: number }>(
-          'SELECT name, duration_min, price_cents FROM services WHERE id = $1 AND is_active',
+        const svc = await sql<{ name: string; duration_min: number; buffer_min: number }>(
+          'SELECT name, duration_min, buffer_min FROM services WHERE id = $1 AND is_active',
           [b.serviceId],
         );
         if (svc.rows.length === 0) throw new HttpError(404, 'servicio_no_encontrado');
         const service = svc.rows[0];
 
-        const staff = await sql<{ name: string }>(
-          'SELECT name FROM staff WHERE id = $1 AND is_bookable',
-          [b.staffId],
-        );
+        const staff = await sql<{ name: string }>('SELECT name FROM staff WHERE id = $1 AND is_bookable', [b.staffId]);
         if (staff.rows.length === 0) throw new HttpError(404, 'barbero_no_disponible');
 
         const start = DateTime.fromISO(b.startsAt);
         if (!start.isValid) throw new HttpError(400, 'fecha_invalida');
-        const end = start.plus({ minutes: service.duration_min });
+        if (start < DateTime.now()) throw new HttpError(400, 'fecha_pasada');
+        const end = start.plus({ minutes: service.duration_min + (service.buffer_min ?? 0) });
 
-        // Anti doble-reserva: no debe solaparse con otra cita del barbero.
         const clash = await sql(
           `SELECT 1 FROM appointments
             WHERE staff_id = $1 AND status <> 'cancelled'
@@ -55,7 +61,16 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
         );
         if (clash.rows.length > 0) throw new HttpError(409, 'slot_ocupado');
 
-        // Upsert cliente por teléfono
+        const q = await quote(sql, {
+          serviceId: b.serviceId,
+          staffId: b.staffId,
+          promoCode: b.promoCode || null,
+          giftCardCode: b.giftCardCode || null,
+        });
+        if (!q) throw new HttpError(404, 'servicio_no_encontrado');
+        if (q.promo && !q.promo.valid) throw new HttpError(400, 'promo_invalida');
+        if (q.giftCard && !q.giftCard.valid) throw new HttpError(400, 'gift_card_invalida');
+
         const client = await sql<{ id: string }>(
           `INSERT INTO clients (tenant_id, phone, name, email)
              VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3)
@@ -65,20 +80,26 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
            RETURNING id`,
           [b.client.phone, b.client.name, b.client.email ?? null],
         );
-        const clientId = client.rows[0].id;
 
+        const status = q.depositCents > 0 ? 'pending' : 'confirmed';
         const appt = await sql<{ id: string }>(
           `INSERT INTO appointments
-             (tenant_id, location_id, staff_id, client_id, starts_at, ends_at, status, price_cents, note)
-           VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4, $5, 'pending', $6, $7)
+             (tenant_id, location_id, staff_id, client_id, starts_at, ends_at, status, price_cents,
+              list_price_cents, discount_cents, promo_code, gift_card_code, note)
+           VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
            RETURNING id`,
           [
             b.locationId ?? null,
             b.staffId,
-            clientId,
+            client.rows[0].id,
             start.toUTC().toISO(),
             end.toUTC().toISO(),
-            service.price_cents,
+            status,
+            q.finalCents,
+            q.listPriceCents,
+            q.discountCents,
+            q.promo?.valid ? q.promo.code : null,
+            q.giftCard?.valid ? q.giftCard.code : null,
             b.note ?? null,
           ],
         );
@@ -87,27 +108,37 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
         await sql(
           `INSERT INTO appointment_services (appointment_id, tenant_id, service_id, price_cents, duration_min)
            VALUES ($1, current_setting('app.tenant_id')::uuid, $2, $3, $4)`,
-          [appointmentId, b.serviceId, service.price_cents, service.duration_min],
+          [appointmentId, b.serviceId, q.finalCents, service.duration_min],
         );
+
+        if (q.promo?.valid) {
+          await sql('UPDATE promotions SET used_count = used_count + 1 WHERE upper(code) = $1', [q.promo.code]);
+        }
+        if (q.giftCard?.valid && q.giftCard.appliedCents > 0) {
+          await sql('UPDATE gift_cards SET balance_cents = balance_cents - $2 WHERE upper(code) = $1', [
+            q.giftCard.code,
+            q.giftCard.appliedCents,
+          ]);
+        }
 
         return {
           appointmentId,
+          status,
           serviceName: service.name,
           staffName: staff.rows[0].name,
-          startsAt: start.toISO(),
           locationId: b.locationId ?? null,
           clientEmail: b.client.email ?? null,
           clientName: b.client.name,
-          whenText: start.setZone('America/Lima').toFormat("cccc d 'de' LLLL, HH:mm"),
+          whenText: start.setZone('America/Lima').setLocale('es').toFormat("cccc d 'de' LLLL, HH:mm"),
+          quote: q,
         };
       });
 
-      // Efectos secundarios fuera de la transacción
       await emitAvailabilityChange(tenantId, result.locationId);
-      if (result.clientEmail) {
+      if (result.clientEmail && result.status === 'confirmed') {
         void sendEmail({
           to: result.clientEmail,
-          subject: `Reserva confirmada — ${tenantName}`,
+          subject: `Reserva confirmada en ${tenantName}`,
           html: bookingConfirmationHtml({
             tenantName,
             clientName: result.clientName,
@@ -118,7 +149,14 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
         });
       }
 
-      return reply.code(201).send({ ok: true, appointmentId: result.appointmentId });
+      return reply.code(201).send({
+        ok: true,
+        appointmentId: result.appointmentId,
+        status: result.status,
+        finalCents: result.quote.finalCents,
+        depositCents: result.quote.depositCents,
+        discountCents: result.quote.discountCents,
+      });
     } catch (err) {
       if (err instanceof HttpError) return reply.code(err.status).send({ error: err.message });
       request.log.error(err);
@@ -137,7 +175,8 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
       const res = await sql<{ location_id: string | null }>(
         `UPDATE appointments a SET status = 'cancelled'
            FROM clients c
-          WHERE a.id = $1 AND a.client_id = c.id AND c.phone = $2
+          WHERE a.id = $1 AND a.client_id = c.id
+            AND regexp_replace(c.phone, '[^0-9]', '', 'g') LIKE '%' || right(regexp_replace($2, '[^0-9]', '', 'g'), 9)
             AND a.status IN ('pending','confirmed')
         RETURNING a.location_id`,
         [id, phone],
@@ -149,9 +188,3 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
     return { ok: true };
   });
 };
-
-class HttpError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-  }
-}

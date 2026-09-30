@@ -26,3 +26,8 @@ pnpm-debug.log*
 # Postgres / data
 pgdata/
 *.local
+
+# impeccable: capturas y mocks locales
+apps/web/.impeccable/review/
+apps/web/.impeccable/mocks/
+apps/web/.impeccable/build/

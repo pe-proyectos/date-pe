@@ -1,110 +1,170 @@
 @import 'tailwindcss';
 
+@font-face {
+  font-family: 'Figtree';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('/fonts/figtree-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 @theme {
-  /* Marca date.pe */
-  --color-ink: #0b0b14;
-  --color-ink-soft: #1a1a25;
-  --color-brand: #6366f1;      /* indigo */
-  --color-brand-2: #8b5cf6;    /* violeta */
-  --color-brand-3: #ec4899;    /* fucsia */
-  --color-accent: #22d3ee;     /* cian */
-  --color-surface: #ffffff;
-  --color-muted: #6b7280;
+  --color-ink: #0a0a0a;
+  --color-ink-2: #27272a;
+  --color-mute: #5f5f66;
+  --color-soft: #71717a;
+  --color-line: #e6e6e9;
+  --color-line-2: #d4d4d8;
+  --color-field: #f4f4f5;
+  --color-canvas: #ffffff;
+  --color-red: #d91023;
+  --color-red-deep: #b30d1c;
+  --color-red-tint: #fdecee;
+  --color-pole-blue: #1d3f94;
+  --color-ok: #0f7a3d;
+  --color-ok-tint: #e8f5ee;
 
-  --font-display: 'Space Grotesk', system-ui, sans-serif;
-  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-sans: 'Figtree', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
 
-  --radius-glass: 1.25rem;
+  --radius-card: 12px;
+  --radius-field: 12px;
 
-  --shadow-glass: 0 8px 32px rgba(17, 12, 46, 0.12);
-  --shadow-glow: 0 0 60px -12px rgba(99, 102, 241, 0.45);
+  --shadow-lift: 0 18px 40px -16px rgb(10 10 10 / 0.28), 0 2px 8px rgb(10 10 10 / 0.06);
+  --shadow-pop: 0 24px 60px -20px rgb(10 10 10 / 0.35), 0 4px 14px rgb(10 10 10 / 0.08);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-* {
-  border-color: rgba(15, 23, 42, 0.08);
-}
-
+/* ---------- Base ---------- */
 html {
-  scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+  scrollbar-color: var(--color-line-2) transparent;
+  scrollbar-width: thin;
 }
-
 body {
   font-family: var(--font-sans);
   color: var(--color-ink);
-  background: #fbfbfe;
+  background: var(--color-canvas);
+  font-feature-settings: 'ss01', 'cv11';
+  caret-color: var(--color-red);
+}
+::selection {
+  background: var(--color-red-tint);
+  color: var(--color-ink);
+}
+h1, h2, h3 {
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+p { text-wrap: pretty; }
+a { text-underline-offset: 3px; text-decoration-thickness: 1px; }
+:focus-visible {
+  outline: 2px solid var(--color-red);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--color-line-2); border-radius: 99px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-track { background: transparent; }
+input::placeholder, textarea::placeholder { color: var(--color-soft); opacity: 1; }
+
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* ---------- Reveal ligado al scroll (CSS puro; sin soporte = contenido visible) ---------- */
+@keyframes reveal-up {
+  from { opacity: 0; transform: translateY(18px); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    [data-reveal] {
+      animation: reveal-up linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 55%;
+    }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
 }
 
-h1, h2, h3, h4, .font-display {
-  font-family: var(--font-display);
-  letter-spacing: -0.02em;
+/* ---------- Imagen con zoom suave en hover ---------- */
+.zoom-media { overflow: hidden; }
+.zoom-media img { transition: transform 900ms var(--ease-out); }
+.group:hover .zoom-media img,
+.zoom-media:hover img { transform: scale(1.04); }
+
+/* ---------- Flecha que avanza en hover ---------- */
+.nudge { transition: transform 300ms var(--ease-out); }
+.group:hover .nudge { transform: translate(3px, -3px); }
+.nudge-x { transition: transform 300ms var(--ease-out); }
+.group:hover .nudge-x { transform: translateX(4px); }
+
+/* ---------- Poste de barbero (marca) ---------- */
+@keyframes pole-spin { to { transform: translateY(-16px); } }
+.pole-stripes { animation: pole-spin 1.4s linear infinite; animation-play-state: paused; }
+.pole-live .pole-stripes, a:hover .pole-stripes, .group:hover .pole-stripes { animation-play-state: running; }
+@media (prefers-reduced-motion: reduce) { .pole-stripes { animation: none; } }
+
+/* ---------- Check que se dibuja ---------- */
+@keyframes draw { from { stroke-dashoffset: 30; } to { stroke-dashoffset: 0; } }
+.draw-check path { stroke-dasharray: 30; animation: draw 600ms var(--ease-out) both 150ms; }
+
+/* ---------- Acordeón ---------- */
+details > summary { list-style: none; cursor: pointer; }
+details > summary::-webkit-details-marker { display: none; }
+details .acc-icon { transition: transform 300ms var(--ease-out); }
+details[open] .acc-icon { transform: rotate(45deg); }
+details .acc-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 400ms var(--ease-out); }
+details[open] .acc-body { grid-template-rows: 1fr; }
+details .acc-body > div { overflow: hidden; }
+
+/* ---------- Estados de la demo del hero ---------- */
+.dim-others:has(.is-picked) > :not(.is-picked) { opacity: 0.35; filter: grayscale(1); }
+.dim-others > * { transition: opacity 400ms var(--ease-out), filter 400ms var(--ease-out), transform 400ms var(--ease-out), box-shadow 400ms var(--ease-out); }
+
+@keyframes drawer-in {
+  from { opacity: 0; transform: translateX(28px); }
+  to { opacity: 1; transform: none; }
+}
+.drawer-in { animation: drawer-in 320ms var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) { .drawer-in { animation: none; } }
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.rise-in { animation: rise-in 500ms var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) {
+  .rise-in { animation: none; }
+  .draw-check path { animation: none; stroke-dasharray: none; }
 }
 
-/* ---------- Glass / liquid surfaces ---------- */
-.glass {
-  background: rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: var(--shadow-glass);
+/* ---------- FullCalendar con el lenguaje de date.pe ---------- */
+.fc {
+  --fc-border-color: var(--color-line);
+  --fc-today-bg-color: #fafafa;
+  --fc-now-indicator-color: var(--color-red);
+  --fc-event-border-color: transparent;
+  --fc-page-bg-color: #fff;
+  font-size: 13px;
 }
-.glass-dark {
-  background: rgba(18, 18, 30, 0.55);
-  backdrop-filter: blur(20px) saturate(160%);
-  -webkit-backdrop-filter: blur(20px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+.fc .fc-toolbar-title { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
+.fc .fc-button {
+  background: #fff; color: var(--color-ink); border: 1px solid var(--color-line); border-radius: 999px;
+  font-weight: 500; text-transform: capitalize; box-shadow: none; padding: 6px 14px;
 }
-
-/* ---------- Mesh gradient background (liquid) ---------- */
-.mesh {
-  background-color: #0b0b14;
-  background-image:
-    radial-gradient(at 18% 20%, rgba(99, 102, 241, 0.55) 0px, transparent 55%),
-    radial-gradient(at 82% 12%, rgba(139, 92, 246, 0.45) 0px, transparent 50%),
-    radial-gradient(at 70% 78%, rgba(236, 72, 153, 0.38) 0px, transparent 50%),
-    radial-gradient(at 25% 85%, rgba(34, 211, 238, 0.30) 0px, transparent 50%);
-}
-.mesh-light {
-  background-color: #fbfbfe;
-  background-image:
-    radial-gradient(at 15% 15%, rgba(99, 102, 241, 0.18) 0px, transparent 50%),
-    radial-gradient(at 85% 20%, rgba(139, 92, 246, 0.16) 0px, transparent 45%),
-    radial-gradient(at 75% 85%, rgba(236, 72, 153, 0.12) 0px, transparent 45%);
-}
-
-/* animated aurora blobs */
-@keyframes float-slow {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(4%, -6%) scale(1.08); }
-}
-.aurora {
-  position: absolute;
-  border-radius: 9999px;
-  filter: blur(80px);
-  opacity: 0.6;
-  animation: float-slow 14s ease-in-out infinite;
-}
-
-.text-gradient {
-  background: linear-gradient(120deg, var(--color-brand), var(--color-brand-2) 45%, var(--color-brand-3));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.btn-primary {
-  background: linear-gradient(120deg, var(--color-brand), var(--color-brand-2));
-  color: white;
-  box-shadow: 0 10px 30px -8px rgba(99, 102, 241, 0.6);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 16px 40px -10px rgba(99, 102, 241, 0.7); }
-
-.card-hover { transition: transform 0.2s ease, box-shadow 0.2s ease; }
-.card-hover:hover { transform: translateY(-4px); box-shadow: 0 20px 50px -20px rgba(17, 12, 46, 0.25); }
-
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.fade-up { animation: fade-up 0.6s ease both; }
+.fc .fc-button:hover { background: var(--color-field); color: var(--color-ink); border-color: var(--color-line); }
+.fc .fc-button-primary:not(:disabled).fc-button-active,
+.fc .fc-button-primary:not(:disabled):active { background: var(--color-ink); border-color: var(--color-ink); color: #fff; }
+.fc .fc-button:focus { box-shadow: none; }
+.fc .fc-button:disabled { background: var(--color-field); color: var(--color-soft); border-color: var(--color-line); opacity: 1; }
+.fc .fc-col-header-cell-cushion { font-weight: 500; color: var(--color-mute); padding: 10px 4px; text-transform: capitalize; }
+.fc .fc-timegrid-slot-label-cushion { color: var(--color-soft); font-variant-numeric: tabular-nums; }
+.fc .fc-event { border-radius: 8px; padding: 2px 4px; box-shadow: 0 1px 2px rgb(10 10 10 / 0.08); }
+.fc .fc-event-main { font-weight: 500; }
+.fc-theme-standard .fc-scrollgrid { border-radius: 12px; overflow: hidden; }

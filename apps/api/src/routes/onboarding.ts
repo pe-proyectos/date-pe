@@ -19,8 +19,18 @@ export const onboardingRoutes: FastifyPluginAsync = async (app) => {
     }),
   });
 
+  // ¿Está libre el subdominio?
+  const RESERVED = new Set(['www', 'api', 'r2', 'admin', 'panel', 'app', 'mail', 'blog', 'static', 'cdn', 'superadmin']);
+  app.get('/onboarding/slug', async (request) => {
+    const slug = String((request.query as { slug?: string }).slug ?? '').toLowerCase();
+    if (!/^[a-z0-9-]{2,40}$/.test(slug) || RESERVED.has(slug)) return { slug, available: false, reason: 'invalido' };
+    const { rows } = await adminPool.query('SELECT 1 FROM tenants WHERE slug = $1', [slug]);
+    return { slug, available: rows.length === 0 };
+  });
+
   app.post('/onboarding', async (request, reply) => {
     const b = body.parse(request.body);
+    if (RESERVED.has(b.slug)) return reply.code(409).send({ error: 'slug_en_uso' });
     const client = await adminPool.connect();
     try {
       await client.query('BEGIN');

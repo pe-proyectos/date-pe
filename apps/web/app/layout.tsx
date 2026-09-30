@@ -1,45 +1,48 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://date.pe'),
   title: {
-    default: 'date.pe — Reserva tu barbería en Perú',
-    template: '%s · date.pe',
+    default: 'date.pe | Reserva tu barbería en Lima en un minuto',
+    template: '%s | date.pe',
   },
   description:
-    'La forma más fácil de reservar en las mejores barberías de Lima y Perú. Elige tu barbero, tu horario y paga tu seña con Yape en segundos.',
-  keywords: ['barbería', 'reservas', 'barbero', 'corte de cabello', 'Lima', 'Perú', 'Yape', 'citas'],
-  metadataBase: new URL('https://date.pe'),
+    'Encuentra barberías en tu distrito, elige barbero y hora, y confirma tu cita pagando el adelanto con Yape. Sin llamar y sin instalar nada.',
+  keywords: ['barbería', 'reservar barbería', 'barbero', 'corte de cabello', 'fade', 'barba', 'Lima', 'Perú', 'Yape'],
   openGraph: {
-    title: 'date.pe — Reserva tu barbería en Perú',
-    description: 'Reserva en las mejores barberías del Perú. Elige barbero, horario y paga tu seña con Yape.',
+    title: 'date.pe | Reserva tu barbería en Lima en un minuto',
+    description: 'Elige barbero y hora, paga el adelanto con Yape y listo.',
     url: 'https://date.pe',
     siteName: 'date.pe',
     locale: 'es_PE',
     type: 'website',
-    images: [{ url: '/brand/og.png', width: 1376, height: 768, alt: 'date.pe — Reserva tu barbería en Perú' }],
+    images: [{ url: '/img/og.jpg', width: 1200, height: 630, alt: 'date.pe, reservas de barbería en Lima' }],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'date.pe — Reserva tu barbería en Perú',
-    description: 'Reserva en las mejores barberías del Perú. Paga tu seña con Yape.',
-    images: ['/brand/og.png'],
+    title: 'date.pe | Reserva tu barbería en Lima',
+    description: 'Elige barbero y hora, paga el adelanto con Yape y listo.',
+    images: ['/img/og.jpg'],
   },
   alternates: { canonical: 'https://date.pe' },
 };
 
+export const viewport: Viewport = {
+  themeColor: '#ffffff',
+  width: 'device-width',
+  initialScale: 1,
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es">
+    <html lang="es-PE" suppressHydrationWarning>
       <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
-          rel="stylesheet"
-        />
+        <link rel="preload" href="/fonts/figtree-latin.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+      </body>
     </html>
   );
 }

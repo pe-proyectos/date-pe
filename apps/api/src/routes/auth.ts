@@ -20,10 +20,19 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     if (!user || !verifyPassword(b.password, user.password_hash)) {
       return reply.code(401).send({ error: 'credenciales_invalidas' });
     }
-    const mem = await admin<{ tenant_id: string; role: string }>(
-      'SELECT tenant_id, role FROM memberships WHERE user_id = $1 LIMIT 1',
-      [user.id],
-    );
+    // Si el login viene del panel de una barbería, la sesión es para esa barbería.
+    const mem = request.tenant
+      ? await admin<{ tenant_id: string; role: string }>(
+          'SELECT tenant_id, role FROM memberships WHERE user_id = $1 AND tenant_id = $2',
+          [user.id, request.tenant.id],
+        )
+      : await admin<{ tenant_id: string; role: string }>(
+          'SELECT tenant_id, role FROM memberships WHERE user_id = $1 ORDER BY created_at LIMIT 1',
+          [user.id],
+        );
+    if (request.tenant && mem.rows.length === 0 && !user.is_platform_admin) {
+      return reply.code(401).send({ error: 'credenciales_invalidas' });
+    }
     const payload: AuthUser = {
       sub: user.id,
       tenantId: mem.rows[0]?.tenant_id ?? null,

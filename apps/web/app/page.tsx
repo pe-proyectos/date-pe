@@ -1,245 +1,420 @@
 import Link from 'next/link';
+import { ArrowUpRight, ArrowRight, Check, Minus, Plus, X } from 'lucide-react';
+import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
 import { SearchBar } from '@/components/SearchBar';
-import { Header, Footer } from '@/components/site';
+import { BookingDemo } from '@/components/BookingDemo';
+import { DISTRICTS, DISTRICT_PHOTOS } from '@/lib/districts';
 
-const DISTRICTS = ['Miraflores', 'San Isidro', 'Surco', 'San Borja', 'La Molina', 'Barranco', 'Jesús María', 'Los Olivos', 'Magdalena', 'Lince', 'Pueblo Libre', 'San Miguel'];
+const FEATURED = ['miraflores', 'barranco', 'san-isidro', 'surco'];
 
-type Feature = { icon: () => React.ReactElement; title: string; body: string };
-
-const STEPS: Feature[] = [
-  { icon: IconSearch, title: 'Busca', body: 'Encuentra barberías cerca de ti por distrito, servicio y disponibilidad real.' },
-  { icon: IconScissors, title: 'Elige', body: 'Selecciona tu barbero (o "cualquiera disponible"), servicio y la hora que prefieras.' },
-  { icon: IconCheck, title: 'Confirma', body: 'Paga una seña por Yape y recibe tu confirmación. Te recordamos por WhatsApp.' },
+const SERVICES = [
+  { name: 'Corte', note: 'Tijera y máquina', img: '/img/svc-corte.webp' },
+  { name: 'Fade', note: 'Degradado a piel', img: '/img/svc-fade.webp' },
+  { name: 'Barba', note: 'Perfilado y arreglo', img: '/img/svc-barba.webp' },
+  { name: 'Afeitado con navaja', note: 'Toalla caliente y navaja', img: '/img/svc-navaja.webp' },
 ];
 
-const FEATURES: Feature[] = [
-  { icon: IconScissors, title: 'Elige tu barbero', body: 'Fotos, especialidades y reseñas de cada barbero. O deja que asignemos al primero disponible.' },
-  { icon: IconCalendar, title: 'Agenda en tiempo real', body: 'Disponibilidad que se actualiza al instante. Sin dobles reservas, nunca.' },
-  { icon: IconYape, title: 'Seña por Yape / Plin', body: 'Reduce los plantones cobrando un adelanto con los medios que todos usan en Perú.' },
-  { icon: IconWhatsapp, title: 'Recordatorios', body: 'Confirmaciones y recordatorios para que tus clientes no falten.' },
-  { icon: IconStore, title: 'Tu marca, tu web', body: 'Cada barbería tiene su propio sitio en tunombre.date.pe, con su logo y colores.' },
-  { icon: IconChart, title: 'Reportes y equipo', body: 'Gestiona barberos, horarios, comisiones y mira tus ingresos y ocupación.' },
+const BEFORE = [
+  'Escribes por WhatsApp o Instagram',
+  'Esperas a que alguien conteste',
+  'Te ofrecen una hora que no te queda',
+  'Nadie te recuerda la cita',
+];
+const AFTER = [
+  'Ves los horarios libres al momento',
+  'Eliges barbero, día y hora',
+  'Pagas el adelanto con Yape o Plin',
+  'Te llega la confirmación por correo',
+];
+
+const COMPARE: { label: string; us: boolean; booksy: boolean; fresha: boolean }[] = [
+  { label: 'Adelanto con Yape o Plin', us: true, booksy: false, fresha: false },
+  { label: 'Precio fijo en soles', us: true, booksy: false, fresha: false },
+  { label: 'Sin comisión por clientes nuevos', us: true, booksy: false, fresha: false },
+  { label: 'Web con tu nombre en tunombre.date.pe', us: true, booksy: false, fresha: false },
+  { label: 'Tus clientes reservan sin instalar una app', us: true, booksy: true, fresha: true },
+];
+
+const FAQ = [
+  ['¿Tengo que instalar una app?', 'No. Reservas desde el navegador de tu celular, en la página de cada barbería.'],
+  [
+    '¿Cómo pago el adelanto?',
+    'Con Yape o Plin a través de MercadoPago, con tarjeta o con PayPal. El adelanto se descuenta del precio y el resto lo pagas en la barbería.',
+  ],
+  [
+    '¿Y si no puedo ir?',
+    'Cada barbería define cuánto cobra de adelanto y hasta cuándo puedes cancelar. Lo ves antes de pagar y puedes escribirle a la barbería por su WhatsApp.',
+  ],
+  [
+    'Tengo una barbería, ¿cuánto me cuesta?',
+    'S/ 50 al mes, sin comisión por cita. Empiezas en modo prueba y no te pedimos tarjeta para crear tu cuenta.',
+  ],
+  ['¿Puedo usar mi propio dominio?', 'Por ahora tu página vive en tunombre.date.pe, con tu logo, tus colores y tus fotos.'],
 ];
 
 export default function HomePage() {
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      { '@type': 'Organization', name: 'date.pe', url: 'https://date.pe', logo: 'https://date.pe/icon.svg' },
+      {
+        '@type': 'WebSite',
+        name: 'date.pe',
+        url: 'https://date.pe',
+        potentialAction: {
+          '@type': 'SearchAction',
+          target: 'https://date.pe/search?district={search_term_string}',
+          'query-input': 'required name=search_term_string',
+        },
+      },
+      {
+        '@type': 'FAQPage',
+        mainEntity: FAQ.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })),
+      },
+    ],
+  };
+
   return (
     <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <Header />
 
-      {/* ================= HERO ================= */}
-      <section className="relative overflow-hidden">
-        <div className="mesh absolute inset-0 -z-10" />
-        <div className="aurora -left-20 top-10 -z-10 h-72 w-72" style={{ background: '#6366f1' }} />
-        <div className="aurora right-0 top-40 -z-10 h-80 w-80" style={{ background: '#ec4899', animationDelay: '3s' }} />
-
-        <div className="mx-auto max-w-6xl px-6 pb-28 pt-20 text-center md:pt-28">
-          <div className="fade-up mx-auto mb-6 inline-flex items-center gap-2 rounded-full glass-dark px-4 py-1.5 text-sm text-white/80">
-            <span className="h-2 w-2 rounded-full bg-emerald-400" /> Reserva con seña por Yape · sin llamadas
+      <main>
+        {/* ============ Primera vista ============ */}
+        <section className="mx-auto grid max-w-[1280px] items-center gap-12 px-5 pb-20 pt-10 md:px-8 lg:grid-cols-12 lg:gap-8 lg:pb-28 lg:pt-16">
+          <div className="relative z-10 lg:col-span-7">
+            <h1 className="text-[clamp(2.75rem,5.6vw,5.25rem)] font-semibold leading-[0.98] tracking-[-0.04em]">
+              Reserva tu corte
+              <span className="block text-soft">sin llamar a nadie.</span>
+            </h1>
+            <p className="mt-6 max-w-[34rem] text-[18px] leading-relaxed text-mute md:text-[19px]">
+              Elige la barbería, el barbero y la hora que te queda. Pagas un adelanto con Yape y la cita queda confirmada.
+            </p>
+            <div className="mt-9 lg:max-w-[640px]">
+              <SearchBar />
+            </div>
+            <div className="mt-5 flex flex-wrap items-center gap-2 text-[14px]">
+              <span className="mr-1 text-soft">Populares</span>
+              {['Miraflores', 'Surco', 'San Isidro', 'Barranco', 'San Borja'].map((d) => (
+                <Link
+                  key={d}
+                  href={`/search?district=${encodeURIComponent(d)}`}
+                  className="rounded-full border border-line px-3.5 py-1.5 text-ink transition-colors hover:border-ink"
+                >
+                  {d}
+                </Link>
+              ))}
+            </div>
           </div>
-          <h1 className="fade-up mx-auto max-w-3xl text-4xl font-bold leading-[1.05] text-white md:text-6xl">
-            Tu próxima cita en la barbería, <span className="text-gradient">en 30 segundos.</span>
-          </h1>
-          <p className="fade-up mx-auto mt-5 max-w-xl text-lg text-white/70">
-            Descubre las mejores barberías del Perú, elige a tu barbero y horario, y asegura tu lugar con una seña por Yape. Sin apps, sin esperas.
-          </p>
 
-          <div className="fade-up mx-auto mt-9 max-w-3xl text-left">
-            <SearchBar />
+          <div className="relative lg:col-span-5">
+            <div className="relative overflow-hidden rounded-xl">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/img/hero-barberia.webp"
+                alt="Barbero terminando un fade en una barbería con luz natural"
+                width={1200}
+                height={1500}
+                fetchPriority="high"
+                className="aspect-[4/5] w-full object-cover"
+              />
+            </div>
+            <div className="relative -mt-28 flex justify-center sm:justify-start sm:pl-6 lg:absolute lg:-left-14 lg:bottom-8 lg:mt-0 lg:pl-0">
+              <BookingDemo />
+            </div>
           </div>
+        </section>
 
-          <div className="fade-up mt-6 flex flex-wrap items-center justify-center gap-2 text-sm">
-            <span className="text-white/50">Populares:</span>
-            {DISTRICTS.slice(0, 5).map((d) => (
-              <Link key={d} href={`/search?district=${encodeURIComponent(d)}`} className="rounded-full bg-white/10 px-3 py-1 text-white/90 backdrop-blur hover:bg-white/20">
-                {d}
+        {/* ============ Distritos ============ */}
+        <section className="mx-auto max-w-[1280px] px-5 py-20 md:px-8 lg:py-24">
+          <div className="flex items-end justify-between gap-6" data-reveal>
+            <h2 className="text-[clamp(2rem,3.6vw,3rem)] font-semibold leading-[1.05]">Barberías por distrito</h2>
+            <Link href="/search" className="group hidden items-center gap-1 text-[15px] font-medium sm:flex">
+              Ver todas <ArrowUpRight size={17} strokeWidth={1.75} className="nudge" />
+            </Link>
+          </div>
+          <div className="mt-10 grid grid-cols-2 gap-x-5 gap-y-8 lg:grid-cols-4">
+            {FEATURED.map((slug, i) => {
+              const d = DISTRICTS.find((x) => x.slug === slug)!;
+              return (
+                <Link
+                  key={slug}
+                  href={`/barberias/${d.province}/${d.slug}`}
+                  className="group block"
+                  data-reveal
+                >
+                  <div className="zoom-media aspect-[4/5] rounded-xl bg-field">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={DISTRICT_PHOTOS[slug]} alt={d.name} loading="lazy" className="h-full w-full rounded-xl object-cover" />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="text-[17px] font-medium tracking-[-0.02em]">{d.name}</span>
+                    <ArrowUpRight size={18} strokeWidth={1.75} className="nudge text-mute" />
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+          <div className="mt-10 flex flex-wrap gap-2" data-reveal>
+            {DISTRICTS.filter((d) => !FEATURED.includes(d.slug)).map((d) => (
+              <Link
+                key={d.slug}
+                href={`/barberias/${d.province}/${d.slug}`}
+                className="rounded-full bg-field px-4 py-2 text-[14px] transition-colors hover:bg-line"
+              >
+                {d.name}
               </Link>
             ))}
           </div>
+        </section>
 
-          <div className="mt-14 grid grid-cols-3 gap-4 text-white/80">
-            {[['+900', 'barberías objetivo'], ['0%', 'comisión por cita'], ['24/7', 'reservas online']].map(([n, l]) => (
-              <div key={l}>
-                <div className="font-display text-3xl font-bold text-white">{n}</div>
-                <div className="text-sm text-white/60">{l}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ================= CÓMO FUNCIONA ================= */}
-      <section id="como-funciona" className="mx-auto max-w-6xl px-6 py-24">
-        <SectionTitle kicker="Cómo funciona" title="Reservar nunca fue tan simple" />
-        <div className="mt-12 grid gap-6 md:grid-cols-3">
-          {STEPS.map((s, i) => (
-            <div key={s.title} className="glass card-hover rounded-3xl p-8">
-              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl btn-primary text-white">
-                <s.icon />
-              </div>
-              <div className="mb-1 text-xs font-semibold text-brand">PASO {i + 1}</div>
-              <h3 className="text-xl font-bold">{s.title}</h3>
-              <p className="mt-2 text-slate-600">{s.body}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ================= FEATURES ================= */}
-      <section className="mesh-light py-24">
-        <div className="mx-auto max-w-6xl px-6">
-          <SectionTitle kicker="Todo incluido" title="Una plataforma completa, no un simple calendario" />
-          <div className="mt-12 grid gap-5 md:grid-cols-3">
-            {FEATURES.map((f) => (
-              <div key={f.title} className="glass card-hover rounded-3xl p-6">
-                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-brand/10 text-brand">
-                  <f.icon />
+        {/* ============ Servicios ============ */}
+        <section className="mx-auto max-w-[1280px] px-5 py-20 md:px-8 lg:py-24">
+          <h2 className="max-w-2xl text-[clamp(2rem,3.6vw,3rem)] font-semibold leading-[1.05]" data-reveal>
+            ¿Qué te vas a hacer?
+          </h2>
+          <div className="mt-10 grid grid-cols-2 gap-x-5 gap-y-8 lg:grid-cols-4">
+            {SERVICES.map((s, i) => (
+              <Link
+                key={s.name}
+                href={`/search?service=${encodeURIComponent(s.name)}`}
+                className="group block"
+                data-reveal
+              >
+                <div className="zoom-media aspect-[4/5] rounded-xl bg-field">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={s.img} alt={s.name} loading="lazy" className="h-full w-full rounded-xl object-cover" />
                 </div>
-                <h3 className="text-lg font-bold">{f.title}</h3>
-                <p className="mt-1.5 text-sm text-slate-600">{f.body}</p>
-              </div>
+                <div className="mt-3 text-[17px] font-medium tracking-[-0.02em]">{s.name}</div>
+                <div className="text-[15px] text-mute">{s.note}</div>
+              </Link>
             ))}
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ================= COMPARATIVA ================= */}
-      <section className="mx-auto max-w-5xl px-6 py-24">
-        <SectionTitle kicker="Por qué date.pe" title="Hecho para el Perú, mejor que el resto" />
-        <div className="mt-10 overflow-hidden rounded-3xl glass">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200/60 text-left">
-                <th className="p-4 font-semibold">Función</th>
-                <th className="p-4 text-center font-bold text-brand">date.pe</th>
-                <th className="p-4 text-center font-medium text-slate-400">Booksy / Fresha</th>
-                <th className="p-4 text-center font-medium text-slate-400">AgendaPro</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[
-                ['Seña por Yape / Plin', true, false, false],
-                ['Precio en soles (S/50/mes plano)', true, false, false],
-                ['Recordatorios por WhatsApp', true, 'parcial', true],
-                ['Sitio white-label por subdominio', true, false, 'parcial'],
-                ['Sin comisión por cita', true, false, true],
-                ['Reservar sin descargar app', true, false, true],
-              ].map(([f, a, b, c]) => (
-                <tr key={f as string} className="border-b border-slate-100/60">
-                  <td className="p-4">{f as string}</td>
-                  <td className="p-4 text-center"><Mark v={a} /></td>
-                  <td className="p-4 text-center"><Mark v={b} /></td>
-                  <td className="p-4 text-center"><Mark v={c} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* ================= PARA BARBERÍAS / PRECIO ================= */}
-      <section id="barberias" className="relative overflow-hidden py-24">
-        <div className="mesh absolute inset-0 -z-10" />
-        <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 md:grid-cols-2">
-          <div>
-            <div className="mb-4 inline-flex rounded-full glass-dark px-4 py-1.5 text-sm text-white/80">Para barberías</div>
-            <h2 className="text-4xl font-bold text-white">Tu barbería, online y llena.</h2>
-            <p className="mt-4 text-lg text-white/70">
-              Tu propia página de reservas, agenda con tu equipo, pagos con Yape y menos plantones. Todo por un precio plano, sin sorpresas.
-            </p>
-            <ul className="mt-6 space-y-3 text-white/85">
-              {['Tu web en tunombre.date.pe', 'Agenda con calendario y arrastrar-soltar', 'Cobra señas con Yape/Plin, MercadoPago y PayPal', 'Reportes de ingresos, ocupación y no-shows'].map((x) => (
-                <li key={x} className="flex items-center gap-3"><span className="text-emerald-400"><IconCheck /></span>{x}</li>
-              ))}
-            </ul>
-          </div>
-          <div id="precios" className="glass rounded-3xl p-8">
-            <div className="text-sm font-semibold text-brand">Plan Suite · todo incluido</div>
-            <div className="mt-2 flex items-end gap-1">
-              <span className="font-display text-5xl font-bold">S/50</span>
-              <span className="pb-1 text-slate-500">/mes</span>
-            </div>
-            <p className="mt-2 text-sm text-slate-500">Sin comisión por cita. Sin permanencia.</p>
-            <Link href="/join" className="btn-primary mt-6 block rounded-xl py-3 text-center font-semibold">
-              Crear mi barbería
-            </Link>
-            <div className="mt-5 space-y-2 text-sm text-slate-600">
-              {['Barberos y horarios ilimitados', 'Sitio white-label + subdominio', 'Pagos Yape/MercadoPago/PayPal', 'Recordatorios y reseñas'].map((x) => (
-                <div key={x} className="flex items-center gap-2"><span className="text-brand"><IconCheck /></span>{x}</div>
-              ))}
+        {/* ============ Antes y ahora ============ */}
+        <section className="bg-field">
+          <div className="mx-auto max-w-[1280px] px-5 py-20 md:px-8 lg:py-28">
+            <h2 className="max-w-3xl text-[clamp(2rem,3.6vw,3rem)] font-semibold leading-[1.05]" data-reveal>
+              Deja de escribir por WhatsApp para pedir hora.
+            </h2>
+            <div className="mt-12 grid gap-10 md:grid-cols-2 md:gap-0">
+              <div className="md:border-r md:border-line-2 md:pr-12" data-reveal>
+                <div className="text-[15px] font-medium text-mute">Cómo reservas hoy</div>
+                <ul className="mt-5 space-y-4">
+                  {BEFORE.map((b) => (
+                    <li key={b} className="flex items-start gap-3 text-[18px] text-mute">
+                      <X size={20} strokeWidth={1.75} className="mt-0.5 shrink-0 text-soft" />
+                      {b}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="md:pl-12" data-reveal>
+                <div className="text-[15px] font-medium text-ink">Con date.pe</div>
+                <ul className="mt-5 space-y-4">
+                  {AFTER.map((a) => (
+                    <li key={a} className="flex items-start gap-3 text-[18px] text-ink">
+                      <Check size={20} strokeWidth={2} className="mt-0.5 shrink-0 text-red" />
+                      {a}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ================= DISTRITOS SEO ================= */}
-      <section id="zonas" className="mx-auto max-w-6xl px-6 py-24">
-        <SectionTitle kicker="Explora" title="Barberías por distrito en Lima" />
-        <div className="mt-10 grid grid-cols-2 gap-3 md:grid-cols-4">
-          {DISTRICTS.map((d) => (
-            <Link key={d} href={`/search?district=${encodeURIComponent(d)}`} className="glass card-hover rounded-2xl px-5 py-4 text-sm font-medium">
-              Barberías en {d}
-            </Link>
-          ))}
-        </div>
-      </section>
+        {/* ============ Para barberías ============ */}
+        <section id="barberias" className="mx-auto max-w-[1280px] scroll-mt-20 px-5 py-20 md:px-8 lg:py-28">
+          <div className="grid items-center gap-14 lg:grid-cols-12 lg:gap-10">
+            <div className="lg:col-span-5" data-reveal>
+              <h2 className="text-[clamp(2rem,3.6vw,3rem)] font-semibold leading-[1.05]">
+                Tu barbería con web propia y agenda.
+              </h2>
+              <p className="mt-5 text-[18px] leading-relaxed text-mute">
+                Tu página vive en tunombre.date.pe con tu logo y tus fotos. Tu equipo trabaja con una agenda compartida y
+                cobras el adelanto antes de que el cliente llegue.
+              </p>
+              <ul className="mt-7 space-y-3 text-[16px]">
+                {[
+                  'Agenda por barbero, con arrastrar y soltar',
+                  'Horarios, servicios y precios que cambias en segundos',
+                  'Adelantos con Yape, Plin, tarjeta o PayPal',
+                  'Reportes de ingresos, ocupación y ausencias',
+                ].map((x) => (
+                  <li key={x} className="flex items-start gap-3">
+                    <Check size={19} strokeWidth={2} className="mt-0.5 shrink-0" />
+                    {x}
+                  </li>
+                ))}
+              </ul>
 
-      {/* ================= FAQ ================= */}
-      <section className="mx-auto max-w-3xl px-6 pb-24">
-        <SectionTitle kicker="Dudas" title="Preguntas frecuentes" />
-        <div className="mt-8 space-y-3">
-          {[
-            ['¿Necesito descargar una app?', 'No. Reservas desde el navegador en segundos, en la web de cada barbería.'],
-            ['¿Cómo pago la seña?', 'Con Yape o Plin (también MercadoPago y PayPal). Es un adelanto que asegura tu cita; el resto lo pagas en el local.'],
-            ['¿Puedo elegir a mi barbero?', 'Sí, eliges barbero y horario, o dejas que asignemos al primero disponible.'],
-            ['Tengo una barbería, ¿cómo empiezo?', 'Crea tu cuenta en /join, configura tus servicios y equipo, y comparte tu link tunombre.date.pe.'],
-          ].map(([q, a]) => (
-            <details key={q} className="glass group rounded-2xl p-5">
-              <summary className="cursor-pointer list-none font-semibold">{q}</summary>
-              <p className="mt-2 text-slate-600">{a}</p>
-            </details>
-          ))}
-        </div>
-      </section>
+              <div id="precio" className="mt-10 scroll-mt-24 border-t border-line pt-8">
+                <div className="flex items-baseline gap-2">
+                  <span className="tnum text-5xl font-semibold tracking-[-0.04em]">S/ 50</span>
+                  <span className="text-[17px] text-mute">al mes</span>
+                </div>
+                <p className="mt-2 text-[15px] text-mute">Sin comisión por cita. Barberos y reservas ilimitados.</p>
+                <div className="mt-6 flex flex-wrap items-center gap-3">
+                  <Link href="/join" className="rounded-full bg-ink px-6 py-3.5 text-[15px] font-medium text-white transition-colors hover:bg-ink-2">
+                    Registra tu barbería
+                  </Link>
+                  <a
+                    href="https://barberiajuana.date.pe"
+                    className="group inline-flex items-center gap-1.5 rounded-full px-4 py-3.5 text-[15px] font-medium hover:bg-field"
+                  >
+                    Ver una barbería de ejemplo <ArrowRight size={16} strokeWidth={1.75} className="nudge-x" />
+                  </a>
+                </div>
+              </div>
+            </div>
 
-      {/* ================= CTA ================= */}
-      <section className="mx-auto max-w-5xl px-6 pb-24">
-        <div className="relative overflow-hidden rounded-3xl px-8 py-16 text-center">
-          <div className="mesh absolute inset-0 -z-10" />
-          <h2 className="text-3xl font-bold text-white md:text-4xl">¿Listo para tu próximo corte?</h2>
-          <p className="mx-auto mt-3 max-w-lg text-white/70">Encuentra tu barbería ideal y reserva en segundos.</p>
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Link href="/search" className="rounded-xl bg-white px-7 py-3 font-semibold text-ink hover:bg-white/90">Buscar barberías</Link>
-            <Link href="/join" className="rounded-xl glass-dark px-7 py-3 font-semibold text-white">Crear mi barbería</Link>
+            <div className="relative lg:col-span-7" data-reveal>
+              <div className="overflow-hidden rounded-xl">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/img/shops-owner.webp"
+                  alt="Dueña de una barbería revisando las citas del día en una tablet"
+                  loading="lazy"
+                  className="aspect-[4/3] w-full object-cover"
+                />
+              </div>
+              <AgendaCard />
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+
+        {/* ============ Comparación ============ */}
+        <section className="mx-auto max-w-[1280px] px-5 pb-20 md:px-8 lg:pb-28">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-12">
+            <div className="min-w-0 lg:col-span-4" data-reveal>
+              <h2 className="text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08]">Pensado para cómo se paga en el Perú.</h2>
+              <p className="mt-4 text-[16px] leading-relaxed text-mute">
+                Las apps globales cobran en dólares, trabajan con tarjeta y se quedan un porcentaje de cada cliente nuevo.
+              </p>
+            </div>
+            <div className="min-w-0 lg:col-span-8" data-reveal>
+              <div className="-mx-5 overflow-x-auto px-5 md:mx-0 md:px-0">
+                <table className="w-full min-w-[520px] text-left text-[15px]">
+                  <thead>
+                    <tr className="border-b border-ink">
+                      <th className="py-3 pr-4 font-medium" />
+                      <th className="w-24 py-3 text-center font-semibold">date.pe</th>
+                      <th className="w-24 py-3 text-center font-medium text-mute">Booksy</th>
+                      <th className="w-24 py-3 text-center font-medium text-mute">Fresha</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {COMPARE.map((r) => (
+                      <tr key={r.label} className="border-b border-line">
+                        <td className="py-4 pr-4">{r.label}</td>
+                        {[r.us, r.booksy, r.fresha].map((v, i) => (
+                          <td key={i} className="py-4 text-center">
+                            {v ? (
+                              <Check size={19} strokeWidth={2.25} className={`mx-auto ${i === 0 ? 'text-red' : 'text-ink'}`} aria-label="Sí" />
+                            ) : (
+                              <Minus size={19} strokeWidth={1.75} className="mx-auto text-line-2" aria-label="No" />
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-3 text-[13px] text-soft">Según la información pública de cada servicio, septiembre de 2026.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* ============ Preguntas ============ */}
+        <section id="preguntas" className="border-t border-line">
+          <div className="mx-auto grid max-w-[1280px] gap-10 px-5 py-20 md:px-8 lg:grid-cols-12 lg:py-28">
+            <h2 className="text-[clamp(2rem,3.6vw,3rem)] font-semibold leading-[1.05] lg:col-span-4" data-reveal>
+              Preguntas frecuentes
+            </h2>
+            <div className="lg:col-span-8" data-reveal>
+              {FAQ.map(([q, a]) => (
+                <details key={q} className="group border-b border-line">
+                  <summary className="flex items-center justify-between gap-6 py-6 text-[18px] font-medium tracking-[-0.02em]">
+                    {q}
+                    <Plus size={20} strokeWidth={1.75} className="acc-icon shrink-0 text-mute" />
+                  </summary>
+                  <div className="acc-body">
+                    <div>
+                      <p className="max-w-[62ch] pb-6 text-[16px] leading-relaxed text-mute">{a}</p>
+                    </div>
+                  </div>
+                </details>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ============ Cierre ============ */}
+        <section className="bg-red text-white">
+          <div className="mx-auto flex max-w-[1280px] flex-col items-start justify-between gap-8 px-5 py-20 md:px-8 lg:flex-row lg:items-end lg:py-24">
+            <h2 className="max-w-2xl text-[clamp(2.25rem,4.5vw,3.75rem)] font-semibold leading-[1.02]" data-reveal>
+              Tu próxima cita está a un minuto.
+            </h2>
+            <div className="flex flex-wrap gap-3" data-reveal>
+              <Link href="/search" className="rounded-full bg-white px-6 py-3.5 text-[15px] font-medium text-ink transition-colors hover:bg-white/90">
+                Buscar barberías
+              </Link>
+              <Link
+                href="/join"
+                className="rounded-full border border-white/40 px-6 py-3.5 text-[15px] font-medium text-white transition-colors hover:border-white"
+              >
+                Registra tu barbería
+              </Link>
+            </div>
+          </div>
+        </section>
+      </main>
 
       <Footer />
     </>
   );
 }
 
-function SectionTitle({ kicker, title }: { kicker: string; title: string }) {
+/** Tarjeta de agenda superpuesta a la foto: muestra el panel real de la barbería. */
+function AgendaCard() {
+  const cols = [
+    { name: 'Carlos', img: '/img/staff-carlos.webp', blocks: [{ t: '10:00', c: 'Luis R.', h: 2, top: 0, dark: true }, { t: '11:30', c: 'Andrés', h: 1, top: 3 }] },
+    { name: 'María', img: '/img/staff-maria.webp', blocks: [{ t: '10:30', c: 'Diego P.', h: 1, top: 1 }, { t: '11:00', c: 'Kevin', h: 2, top: 2, dark: true }] },
+    { name: 'Diego', img: '/img/staff-diego.webp', blocks: [{ t: '10:00', c: 'Jorge', h: 1, top: 0 }, { t: '12:00', c: 'Walk-in', h: 1, top: 4 }] },
+  ];
   return (
-    <div className="text-center">
-      <div className="mb-3 text-sm font-semibold uppercase tracking-widest text-brand">{kicker}</div>
-      <h2 className="mx-auto max-w-2xl text-3xl font-bold md:text-4xl">{title}</h2>
+    <div className="relative mx-auto -mt-20 w-[min(420px,92%)] rounded-xl bg-white p-4 shadow-pop lg:absolute lg:-bottom-10 lg:-left-10 lg:mt-0">
+      <div className="flex items-center justify-between">
+        <div className="text-[14px] font-medium">Hoy, agenda del equipo</div>
+        <span className="rounded-full bg-field px-2.5 py-1 text-[11px] font-medium text-mute">Ejemplo</span>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {cols.map((col) => (
+          <div key={col.name}>
+            <div className="mb-2 flex items-center gap-1.5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={col.img} alt="" className="h-6 w-6 rounded-full object-cover" />
+              <span className="text-[12px] font-medium">{col.name}</span>
+            </div>
+            <div className="relative h-[150px] rounded-lg bg-field">
+              {col.blocks.map((b) => (
+                <div
+                  key={b.t}
+                  className={`absolute inset-x-1 rounded-md px-2 py-1 text-[11px] leading-tight ${b.dark ? 'bg-ink text-white' : 'bg-white text-ink'}`}
+                  style={{ top: `${b.top * 30 + 4}px`, height: `${b.h * 30 - 4}px` }}
+                >
+                  <div className="tnum font-medium">{b.t}</div>
+                  <div className="truncate opacity-75">{b.c}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
-
-function Mark({ v }: { v: boolean | string }) {
-  if (v === true) return <span className="text-emerald-500"><IconCheck /></span>;
-  if (v === 'parcial') return <span className="text-xs font-medium text-amber-500">parcial</span>;
-  return <span className="text-slate-300">—</span>;
-}
-
-/* ---------- iconos ---------- */
-function IconSearch() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>; }
-function IconScissors() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12" /></svg>; }
-function IconCheck() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>; }
-function IconCalendar() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>; }
-function IconYape() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="5" width="20" height="14" rx="3" /><path d="M2 10h20M7 15h4" /></svg>; }
-function IconWhatsapp() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 11.5a8.5 8.5 0 0 1-12.5 7.5L3 21l2-5.5A8.5 8.5 0 1 1 21 11.5Z" /></svg>; }
-function IconStore() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 9 4 4h16l1 5M4 9v11h16V9M4 9h16" /></svg>; }
-function IconChart() { return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 3v18h18M8 15v3M13 10v8M18 6v12" /></svg>; }

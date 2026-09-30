@@ -17,7 +17,7 @@ export const searchRoutes: FastifyPluginAsync = async (app) => {
     return withPublicRead(async (sql) => {
       const { rows } = await sql(
         `SELECT
-            t.slug, t.name,
+            t.slug, t.name, t.is_demo,
             l.id AS location_id, l.name AS location_name, l.district, l.province, l.lat, l.lng,
             b.logo_url, b.cover_url, b.tagline,
             (SELECT min(price_cents) FROM services s WHERE s.tenant_id = t.id AND s.is_active) AS desde_cents,
@@ -29,9 +29,9 @@ export const searchRoutes: FastifyPluginAsync = async (app) => {
         WHERE l.is_active
           AND ($1::text IS NULL OR l.district ILIKE '%'||$1||'%' OR l.province ILIKE '%'||$1||'%')
           AND ($2::text IS NULL OR EXISTS (
-                SELECT 1 FROM services s WHERE s.tenant_id = t.id AND s.is_active AND s.name ILIKE '%'||$2||'%'))
+                SELECT 1 FROM services s WHERE s.tenant_id = t.id AND s.is_active AND (s.name ILIKE '%'||$2||'%' OR $2 ILIKE '%'||s.name||'%')))
           AND ($3::text IS NULL OR t.name ILIKE '%'||$3||'%' OR l.district ILIKE '%'||$3||'%')
-        ORDER BY rating DESC NULLS LAST, barberos DESC
+        ORDER BY t.is_demo ASC, rating DESC NULLS LAST, barberos DESC
         LIMIT $4`,
         [p.district ?? null, p.service ?? null, p.q ?? null, p.limit],
       );

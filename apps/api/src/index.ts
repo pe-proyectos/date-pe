@@ -11,6 +11,7 @@ import { authRoutes } from './routes/auth.js';
 import { publicRoutes } from './routes/public.js';
 import { bookingRoutes } from './routes/bookings.js';
 import { adminRoutes } from './routes/admin.js';
+import { adminExtraRoutes } from './routes/admin-extra.js';
 import { searchRoutes } from './routes/search.js';
 import { blogRoutes } from './routes/blog.js';
 import { onboardingRoutes } from './routes/onboarding.js';
@@ -44,6 +45,19 @@ async function main() {
     },
   });
 
+  // JSON tolerante: un POST/DELETE sin cuerpo no es un error.
+  app.removeContentTypeParser('application/json');
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    const text = typeof body === 'string' ? body.trim() : '';
+    if (!text) return done(null, {});
+    try {
+      done(null, JSON.parse(text));
+    } catch (err) {
+      (err as Error & { statusCode?: number }).statusCode = 400;
+      done(err as Error, undefined);
+    }
+  });
+
   await app.register(websocket);
   await app.register(authPlugin);
   await app.register(tenantPlugin);
@@ -56,6 +70,7 @@ async function main() {
       await api.register(publicRoutes);
       await api.register(bookingRoutes);
       await api.register(adminRoutes);
+      await api.register(adminExtraRoutes);
       await api.register(searchRoutes);
       await api.register(blogRoutes);
       await api.register(onboardingRoutes);
@@ -69,9 +84,9 @@ async function main() {
 
   // Migraciones + realtime al arrancar
   await runMigrations();
-  app.log.info('✔ Esquema aplicado');
+  app.log.info('Esquema aplicado');
   await startRealtime();
-  app.log.info('✔ Realtime (LISTEN/NOTIFY) activo');
+  app.log.info('Realtime (LISTEN/NOTIFY) activo');
 
   await app.listen({ port: env.port, host: '0.0.0.0' });
 }

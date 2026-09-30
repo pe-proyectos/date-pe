@@ -15,11 +15,11 @@ export async function runMigrations(): Promise<void> {
 if (import.meta.url === `file://${process.argv[1]}`) {
   runMigrations()
     .then(() => {
-      console.log('✔ Esquema aplicado');
+      console.log('Esquema aplicado');
       return adminPool.end();
     })
     .catch((err) => {
-      console.error('✗ Error migrando:', err);
+      console.error('Error migrando:', err);
       process.exit(1);
     });
 }

@@ -1,4 +1,4 @@
--- date.pe — esquema multi-tenant (idempotente; se aplica al arrancar la API)
+-- date.pe: esquema multi-tenant (idempotente; se aplica al arrancar la API)
 -- Aislamiento: esquema compartido + tenant_id + Row Level Security (RLS).
 -- La API abre 2 pools: uno "admin" (owner, para migrar y el registro de tenants)
 -- y uno "app" (rol datepe_app SIN bypass de RLS) para consultas por request.
@@ -234,6 +234,64 @@ CREATE TABLE IF NOT EXISTS reviews (
   created_at     timestamptz NOT NULL DEFAULT now()
 );
 
+-- Promociones / códigos de descuento
+CREATE TABLE IF NOT EXISTS promotions (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  code        text NOT NULL,
+  kind        text NOT NULL DEFAULT 'percent' CHECK (kind IN ('percent','fixed')),
+  value       int NOT NULL,               -- percent (0-100) o céntimos
+  active      boolean NOT NULL DEFAULT true,
+  expires_at  timestamptz,
+  max_uses    int,
+  used_count  int NOT NULL DEFAULT 0,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, code)
+);
+
+-- Gift cards
+CREATE TABLE IF NOT EXISTS gift_cards (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id     uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  code          text NOT NULL,
+  initial_cents int NOT NULL,
+  balance_cents int NOT NULL,
+  active        boolean NOT NULL DEFAULT true,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, code)
+);
+
+-- Planes de membresía
+CREATE TABLE IF NOT EXISTS membership_plans (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name        text NOT NULL,
+  description text,
+  price_cents int NOT NULL,
+  period      text NOT NULL DEFAULT 'month' CHECK (period IN ('month','year')),
+  perks       text,
+  active      boolean NOT NULL DEFAULT true,
+  sort_order  int NOT NULL DEFAULT 0,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- Lealtad + fidelidad
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS loyalty_points int NOT NULL DEFAULT 0;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS loyalty_points_per_visit int NOT NULL DEFAULT 10;
+
+-- Descuentos aplicados en la cita
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS list_price_cents int;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS discount_cents int NOT NULL DEFAULT 0;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS promo_code text;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS gift_card_code text;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS points_awarded boolean NOT NULL DEFAULT false;
+
+-- Barberías de demostración (se muestran con etiqueta "Demo")
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_demo boolean NOT NULL DEFAULT false;
+
+-- Una reseña por cita
+CREATE UNIQUE INDEX IF NOT EXISTS uq_reviews_appointment ON reviews (appointment_id) WHERE appointment_id IS NOT NULL;
+
 -- Blog global de date.pe (sin tenant)
 CREATE TABLE IF NOT EXISTS blog_posts (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -273,9 +331,9 @@ DECLARE
   tenant_tables text[] := ARRAY[
     'tenant_branding','tenant_settings','locations','staff','staff_schedules',
     'schedule_exceptions','services','service_staff','clients','appointments',
-    'appointment_services','payments','reviews'
+    'appointment_services','payments','reviews','promotions','gift_cards','membership_plans'
   ];
-  public_tables text[] := ARRAY['locations','staff','services','service_staff','reviews','tenant_branding','tenant_settings'];
+  public_tables text[] := ARRAY['locations','staff','services','service_staff','reviews','tenant_branding','tenant_settings','membership_plans'];
 BEGIN
   FOREACH t IN ARRAY tenant_tables LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);

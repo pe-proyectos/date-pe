@@ -25,7 +25,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   const staffBody = z.object({
     name: z.string().min(1),
     locationId: z.string().uuid().nullable().optional(),
-    photoUrl: z.string().url().nullable().optional(),
+    photoUrl: z.string().max(500).nullable().optional(),
     bio: z.string().nullable().optional(),
     specialties: z.array(z.string()).optional(),
     isBookable: z.boolean().optional(),
@@ -132,7 +132,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     name: z.string().min(1),
     category: z.string().nullable().optional(),
     description: z.string().nullable().optional(),
-    photoUrl: z.string().url().nullable().optional(),
+    photoUrl: z.string().max(500).nullable().optional(),
     durationMin: z.number().int().min(5),
     bufferMin: z.number().int().min(0).optional(),
     priceCents: z.number().int().min(0),
@@ -186,8 +186,10 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     const q = rangeQuery.parse(request.query);
     return withTenant(tid(request), async (sql) => {
       const { rows } = await sql(
-        `SELECT a.id, a.staff_id, a.location_id, a.starts_at, a.ends_at, a.status, a.price_cents,
-                c.name AS client_name, c.phone AS client_phone
+        `SELECT a.id, a.staff_id, a.location_id, a.starts_at, a.ends_at, a.status, a.price_cents, a.source, a.note,
+                c.name AS client_name, c.phone AS client_phone,
+                (SELECT sv.name FROM appointment_services aps JOIN services sv ON sv.id = aps.service_id
+                  WHERE aps.appointment_id = a.id LIMIT 1) AS service_name
            FROM appointments a
            LEFT JOIN clients c ON c.id = a.client_id
           WHERE a.starts_at < $2 AND a.ends_at > $1
@@ -234,6 +236,15 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
          WHERE id = $1 RETURNING location_id`,
         [id, b.startsAt ?? null, b.endsAt ?? null, b.staffId ?? null, b.status ?? null],
       );
+      // Lealtad: puntos al completar la visita (una sola vez por cita)
+      if (b.status === 'completed') {
+        await sql(
+          `UPDATE clients c SET loyalty_points = c.loyalty_points + COALESCE((SELECT loyalty_points_per_visit FROM tenant_settings LIMIT 1), 10)
+             FROM appointments a WHERE a.id = $1 AND a.client_id = c.id AND a.points_awarded = false`,
+          [id],
+        );
+        await sql('UPDATE appointments SET points_awarded = true WHERE id = $1', [id]);
+      }
       return { location_id: rows[0]?.location_id ?? null };
     });
     if ('error' in out) return reply.code(out.error === 'no_encontrado' ? 404 : 409).send({ error: out.error });
@@ -273,8 +284,8 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   );
 
   const brandingBody = z.object({
-    logoUrl: z.string().url().nullable().optional(),
-    coverUrl: z.string().url().nullable().optional(),
+    logoUrl: z.string().max(500).nullable().optional(),
+    coverUrl: z.string().max(500).nullable().optional(),
     colorPrimary: z.string().optional(),
     colorSecondary: z.string().optional(),
     tagline: z.string().nullable().optional(),

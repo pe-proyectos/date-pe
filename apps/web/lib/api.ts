@@ -27,7 +27,7 @@ export async function apiFetch<T = unknown>(path: string, opts: Opts = {}): Prom
 }
 
 export interface TenantSite {
-  tenant: { slug: string; name: string };
+  tenant: { slug: string; name: string; is_demo?: boolean };
   branding: {
     logo_url: string | null;
     cover_url: string | null;
@@ -38,12 +38,14 @@ export interface TenantSite {
     instagram: string | null;
     whatsapp: string | null;
   } | null;
-  settings: { timezone: string; slot_interval_min: number; deposit_percent: number; require_deposit: boolean } | null;
-  locations: Array<{ id: string; name: string; address: string | null; district: string | null; province: string | null; phone: string | null }>;
+  settings: { timezone: string; slot_interval_min: number; deposit_percent: number; require_deposit: boolean; cancel_window_hours: number } | null;
+  locations: Array<{ id: string; name: string; address: string | null; district: string | null; province: string | null; lat: number | null; lng: number | null; phone: string | null }>;
   staff: Array<{ id: string; name: string; photo_url: string | null; bio: string | null; specialties: string[] | null; rating_avg: string; rating_count: number }>;
   services: Array<{ id: string; category: string | null; name: string; description: string | null; photo_url: string | null; duration_min: number; price_cents: number }>;
-  reviews?: Array<{ stars: number; comment: string | null; created_at: string; staff_name: string | null }>;
+  reviews?: Array<{ stars: number; comment: string | null; reply: string | null; created_at: string; staff_name: string | null; client_name: string | null }>;
   rating?: { avg: string | null; count: string };
+  memberships?: Array<{ id: string; name: string; description: string | null; price_cents: number; period: 'month' | 'year'; perks: string | null }>;
+  hours?: Array<{ day_of_week: number; open: string; close: string }>;
 }
 
 export interface SearchResult {
@@ -59,7 +61,8 @@ export interface SearchResult {
   desde_cents: number | null;
   rating: string | null;
   barberos: string;
+  is_demo?: boolean;
 }
 
-export const soles = (cents: number | null) =>
-  cents == null ? '—' : `S/ ${(cents / 100).toFixed(2)}`;
+export const soles = (cents: number | null | undefined) =>
+  cents == null ? '' : `S/ ${(Number(cents) / 100).toFixed(2)}`;

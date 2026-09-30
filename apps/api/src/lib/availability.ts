@@ -52,24 +52,24 @@ export async function computeSlots(sql: Sql, p: AvailabilityParams): Promise<Slo
   const dayStart = day.startOf('day').toUTC().toISO();
   const dayEnd = day.endOf('day').toUTC().toISO();
 
-  const appts = await sql<{ staff_id: string; starts_at: string; ends_at: string }>(
+  const appts = await sql<{ staff_id: string; starts_at: string | Date; ends_at: string | Date }>(
     `SELECT staff_id, starts_at, ends_at FROM appointments
       WHERE staff_id = ANY($1) AND status <> 'cancelled'
         AND starts_at < $3 AND ends_at > $2`,
     [staffIds, dayStart, dayEnd],
   );
-  const exceptions = await sql<{ staff_id: string; starts_at: string; ends_at: string }>(
+  const exceptions = await sql<{ staff_id: string; starts_at: string | Date; ends_at: string | Date }>(
     `SELECT staff_id, starts_at, ends_at FROM schedule_exceptions
       WHERE staff_id = ANY($1) AND starts_at < $3 AND ends_at > $2`,
     [staffIds, dayStart, dayEnd],
   );
 
+  // pg devuelve timestamptz como Date; aceptamos Date o texto ISO.
+  const toDT = (v: string | Date) => (v instanceof Date ? DateTime.fromJSDate(v) : DateTime.fromISO(v));
   const busyByStaff = new Map<string, Interval[]>();
   for (const row of [...appts.rows, ...exceptions.rows]) {
-    const iv = Interval.fromDateTimes(
-      DateTime.fromISO(row.starts_at),
-      DateTime.fromISO(row.ends_at),
-    );
+    const iv = Interval.fromDateTimes(toDT(row.starts_at), toDT(row.ends_at));
+    if (!iv.isValid) continue;
     const list = busyByStaff.get(row.staff_id) ?? [];
     list.push(iv);
     busyByStaff.set(row.staff_id, list);

@@ -72,7 +72,7 @@ async function paypalToken(): Promise<string> {
 async function paypalIntent(input: IntentInput): Promise<IntentResult> {
   if (!env.paypalClientId || !env.paypalClientSecret) return { provider: 'paypal', devSimulated: true };
   const token = await paypalToken();
-  // PayPal Perú liquida en USD; el monto es referencial de la seña.
+  // PayPal Perú liquida en USD; el monto es referencial de el adelanto.
   const res = await fetch(`${paypalBase()}/v2/checkout/orders`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },

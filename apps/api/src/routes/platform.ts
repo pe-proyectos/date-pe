@@ -22,14 +22,14 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
     );
     // Nuevas barberías por día (14d)
     const signups = await adminPool.query(
-      `SELECT to_char(date_trunc('day', created_at),'YYYY-MM-DD') AS dia, count(*)::int AS n
-         FROM tenants WHERE created_at > now() - interval '14 days'
+      `SELECT to_char((created_at AT TIME ZONE 'America/Lima')::date,'YYYY-MM-DD') AS dia, count(*)::int AS n
+         FROM tenants WHERE created_at > now() - interval '15 days'
         GROUP BY 1 ORDER BY 1`,
     );
     // Citas por día (14d)
     const bookings = await adminPool.query(
-      `SELECT to_char(date_trunc('day', created_at),'YYYY-MM-DD') AS dia, count(*)::int AS n
-         FROM appointments WHERE created_at > now() - interval '14 days'
+      `SELECT to_char((created_at AT TIME ZONE 'America/Lima')::date,'YYYY-MM-DD') AS dia, count(*)::int AS n
+         FROM appointments WHERE created_at > now() - interval '15 days'
         GROUP BY 1 ORDER BY 1`,
     );
     return { totals: totals.rows[0], signups: signups.rows, bookings: bookings.rows };

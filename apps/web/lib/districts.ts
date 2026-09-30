@@ -25,6 +25,14 @@ export const DISTRICTS: District[] = [
   ['Comas', 'comas'],
 ].map(([name, slug]) => ({ name, slug, province: 'lima', provinceName: 'Lima' }));
 
+/** Fotos editoriales de distritos con imagen propia. */
+export const DISTRICT_PHOTOS: Record<string, string> = {
+  miraflores: '/img/district-miraflores.webp',
+  barranco: '/img/district-barranco.webp',
+  'san-isidro': '/img/district-san-isidro.webp',
+  surco: '/img/district-surco.webp',
+};
+
 export function findDistrict(province: string, slug: string): District | undefined {
   return DISTRICTS.find((d) => d.province === province && d.slug === slug);
 }
