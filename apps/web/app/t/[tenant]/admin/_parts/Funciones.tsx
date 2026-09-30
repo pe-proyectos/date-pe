@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  CalendarCheck, ListOrdered, Tv, Music, BellRing, MessageCircle, Wallet, HandCoins, Package, Layers, Gift, BadgeCheck, Award, Megaphone, Camera,
+  CalendarCheck, ListOrdered, Tv, BellRing, MessageCircle, Wallet, HandCoins, Package, Layers, Gift, BadgeCheck, Award, Megaphone, Camera,
   Receipt, Users, Star, ChevronDown, ImagePlus, Trash2, Plus, X, ExternalLink, Copy, RefreshCw, Loader2, ArrowUp, ArrowDown, Info,
 } from 'lucide-react';
 import { useAdmin, useApi } from './api';
@@ -17,18 +17,17 @@ import { haptic } from '@/lib/haptics';
 interface Promo { title: string; text?: string; image?: string }
 interface TvCfg {
   theme: 'dark' | 'light' | 'brand'; layout: 'split' | 'queue' | 'minimal';
-  showQueue: boolean; showAppointments: boolean; showMusic: boolean; showQr: boolean; showClock: boolean; showPromos: boolean;
+  showQueue: boolean; showAppointments: boolean; showQr: boolean; showClock: boolean; showPromos: boolean;
   announceVoice: boolean; chime: boolean; message: string; promos: Promo[]; backgroundUrl: string; scale: number;
 }
 interface QueueCfg { maxWaiting: number; askPhone: boolean; allowStaffChoice: boolean; noShowMinutes: number; fallbackMinutes: number; earlyMinutes: number; welcome: string; closedMessage: string }
-interface MusicCfg { maxQueue: number; perTicket: number; allowVotes: boolean; maxDurationMin: number; requireTicket: boolean; blockedWords: string[]; volume: number }
 interface PosCfg { tipPresets: number[]; methods: string[]; requireSession: boolean; askReceipt: boolean }
 interface MktCfg { birthdayEnabled: boolean; birthdayDiscountPercent: number; winbackEnabled: boolean; winbackDays: number; winbackDiscountPercent: number; membershipRenewReminder: boolean }
 interface Cfg {
-  features: Features; tv: TvCfg; queue: QueueCfg; music: MusicCfg; pos: PosCfg; marketing: MktCfg;
-  googleReviewUrl: string | null; youtubeSearch: boolean; whatsappReady: boolean; pushReady: boolean;
+  features: Features; tv: TvCfg; queue: QueueCfg; pos: PosCfg; marketing: MktCfg;
+  googleReviewUrl: string | null; whatsappReady: boolean; pushReady: boolean;
 }
-type ConfigKey = 'tv' | 'queue' | 'music' | 'pos' | 'marketing';
+type ConfigKey = 'tv' | 'queue' | 'pos' | 'marketing';
 type Icon = React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 interface Item { key: string; title: string; benefit: string; icon: Icon; config?: ConfigKey | 'whatsapp' }
 
@@ -39,7 +38,6 @@ const CATALOG: { title: string; items: Item[] }[] = [
       { key: 'booking', title: 'Reservas online', benefit: 'Tus clientes reservan solos desde tu página, las 24 horas.', icon: CalendarCheck },
       { key: 'queue', title: 'Fila virtual', benefit: 'Sin cita, se anotan con el QR y esperan desde su celular.', icon: ListOrdered, config: 'queue' },
       { key: 'tv', title: 'Pantalla de TV', benefit: 'Muestra la fila, las citas y tus promociones en el local.', icon: Tv, config: 'tv' },
-      { key: 'music', title: 'Música a pedido', benefit: 'Los clientes piden canciones desde su turno y suenan en la TV.', icon: Music, config: 'music' },
       { key: 'push', title: 'Notificaciones', benefit: 'Avisos al celular del equipo y al cliente cuando le toca.', icon: BellRing },
       { key: 'whatsapp', title: 'WhatsApp', benefit: 'Recordatorios y avisos de turno por WhatsApp.', icon: MessageCircle, config: 'whatsapp' },
     ],
@@ -184,7 +182,6 @@ export function Funciones() {
                   >
                     {item.config === 'tv' && <TvEditor value={cfg.tv} tvKey={tvKey} nonce={nonce} onSave={(v) => saveConfig('tv', v, 'Pantalla de TV actualizada')} onRotate={rotateKey} />}
                     {item.config === 'queue' && <QueueEditor value={cfg.queue} onSave={(v) => saveConfig('queue', v, 'Fila virtual actualizada')} />}
-                    {item.config === 'music' && <MusicEditor value={cfg.music} youtube={cfg.youtubeSearch} onSave={(v) => saveConfig('music', v, 'Música actualizada')} />}
                     {item.config === 'pos' && <PosEditor value={cfg.pos} onSave={(v) => saveConfig('pos', v, 'Caja actualizada')} />}
                     {item.config === 'marketing' && <MarketingEditor value={cfg.marketing} onSave={(v) => saveConfig('marketing', v, 'Marketing actualizado')} />}
                     {item.config === 'whatsapp' && (
@@ -307,7 +304,7 @@ function useUploadHeaders() {
 /* ------------------------------------ TV ------------------------------------ */
 
 const TV_BLOCKS: [keyof TvCfg, string][] = [
-  ['showQueue', 'Fila'], ['showAppointments', 'Citas del día'], ['showMusic', 'Música sonando'], ['showQr', 'QR para anotarse'], ['showClock', 'Reloj'], ['showPromos', 'Promociones'],
+  ['showQueue', 'Fila'], ['showAppointments', 'Citas del día'], ['showQr', 'QR para anotarse'], ['showClock', 'Reloj'], ['showPromos', 'Promociones'],
 ];
 
 function TvEditor({ value, tvKey, nonce, onSave, onRotate }: { value: TvCfg; tvKey: string | null; nonce: number; onSave: (v: TvCfg) => Promise<boolean>; onRotate: () => void }) {
@@ -512,60 +509,6 @@ function QueueEditor({ value, onSave }: { value: QueueCfg; onSave: (v: QueueCfg)
 }
 
 /* ----------------------------------- Música ----------------------------------- */
-
-function MusicEditor({ value, youtube, onSave }: { value: MusicCfg; youtube: boolean; onSave: (v: MusicCfg) => Promise<boolean> }) {
-  const [d, setD, dirty, reset] = useDraft(value);
-  const [word, setWord] = useState('');
-  const addWord = () => {
-    const w = word.trim().toLowerCase();
-    if (!w || d.blockedWords.includes(w)) return setWord('');
-    setD({ ...d, blockedWords: [...d.blockedWords, w] });
-    setWord('');
-  };
-  return (
-    <div className="max-w-2xl space-y-5">
-      {!youtube && (
-        <p className="flex items-start gap-2.5 rounded-xl bg-field p-4 text-[14px] text-mute">
-          <Info size={17} strokeWidth={1.75} className="mt-0.5 shrink-0 text-ink" />
-          El buscador de canciones necesita una clave de YouTube, que aún no está configurada. Mientras tanto, tus clientes pueden pegar el enlace de YouTube de la canción y funciona igual.
-        </p>
-      )}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <NumberInput label="Canciones en la lista" value={d.maxQueue} min={1} max={100} onChange={(v) => setD({ ...d, maxQueue: v })} />
-        <NumberInput label="Por turno" hint="Canciones por cliente." value={d.perTicket} min={1} max={10} onChange={(v) => setD({ ...d, perTicket: v })} />
-        <NumberInput label="Duración máxima" value={d.maxDurationMin} min={1} max={30} onChange={(v) => setD({ ...d, maxDurationMin: v })} suffix="min" />
-      </div>
-      <div className="divide-y divide-line border-y border-line">
-        <ToggleLine title="Votar canciones" body="Las más votadas suben en la lista." checked={d.allowVotes} onChange={(v) => setD({ ...d, allowVotes: v })} />
-        <ToggleLine title="Solo con turno" body="Solo quien está en la fila o tiene cita puede pedir." checked={d.requireTicket} onChange={(v) => setD({ ...d, requireTicket: v })} />
-      </div>
-      <div>
-        <p className="mb-1.5 text-[14px] font-medium">Palabras bloqueadas</p>
-        <div className="flex flex-wrap items-center gap-2">
-          {d.blockedWords.map((w) => (
-            <span key={w} className="inline-flex min-h-9 items-center gap-1 rounded-full bg-field pl-3.5 pr-1 text-[14px]">
-              {w}
-              <button type="button" onClick={() => setD({ ...d, blockedWords: d.blockedWords.filter((x) => x !== w) })} className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-line" aria-label={`Quitar ${w}`}>
-                <X size={14} strokeWidth={1.75} />
-              </button>
-            </span>
-          ))}
-          <div className="flex items-center gap-1 rounded-full border border-line-2 pl-3.5 pr-1 focus-within:border-ink">
-            <input value={word} onChange={(e) => setWord(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addWord(); } }} maxLength={30} placeholder="Agregar palabra" className="h-10 w-36 bg-transparent text-[16px] outline-none md:text-[14px]" />
-            <button type="button" onClick={addWord} className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-field" aria-label="Agregar palabra"><Plus size={15} strokeWidth={2} /></button>
-          </div>
-        </div>
-        <p className="mt-1 text-[13px] text-soft">Si el título tiene una de estas palabras, la canción no entra.</p>
-      </div>
-      <Field label={`Volumen de la TV: ${d.volume}%`}>
-        <input type="range" min={0} max={100} step={5} value={d.volume} onChange={(e) => setD({ ...d, volume: Number(e.target.value) })} className="w-full accent-[#0a0a0a]" />
-      </Field>
-      <SaveRow dirty={dirty} onReset={reset} onSave={() => onSave(d)} />
-    </div>
-  );
-}
-
-/* ------------------------------------ Caja ------------------------------------ */
 
 const TIP_OPTIONS = [0, 5, 10, 15, 20, 25];
 const METHODS: [string, string][] = [['cash', 'Efectivo'], ['yape', 'Yape'], ['plin', 'Plin'], ['card', 'Tarjeta'], ['transfer', 'Transferencia']];

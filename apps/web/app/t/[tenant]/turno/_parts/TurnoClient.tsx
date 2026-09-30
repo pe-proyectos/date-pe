@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
-  Bell, BellRing, Clock, Hourglass, LogOut, Loader2, Music2, Search, ThumbsUp, Plus, Check, ChevronDown, Scissors, Star,
-  CalendarClock, WifiOff, Ticket, Link2, Home, PartyPopper,
+  Bell, BellRing, Clock, Hourglass, LogOut, Loader2, Plus, Check, Scissors, Star,
+  CalendarClock, WifiOff, Ticket, Home, PartyPopper,
 } from 'lucide-react';
 import { onColor } from '@/lib/color';
 import { soles } from '@/lib/api';
@@ -16,8 +16,8 @@ import { haptic } from '@/lib/haptics';
 import { pushSupported, subscribePush } from '@/lib/push';
 import { WhatsAppIcon, waLink } from '../../cita/_parts/shared';
 import {
-  ApiError, clearSavedTicket, deviceId, fmtMinutes, fmtTime, getAudio, loadSavedTicket, musicError, ordinal, playChime, publicApi,
-  queueError, saveTicket, usePolling, useTenantSocket, useWakeLock, type Song, type TicketState,
+  ApiError, clearSavedTicket, fmtMinutes, fmtTime, getAudio, loadSavedTicket, ordinal, playChime, publicApi,
+  queueError, saveTicket, usePolling, useTenantSocket, useWakeLock, type TicketState,
 } from '../../tv/_lib/queue';
 
 const ACTIVE = ['waiting', 'called', 'serving'];
@@ -88,7 +88,7 @@ export function TurnoClient({ tenant, whatsapp, reviewUrl, logoUrl }: { tenant: 
   }, [token, load]);
 
   const online = useTenantSocket(tenant, (type) => {
-    if (['queue_changed', 'music_changed', 'config_changed'].includes(type)) load();
+    if (['queue_changed', 'config_changed'].includes(type)) load();
   }, load);
   const status = data?.ticket.status ?? null;
   const active = !!status && ACTIVE.includes(status);
@@ -335,10 +335,6 @@ export function TurnoClient({ tenant, whatsapp, reviewUrl, logoUrl }: { tenant: 
         </section>
       )}
 
-      {data.features.music && (
-        <MusicSection tenant={tenant} token={token ?? ''} data={data} canRequest={active || !data.musicConfig.requireTicket} accent={accent} onAccent={onAccent} reload={load} />
-      )}
-
       {/* Servicios y contacto */}
       <section className="mt-10 border-t border-line px-5 pt-2">
         {data.services.length > 0 && (
@@ -443,219 +439,6 @@ function Ring({ pct, color, pulse, children }: { pct: number; color: string; pul
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">{children}</div>
     </div>
-  );
-}
-
-// ------------------------------- Música -------------------------------
-interface Track { videoId: string; title: string; channel: string | null; thumbnail: string | null; durationS: number | null }
-const dur = (s: number | null) => (s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '');
-const SONG_STATUS: Record<string, string> = { queued: 'En la lista', playing: 'Sonando ahora', played: 'Ya sonó', skipped: 'No se pudo reproducir', rejected: 'La barbería la quitó' };
-
-function MusicSection({ tenant, token, data, canRequest, accent, onAccent, reload }: {
-  tenant: string; token: string; data: TicketState; canRequest: boolean; accent: string; onAccent: string; reload: () => void;
-}) {
-  const searchEnabled = data.musicConfig.searchEnabled;
-  const [q, setQ] = useState('');
-  const [results, setResults] = useState<Track[] | null>(null);
-  const [searching, setSearching] = useState(false);
-  const [asking, setAsking] = useState<string | null>(null);
-  const [voted, setVoted] = useState<string[]>([]);
-  const [bump, setBump] = useState<Record<string, number>>({});
-  const voterRef = useRef('');
-  const now = data.music?.nowPlaying ?? null;
-  const upNext = useMemo(() => data.music?.upNext ?? [], [data.music]);
-
-  useEffect(() => {
-    voterRef.current = deviceId();
-    setVoted(ls<string[]>(`datepe_votes_${tenant}`, []));
-  }, [tenant]);
-  // Con datos nuevos del servidor, los votos ya vienen incluidos
-  useEffect(() => setBump({}), [data.music]);
-
-  const search = useCallback(async (text: string) => {
-    const v = text.trim();
-    if (v.length < 2) return setResults(null);
-    setSearching(true);
-    try {
-      const d = await publicApi<{ tracks: Track[] }>(tenant, `/public/music/search?q=${encodeURIComponent(v)}`);
-      setResults(d.tracks);
-    } catch (e) {
-      toast.error(musicError(e instanceof ApiError ? e.code : 'error'));
-    } finally {
-      setSearching(false);
-    }
-  }, [tenant]);
-
-  // Con buscador de YouTube, busca mientras escribes
-  useEffect(() => {
-    if (!searchEnabled) return;
-    const v = q.trim();
-    if (v.length < 3) return;
-    const t = setTimeout(() => search(v), 500);
-    return () => clearTimeout(t);
-  }, [q, searchEnabled, search]);
-
-  async function ask(tr: Track) {
-    setAsking(tr.videoId);
-    try {
-      await publicApi(tenant, '/public/music/request', { method: 'POST', body: { token, videoId: tr.videoId } });
-      haptic.success();
-      toast.success('Listo, tu canción está en la lista.');
-      setResults(null);
-      setQ('');
-      reload();
-    } catch (e) {
-      toast.error(musicError(e instanceof ApiError ? e.code : 'error', e instanceof ApiError ? e.data : undefined));
-    } finally {
-      setAsking(null);
-    }
-  }
-
-  async function vote(s: Song) {
-    if (voted.includes(s.id)) return;
-    haptic.select();
-    const next = [...voted, s.id];
-    setVoted(next);
-    lsSet(`datepe_votes_${tenant}`, next.slice(-100));
-    setBump((b) => ({ ...b, [s.id]: (b[s.id] ?? 0) + 1 }));
-    try {
-      await publicApi(tenant, '/public/music/vote', { method: 'POST', body: { songId: s.id, voter: voterRef.current } });
-    } catch (e) {
-      const code = e instanceof ApiError ? e.code : 'error';
-      setBump((b) => ({ ...b, [s.id]: Math.max(0, (b[s.id] ?? 1) - 1) }));
-      if (code !== 'ya_votaste') {
-        const back = next.filter((id) => id !== s.id);
-        setVoted(back);
-        lsSet(`datepe_votes_${tenant}`, back);
-        toast.error(musicError(code));
-      }
-    }
-  }
-
-  return (
-    <section className="mt-10 border-t border-line px-5 pt-8">
-      <h2 className="flex items-center gap-2 text-[20px] font-semibold tracking-[-0.03em]"><Music2 size={20} strokeWidth={1.75} /> Pide una canción</h2>
-      <p className="mt-1 text-[15px] text-mute">Suena en la pantalla del local mientras esperas.</p>
-
-      {now && (
-        <div className="mt-5 flex items-center gap-3 rounded-xl bg-field p-3">
-          {now.thumbnail && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={now.thumbnail} alt="" className="aspect-video w-24 shrink-0 rounded-lg object-cover" />
-          )}
-          <div className="min-w-0 flex-1">
-            <div className="text-[12px] font-medium text-mute">Sonando ahora</div>
-            <div className="line-clamp-2 text-[15px] font-medium leading-snug">{now.title}</div>
-            <div className="truncate text-[13px] text-mute">Pedida por {now.requested_by}</div>
-          </div>
-        </div>
-      )}
-
-      {canRequest ? (
-        <form onSubmit={(e) => { e.preventDefault(); search(q); }} className="mt-5">
-          <div className="flex items-center gap-2 rounded-xl border border-line-2 bg-white pl-3.5 focus-within:border-ink">
-            {searchEnabled ? <Search size={18} strokeWidth={1.75} className="shrink-0 text-soft" /> : <Link2 size={18} strokeWidth={1.75} className="shrink-0 text-soft" />}
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              enterKeyHint="search"
-              inputMode={searchEnabled ? 'search' : 'url'}
-              className="min-w-0 flex-1 bg-transparent py-3.5 text-[16px] outline-none"
-              placeholder={searchEnabled ? 'Canción o artista' : 'Pega un enlace de YouTube'}
-              aria-label={searchEnabled ? 'Buscar canción' : 'Enlace de YouTube'}
-            />
-            <button type="submit" disabled={q.trim().length < 2 || searching} className="mr-1 flex min-h-[40px] items-center rounded-full bg-ink px-4 text-[14px] font-medium text-white disabled:opacity-40">
-              {searching ? <Loader2 size={16} className="animate-spin" /> : searchEnabled ? 'Buscar' : 'Listo'}
-            </button>
-          </div>
-          {!searchEnabled && <p className="mt-1.5 text-[13px] text-soft">En YouTube toca Compartir, copia el enlace y pégalo aquí.</p>}
-        </form>
-      ) : (
-        <p className="mt-5 rounded-xl bg-field px-4 py-3 text-[14px] text-mute">Para pedir canciones necesitas un turno activo.</p>
-      )}
-
-      {results && (
-        <ul className="mt-3">
-          {results.length === 0 && <li className="py-4 text-[15px] text-mute">{searchEnabled ? 'Sin resultados. Prueba con otro nombre.' : 'No encontramos ese enlace. Revisa que sea de YouTube.'}</li>}
-          {results.map((tr) => {
-            const inList = upNext.some((s) => s.video_id === tr.videoId) || now?.video_id === tr.videoId;
-            return (
-              <li key={tr.videoId} className="flex items-center gap-3 border-b border-line py-3">
-                {tr.thumbnail && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={tr.thumbnail} alt="" className="aspect-video w-20 shrink-0 rounded-lg object-cover" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="line-clamp-2 text-[15px] font-medium leading-snug">{tr.title}</div>
-                  <div className="truncate text-[13px] text-mute">{[tr.channel, dur(tr.durationS)].filter(Boolean).join(', ')}</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => ask(tr)}
-                  disabled={!!asking || inList}
-                  className="flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full px-4 text-[14px] font-medium disabled:opacity-50"
-                  style={{ background: accent, color: onAccent }}
-                >
-                  {asking === tr.videoId ? <Loader2 size={15} className="animate-spin" /> : inList ? <Check size={15} strokeWidth={2} /> : <Plus size={15} strokeWidth={2} />}
-                  {inList ? 'En la lista' : 'Pedir'}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      {data.songs.length > 0 && (
-        <div className="mt-5">
-          <h3 className="text-[14px] font-medium text-mute">Tus pedidos</h3>
-          <ul className="mt-1">
-            {data.songs.map((s) => (
-              <li key={s.id} className="flex items-center justify-between gap-3 py-2 text-[15px]">
-                <span className="min-w-0 truncate">{s.title}</span>
-                <span className={`shrink-0 text-[13px] ${s.status === 'playing' ? 'font-medium text-ok' : 'text-mute'}`}>{SONG_STATUS[s.status] ?? s.status}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <div className="mt-6">
-        <h3 className="text-[17px] font-semibold tracking-[-0.02em]">A continuación</h3>
-        {upNext.length === 0 ? (
-          <p className="mt-2 text-[15px] text-mute">La lista está vacía. La primera canción puede ser la tuya.</p>
-        ) : (
-          <ol className="mt-2">
-            {upNext.map((s, i) => {
-              const votes = s.votes + (bump[s.id] ?? 0);
-              const mine = voted.includes(s.id);
-              const house = s.votes >= 1000;
-              return (
-                <li key={s.id} className="flex items-center gap-3 border-b border-line py-2.5">
-                  <span className="tnum w-5 shrink-0 text-[14px] text-soft">{i + 1}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[15px] font-medium">{s.title}</div>
-                    <div className="truncate text-[13px] text-mute">Pedida por {s.requested_by}</div>
-                  </div>
-                  {house ? (
-                    <span className="shrink-0 text-[13px] text-mute">De la casa</span>
-                  ) : data.musicConfig.allowVotes ? (
-                    <button
-                      type="button"
-                      onClick={() => vote(s)}
-                      aria-pressed={mine}
-                      aria-label={mine ? `Votaste, ${votes} votos` : `Votar, ${votes} votos`}
-                      className={`tnum flex min-h-[44px] min-w-[64px] shrink-0 items-center justify-center gap-1.5 rounded-full px-3 text-[14px] font-medium transition-colors ${mine ? 'bg-ink text-white' : 'bg-field hover:bg-line'}`}
-                    >
-                      <ThumbsUp size={15} strokeWidth={1.75} /> {votes}
-                    </button>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ol>
-        )}
-      </div>
-    </section>
   );
 }
 

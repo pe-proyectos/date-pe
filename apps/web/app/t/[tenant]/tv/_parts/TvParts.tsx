@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Music2, ThumbsUp, CalendarClock, QrCode, Scissors } from 'lucide-react';
+import { CalendarClock, QrCode, Scissors } from 'lucide-react';
 import { Qr } from '../_lib/Qr';
-import { fmtMinutes, fmtTime, type Announce, type QueueState, type Song } from '../_lib/queue';
+import { fmtMinutes, fmtTime, type Announce, type QueueState } from '../_lib/queue';
 
 /** Colores de la pantalla según el tema elegido en el panel. */
 export interface Palette {
@@ -149,77 +149,6 @@ function Eq({ color }: { color: string }) {
 }
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
-export function MusicCard({
-  now, upNext, progress, p, note, compact = false,
-}: {
-  now: Song | null; upNext: Song[]; progress: { current: number; duration: number }; p: Palette; note?: string | null; compact?: boolean;
-}) {
-  const pct = progress.duration ? Math.min(100, (progress.current / progress.duration) * 100) : 0;
-  return (
-    <div className="flex h-full min-h-0 flex-col rounded-[1.1rem] p-[1.3rem]" style={{ background: p.card }}>
-      {now ? (
-        <>
-          <div className="flex items-center gap-[0.6rem] text-[1.15rem] font-medium" style={{ color: p.mute }}>
-            <Eq color={p.accent} /> Sonando ahora
-          </div>
-          <div className="mt-[0.8rem] flex min-w-0 gap-[1rem]">
-            {now.thumbnail && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={now.thumbnail} alt="" className="aspect-video w-[9.5rem] shrink-0 rounded-[0.7rem] object-cover" />
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="line-clamp-2 text-[1.45rem] font-semibold leading-snug tracking-[-0.01em]">{now.title}</div>
-              <div className="mt-[0.2rem] truncate text-[1.1rem]" style={{ color: p.mute }}>Pedida por {now.requested_by}</div>
-            </div>
-          </div>
-          <div className="mt-[0.9rem]">
-            <div className="h-[0.35rem] overflow-hidden rounded-full" style={{ background: p.line }}>
-              <div className="h-full rounded-full transition-[width] duration-1000 ease-linear" style={{ width: `${pct}%`, background: p.accent }} />
-            </div>
-            {progress.duration > 0 && (
-              <div className="tnum mt-[0.3rem] flex justify-between text-[0.95rem]" style={{ color: p.soft }}>
-                <span>{mmss(progress.current)}</span>
-                <span>{mmss(progress.duration)}</span>
-              </div>
-            )}
-          </div>
-        </>
-      ) : (
-        <div className="flex items-center gap-[1rem]">
-          <span className="flex h-[3.4rem] w-[3.4rem] shrink-0 items-center justify-center rounded-full" style={{ background: p.line }}>
-            <Music2 size={24} strokeWidth={1.75} style={{ width: '1.6rem', height: '1.6rem' }} />
-          </span>
-          <div className="min-w-0">
-            <div className="text-[1.45rem] font-semibold tracking-[-0.01em]">Tú eliges la música</div>
-            <div className="text-[1.1rem]" style={{ color: p.mute }}>Saca tu turno con el QR y pide una canción</div>
-          </div>
-        </div>
-      )}
-      {!compact && upNext.length > 0 && (
-        <div className="mt-[1rem] min-h-0 border-t pt-[0.8rem]" style={{ borderColor: p.line }}>
-          <div className="text-[1.05rem] font-medium" style={{ color: p.soft }}>A continuación</div>
-          <ol className="mt-[0.3rem]">
-            {upNext.slice(0, 3).map((s, i) => (
-              <li key={s.id} className="flex items-center gap-[0.8rem] py-[0.35rem] text-[1.15rem]">
-                <span className="tnum w-[1.2rem] shrink-0" style={{ color: p.soft }}>{i + 1}</span>
-                <span className="min-w-0 flex-1 truncate">{s.title}</span>
-                <span className="shrink-0" style={{ color: p.mute }}>{s.requested_by}</span>
-                {s.votes > 0 && s.votes < 1000 && (
-                  <span className="tnum inline-flex shrink-0 items-center gap-[0.25rem]" style={{ color: p.mute }}>
-                    <ThumbsUp strokeWidth={1.75} style={{ width: '1rem', height: '1rem' }} /> {s.votes}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-      {note && <p className="mt-auto pt-[0.6rem] text-[0.95rem]" style={{ color: p.soft }}>{note}</p>}
-    </div>
-  );
-}
-
-// ------------------------------- Promos y citas -------------------------------
 export type Slide =
   | { kind: 'promo'; title: string; text?: string; image?: string }
   | { kind: 'appointments'; items: QueueState['appointments'] };

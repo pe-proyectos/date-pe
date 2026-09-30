@@ -71,11 +71,10 @@ export const env = {
   // Dominios propios: carpeta del proveedor de archivos de Traefik e IP pública del servidor
   traefikDynamicDir: process.env.TRAEFIK_DYNAMIC_DIR ?? '/traefik-dynamic',
   serverIp: process.env.SERVER_IP ?? '75.119.145.29',
-  // Push, YouTube y WhatsApp (opcionales)
+  // Push y WhatsApp (opcionales)
   vapidPublicKey: process.env.VAPID_PUBLIC_KEY ?? '',
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY ?? '',
   vapidSubject: process.env.VAPID_SUBJECT ?? 'mailto:hola@date.pe',
-  youtubeApiKey: process.env.YOUTUBE_API_KEY ?? '',
   whatsappToken: process.env.WHATSAPP_TOKEN ?? '',
   whatsappPhoneId: process.env.WHATSAPP_PHONE_ID ?? '',
   // A quién avisar de nuevas solicitudes de barberías (si está vacío: a los superadmin)

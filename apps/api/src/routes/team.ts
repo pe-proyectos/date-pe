@@ -5,7 +5,7 @@ import { withTenant, admin } from '../db.js';
 import { hashPassword } from '../lib/crypto.js';
 import { sendEmail, layout } from '../lib/email.js';
 import { tenantUrl } from '../lib/notify.js';
-import { tenantConfig, FEATURE_DEFAULTS, TV_DEFAULTS, QUEUE_DEFAULTS, MUSIC_DEFAULTS, POS_DEFAULTS, MARKETING_DEFAULTS } from '../lib/features.js';
+import { tenantConfig, FEATURE_DEFAULTS, TV_DEFAULTS, QUEUE_DEFAULTS, POS_DEFAULTS, MARKETING_DEFAULTS } from '../lib/features.js';
 import { emitTenantEvent } from '../lib/realtime.js';
 import { saveSubscription, pushEnabled } from '../lib/push.js';
 import { env } from '../env.js';
@@ -133,7 +133,7 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
       const t = tenantOf(request);
       const cfg = await withTenant(t.id, (sql) => tenantConfig(sql));
       const extra = await withTenant(t.id, (sql) => sql<{ google_review_url: string | null }>('SELECT google_review_url FROM tenant_settings'));
-      return { ...cfg, googleReviewUrl: extra.rows[0]?.google_review_url ?? null, youtubeSearch: !!env.youtubeApiKey, whatsappReady: !!(env.whatsappToken && env.whatsappPhoneId), pushReady: pushEnabled() };
+      return { ...cfg, googleReviewUrl: extra.rows[0]?.google_review_url ?? null, whatsappReady: !!(env.whatsappToken && env.whatsappPhoneId), pushReady: pushEnabled() };
     });
 
     const pick = <T extends object>(defaults: T, input: unknown): Partial<T> => {
@@ -154,7 +154,6 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
           features: z.record(z.boolean()).optional(),
           tv: z.record(z.unknown()).optional(),
           queue: z.record(z.unknown()).optional(),
-          music: z.record(z.unknown()).optional(),
           pos: z.record(z.unknown()).optional(),
           marketing: z.record(z.unknown()).optional(),
           googleReviewUrl: z.string().url().or(z.literal('')).optional(),
@@ -167,7 +166,6 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
         await merge('features', pick(FEATURE_DEFAULTS, b.features));
         await merge('tv_config', pick(TV_DEFAULTS, b.tv));
         await merge('queue_config', pick(QUEUE_DEFAULTS, b.queue));
-        await merge('music_config', pick(MUSIC_DEFAULTS, b.music));
         await merge('pos_config', pick(POS_DEFAULTS, b.pos));
         await merge('marketing_config', pick(MARKETING_DEFAULTS, b.marketing));
         if (b.googleReviewUrl !== undefined) await sql('UPDATE tenant_settings SET google_review_url = $1', [b.googleReviewUrl || null]);

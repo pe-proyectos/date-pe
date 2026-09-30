@@ -13,7 +13,6 @@ export interface TvConfig {
   layout: TvLayout;
   showQueue: boolean;
   showAppointments: boolean;
-  showMusic: boolean;
   showQr: boolean;
   showClock: boolean;
   showPromos: boolean;
@@ -27,27 +26,14 @@ export interface TvConfig {
   volume?: number;
 }
 
-export interface Song {
-  id: string;
-  video_id: string;
-  title: string;
-  channel: string | null;
-  thumbnail: string | null;
-  duration_s?: number | null;
-  votes: number;
-  requested_by: string;
-  started_at?: string | null;
-}
-
 export interface QueueState {
   tenant: { name: string; slug: string };
   open: boolean;
   opensAt: string | null;
   pushPublicKey: string | null;
-  features: { queue: boolean; music: boolean; booking: boolean };
+  features: { queue: boolean; booking: boolean };
   tv: TvConfig;
   queueConfig: { allowStaffChoice: boolean; askPhone: boolean; welcome: string; closedMessage: string; maxWaiting: number };
-  musicConfig: { allowVotes: boolean; requireTicket: boolean; maxDurationMin: number; searchEnabled: boolean; volume?: number };
   branding: { logo_url: string | null; cover_url: string | null; color_primary: string | null; tagline: string | null; instagram: string | null } | null;
   staff: Array<{ id: string; name: string; photo_url: string | null }>;
   services: Array<{ id: string; name: string; duration_min: number; price_cents: number }>;
@@ -57,7 +43,6 @@ export interface QueueState {
   serving: Array<{ id?: string; number: number; name: string; status: 'called' | 'serving'; staff: string | null; calledAt?: string | null }>;
   waiting: Array<{ id?: string; number: number; name: string; service: string | null; staff: string | null; etaMin: number | null }>;
   appointments: Array<{ at: string; name: string; staff: string | null }>;
-  music: { nowPlaying: Song | null; upNext: Song[] } | null;
 }
 
 export type TicketStatus = 'waiting' | 'called' | 'serving' | 'done' | 'cancelled' | 'no_show';
@@ -76,7 +61,6 @@ export interface TicketState extends QueueState {
     etaMin: number | null;
     canDelay: boolean;
   };
-  songs: Array<{ id: string; title: string; status: string }>;
 }
 
 export interface Announce {
@@ -297,21 +281,6 @@ export function clearSavedTicket(tenant: string) {
   }
 }
 
-/** Id anónimo del dispositivo para votar canciones (uno por canción). */
-export function deviceId() {
-  const k = 'datepe_device';
-  try {
-    let id = localStorage.getItem(k);
-    if (!id) {
-      id = (crypto.randomUUID?.() ?? `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`).replace(/-/g, '');
-      localStorage.setItem(k, id);
-    }
-    return id;
-  } catch {
-    return `anon${Math.random().toString(36).slice(2, 12)}`;
-  }
-}
-
 // ------------------------- Mensajes de error en español -------------------------
 export function queueError(code: string, data?: Record<string, unknown>) {
   switch (code) {
@@ -338,34 +307,6 @@ export function queueError(code: string, data?: Record<string, unknown>) {
   }
 }
 
-export function musicError(code: string, data?: Record<string, unknown>) {
-  switch (code) {
-    case 'solo_con_turno':
-      return 'Para pedir canciones necesitas un turno activo en la fila.';
-    case 'ya_esta_en_la_lista':
-      return 'Esa canción ya está en la lista. Dale tu voto para que suene antes.';
-    case 'lista_llena':
-      return 'La lista de canciones está llena. Prueba en un rato.';
-    case 'ya_pediste': {
-      const n = Number(data?.max ?? 1);
-      return n > 1 ? `Ya pediste ${n} canciones con este turno.` : 'Ya pediste una canción con este turno.';
-    }
-    case 'cancion_muy_larga':
-      return `La canción es muy larga. El máximo es ${Number(data?.max ?? 8)} min.`;
-    case 'cancion_no_permitida':
-      return 'Esa canción no está permitida en este local.';
-    case 'cancion_no_encontrada':
-      return 'No encontramos esa canción. Prueba con otro enlace de YouTube.';
-    case 'ya_votaste':
-      return 'Ya votaste por esta canción.';
-    case 'funcion_desactivada':
-      return 'La música a pedido no está activa ahora.';
-    case 'llave_invalida':
-      return 'La llave de la pantalla cambió.';
-    default:
-      return 'No se pudo completar. Inténtalo de nuevo.';
-  }
-}
 
 // ------------------------- Sonido -------------------------
 let audioCtx: AudioContext | null = null;

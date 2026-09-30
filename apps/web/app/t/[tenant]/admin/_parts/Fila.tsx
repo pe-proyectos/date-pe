@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Megaphone, UserPlus, Monitor, Copy, ExternalLink, RefreshCw, Printer, Music2, SkipForward, Trash2, Phone, Receipt, Check,
+  Megaphone, UserPlus, Monitor, Copy, ExternalLink, RefreshCw, Printer, Trash2, Phone, Receipt, Check,
   UserX, Undo2, Armchair, ListOrdered, Loader2, Plus, CircleCheck, WifiOff,
 } from 'lucide-react';
 import { useAdmin, useApi, soles } from './api';
@@ -11,7 +11,7 @@ import { StatTile } from '@/components/charts';
 import { API_BASE_CLIENT, tenantUrl } from '@/lib/config';
 import { toast } from '@/lib/toast';
 import { haptic } from '@/lib/haptics';
-import { musicError, queueError, useTenantSocket, fmtMinutes, type QueueState, type Song } from '../../tv/_lib/queue';
+import { queueError, useTenantSocket, fmtMinutes, type QueueState } from '../../tv/_lib/queue';
 import { Qr, qrSvg } from '../../tv/_lib/Qr';
 
 interface AdminTicket {
@@ -25,7 +25,6 @@ interface AdminQueue {
   stats: { atendidos: number; no_vinieron: number; espera_promedio_min: number }; estimatedWaitMin: number;
 }
 interface Me { me: { id: string; name: string | null; role: string; staffId: string | null } }
-interface MusicAdmin { nowPlaying: Song | null; upNext: Song[]; history: Array<{ id: string; title: string; requested_by: string; status: string }> }
 
 const mins = (from: string | null, now: number) => (from ? Math.max(0, Math.floor((now - new Date(from).getTime()) / 60000)) : 0);
 const STATUS: Record<AdminTicket['status'], [string, string]> = {
@@ -43,7 +42,6 @@ export function Fila() {
   const [q, setQ] = useState<AdminQueue | null>(null);
   const [pub, setPub] = useState<QueueState | null>(null);
   const [me, setMe] = useState<Me['me'] | null>(null);
-  const [music, setMusic] = useState<MusicAdmin | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [calling, setCalling] = useState<string | null>(null);
   const [open, setOpen] = useState<AdminTicket | null>(null);
@@ -67,32 +65,19 @@ export function Fila() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenant]);
 
-  const loadMusic = useCallback(async () => {
-    try {
-      setMusic(await api<MusicAdmin>('/admin/music'));
-    } catch { /* sin permiso o apagada */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   useEffect(() => {
     loadQueue();
     api<Me>('/admin/me').then((d) => setMe(d.me)).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const musicOn = !!q?.features.music;
-  useEffect(() => {
-    if (musicOn) loadMusic();
-  }, [musicOn, loadMusic]);
-
   const online = useTenantSocket(
     tenant,
     (type) => {
       if (type === 'queue_changed' || type === 'config_changed') loadQueue();
-      if (type === 'music_changed' && musicOn) loadMusic();
       if (type === 'sale_created') loadQueue();
     },
-    () => { loadQueue(); if (musicOn) loadMusic(); },
+    () => { loadQueue(); },
   );
 
   // Reloj para "espera 12 min" y respaldo por si el WebSocket se cae
@@ -242,7 +227,6 @@ export function Fila() {
 
         <aside className="space-y-6">
           <TvCard tvUrl={tvUrl} filaUrl={filaUrl} tvOn={q.features.tv !== false} pub={pub} onRotate={me && (me.role === 'owner' || me.role === 'manager') ? () => setRotateOpen(true) : undefined} />
-          {musicOn && <MusicCard music={music} api={api} reload={loadMusic} searchEnabled={!!pub?.musicConfig.searchEnabled} />}
         </aside>
       </div>
 
@@ -272,7 +256,7 @@ export function Fila() {
           </>
         }
       >
-        <p className="text-[15px] text-ink-2">El enlace actual deja de controlar la música. Úsalo si alguien que no debe tiene el enlace de la pantalla. Después abre el enlace nuevo en tu TV.</p>
+        <p className="text-[15px] text-ink-2">El enlace actual de la pantalla deja de funcionar. Úsalo si alguien que no debe tiene el enlace. Después abre el enlace nuevo en tu TV.</p>
       </Drawer>
     </>
   );
@@ -621,100 +605,6 @@ h1 { margin: 12mm 0 0; font-size: 40pt; line-height: 1.02; font-weight: 600; let
           <Btn variant="secondary" onClick={printPoster} className="mt-2"><Printer size={16} strokeWidth={1.75} /> Imprimir cartel</Btn>
         </div>
       </div>
-    </section>
-  );
-}
-
-// ------------------------------- Música -------------------------------
-function MusicCard({ music, api, reload, searchEnabled }: { music: MusicAdmin | null; api: Api; reload: () => void; searchEnabled: boolean }) {
-  const [query, setQuery] = useState('');
-  const [busy, setBusy] = useState<string | null>(null);
-  const [confirmClear, setConfirmClear] = useState(false);
-
-  async function run(key: string, fn: () => Promise<unknown>, msg: string) {
-    setBusy(key);
-    try {
-      await fn();
-      toast.success(msg);
-      reload();
-      return true;
-    } catch (e) {
-      toast.error(musicError((e as Error).message));
-      return false;
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  const now = music?.nowPlaying ?? null;
-  const upNext = music?.upNext ?? [];
-  return (
-    <section className="rounded-xl border border-line p-5">
-      <h2 className="flex items-center gap-2 text-[17px] font-semibold tracking-[-0.02em]"><Music2 size={18} strokeWidth={1.75} /> Música</h2>
-      <p className="mt-1 text-[14px] text-mute">Los clientes con turno piden canciones y suenan en la pantalla.</p>
-
-      {now ? (
-        <div className="mt-4 flex items-center gap-3 rounded-xl bg-field p-3">
-          {now.thumbnail && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={now.thumbnail} alt="" className="aspect-video w-20 shrink-0 rounded-lg object-cover" />
-          )}
-          <div className="min-w-0 flex-1">
-            <div className="text-[12px] font-medium text-mute">Sonando ahora</div>
-            <div className="line-clamp-2 text-[14px] font-medium leading-snug">{now.title}</div>
-            <div className="truncate text-[12px] text-mute">Pedida por {now.requested_by}</div>
-          </div>
-          <button type="button" onClick={() => run('skip', () => api(`/admin/music/${now.id}/skip`, { method: 'POST' }), 'Canción saltada')} disabled={!!busy} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-white disabled:opacity-40" aria-label="Saltar canción">
-            {busy === 'skip' ? <Loader2 size={18} className="animate-spin" /> : <SkipForward size={18} strokeWidth={1.75} />}
-          </button>
-        </div>
-      ) : (
-        <p className="mt-4 rounded-xl bg-field px-3 py-3 text-[14px] text-mute">No suena nada. {upNext.length ? 'La pantalla pondrá la siguiente al abrirse.' : 'Pon una canción o espera los pedidos.'}</p>
-      )}
-
-      <form
-        className="mt-4 flex gap-2"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          if (query.trim().length < 2) return;
-          if (await run('add', () => api('/admin/music', { method: 'POST', body: { query: query.trim() } }), 'Canción agregada')) setQuery('');
-        }}
-      >
-        <input value={query} onChange={(e) => setQuery(e.target.value)} className={inputCls} placeholder={searchEnabled ? 'Canción, artista o enlace' : 'Pega un enlace de YouTube'} aria-label="Poner una canción" />
-        <Btn type="submit" busy={busy === 'add'} disabled={query.trim().length < 2} className="shrink-0">Poner</Btn>
-      </form>
-
-      {upNext.length > 0 && (
-        <div className="mt-5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-[14px] font-medium">A continuación <span className="tnum font-normal text-mute">{upNext.length}</span></h3>
-            <button type="button" onClick={() => setConfirmClear(true)} className="min-h-[36px] rounded-full px-3 text-[13px] font-medium text-red hover:bg-red-tint">Vaciar lista</button>
-          </div>
-          <ol className="mt-1 divide-y divide-line">
-            {upNext.map((s) => (
-              <li key={s.id} className="flex items-center gap-2 py-2">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[14px] font-medium">{s.title}</div>
-                  <div className="truncate text-[12px] text-mute">{s.requested_by}{s.votes > 0 && s.votes < 1000 ? `, ${s.votes} ${s.votes === 1 ? 'voto' : 'votos'}` : ''}</div>
-                </div>
-                <button type="button" onClick={() => run(s.id, () => api(`/admin/music/${s.id}/skip`, { method: 'POST' }), 'Quitada de la lista')} disabled={!!busy} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-mute hover:bg-field hover:text-red disabled:opacity-40" aria-label={`Quitar ${s.title}`}>
-                  {busy === s.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} strokeWidth={1.75} />}
-                </button>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-      <p className="mt-4 text-[13px] text-soft">Límites, votos y palabras bloqueadas se ajustan en <a href="#funciones" className="underline underline-offset-4">Funciones</a>.</p>
-
-      <Drawer
-        open={confirmClear}
-        onClose={() => setConfirmClear(false)}
-        title="¿Vaciar la lista?"
-        footer={<><Btn variant="ghost" onClick={() => setConfirmClear(false)}>Cancelar</Btn><Btn busy={busy === 'clear'} onClick={async () => { if (await run('clear', () => api('/admin/music/clear', { method: 'POST' }), 'Lista vaciada')) setConfirmClear(false); }}>Vaciar</Btn></>}
-      >
-        <p className="text-[15px] text-ink-2">Se quitan las {upNext.length} canciones en espera. La que está sonando termina normal.</p>
-      </Drawer>
     </section>
   );
 }

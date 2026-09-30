@@ -209,7 +209,6 @@ async function giftsAndQueuePass() {
   const due = await admin<{ id: string }>("SELECT id FROM gift_cards WHERE paid AND delivered_at IS NULL AND deliver_at IS NOT NULL AND deliver_at <= now() LIMIT 50");
   for (const g of due.rows) await deliverGiftCard(g.id);
   await admin(`UPDATE queue_tickets SET status = 'no_show' WHERE status IN ('waiting','called') AND day < (now() AT TIME ZONE 'America/Lima')::date`);
-  await admin(`UPDATE song_requests SET status = 'played' WHERE status IN ('queued','playing') AND created_at < now() - interval '18 hours'`);
 }
 
 async function housekeeping() {

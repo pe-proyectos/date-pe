@@ -43,7 +43,7 @@ export interface TenantSite {
     show_powered_by?: boolean | null;
   } | null;
   /** Funciones activas de la barbería (fila, gift cards en línea, paquetes...). */
-  features?: Partial<Record<'booking' | 'queue' | 'tv' | 'music' | 'pos' | 'tips' | 'products' | 'packages' | 'rewards' | 'giftcards_online' | 'memberships_sale' | 'marketing' | 'client_photos' | 'push' | 'whatsapp', boolean>>;
+  features?: Partial<Record<'booking' | 'queue' | 'tv' | 'pos' | 'tips' | 'products' | 'packages' | 'rewards' | 'giftcards_online' | 'memberships_sale' | 'marketing' | 'client_photos' | 'push' | 'whatsapp', boolean>>;
   /** Enlace para dejar reseña en Google Business Profile. */
   googleReviewUrl?: string | null;
   settings: {

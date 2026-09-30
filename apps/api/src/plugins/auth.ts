@@ -20,7 +20,6 @@ const COMMON: Rule[] = [
   [ANY, /^\/api\/admin\/me(\/|$)/],
   [ANY, /^\/api\/admin\/push(\/|$)/],
   [ANY, /^\/api\/admin\/queue(\/|$)/],
-  [ANY, /^\/api\/admin\/music(\/|$)/],
   ['POST', /^\/api\/admin\/uploads\/presign$/],
   ['GET', /^\/api\/admin\/(staff|services|products|locations|features|time-off)(\?|$)/],
   ['GET', /^\/api\/admin\/appointments(\?|$)/],

@@ -7,9 +7,8 @@ import {
   ApiError, alpha, fmtMinutes, getAudio, playChime, publicApi, readableAccent, speak, useTenantSocket, usePolling, useWakeLock,
   TZ, type Announce, type QueueState,
 } from '../_lib/queue';
-import { useTvMusic } from './useTvMusic';
 import {
-  Avatar, CallCard, MusicCard, QrCard, Rotator, SectionTitle, ServingGrid, Ticker, WaitingList, initialOf, type Palette, type Slide,
+  Avatar, CallCard, QrCard, Rotator, SectionTitle, ServingGrid, Ticker, WaitingList, initialOf, type Palette, type Slide,
 } from './TvParts';
 
 const CALL_MS = 8000;
@@ -135,7 +134,7 @@ export function TvClient({ tenant, tvKey }: { tenant: string; tvKey: string }) {
           }
         }
       }
-      if (['queue_changed', 'music_changed', 'config_changed', 'availability_changed'].includes(type)) refetch();
+      if (['queue_changed', 'config_changed', 'availability_changed'].includes(type)) refetch();
     },
     load,
   );
@@ -144,22 +143,8 @@ export function TvClient({ tenant, tvKey }: { tenant: string; tvKey: string }) {
 
   const tv = data?.tv;
   const p = useMemo(() => palette(tv?.theme ?? 'dark', data?.branding?.color_primary), [tv?.theme, data?.branding?.color_primary]);
-  const musicOn = !!(data?.features.music && tv?.showMusic);
-  const needsSound = !!(tv && (tv.chime || tv.announceVoice || musicOn));
+  const needsSound = !!(tv && (tv.chime || tv.announceVoice));
   const current = calls[0] ?? null;
-  const volume = Number(data?.musicConfig.volume ?? tv?.volume ?? 60);
-
-  const music = useTvMusic({
-    tenant,
-    tvKey,
-    enabled: musicOn,
-    nowPlaying: data?.music?.nowPlaying ?? null,
-    upNext: data?.music?.upNext ?? [],
-    volume,
-    soundOn,
-    duck: !!current,
-    onChanged: refetch,
-  });
 
   // Si el navegador ya permite sonido (modo kiosco), no hace falta tocar
   useEffect(() => {
@@ -266,8 +251,6 @@ export function TvClient({ tenant, tvKey }: { tenant: string; tvKey: string }) {
     ...(tv.showAppointments && data.appointments.length ? [{ kind: 'appointments' as const, items: data.appointments }] : []),
     ...(tv.showPromos ? tv.promos.filter((x) => x.title).map((x) => ({ kind: 'promo' as const, ...x })) : []),
   ];
-  const musicNote = !musicOn ? null : !tvKey ? 'Abre esta pantalla con el enlace del panel para que avance la música.' : music.keyError ? 'La llave de la pantalla cambió. Abre el enlace nuevo desde el panel.' : null;
-  const musicCard = musicOn ? <MusicCard now={data.music?.nowPlaying ?? null} upNext={data.music?.upNext ?? []} progress={music.progress} p={p} note={musicNote} /> : null;
   const qr = tv.showQr && origin.url ? (size: number, title?: string) => <QrCard url={origin.url} host={origin.host} p={p} size={size} title={title} /> : null;
   const offline = !online || !fetchOk;
 
@@ -341,9 +324,8 @@ export function TvClient({ tenant, tvKey }: { tenant: string; tvKey: string }) {
           <p className="mt-[1.2rem] max-w-[44rem] text-[1.8rem]" style={{ color: p.mute }}>
             {data.queueConfig.welcome || 'Escanea el código, saca tu turno y te llamamos por esta pantalla y en tu celular.'}
           </p>
-          {!portrait && (slides.length > 0 || musicCard) && (
-            <div className="mt-[2.2rem] grid h-[14rem] max-w-[62rem] gap-[1rem]" style={{ gridTemplateColumns: slides.length && musicCard ? '1fr 1fr' : '1fr' }}>
-              {musicCard}
+          {!portrait && slides.length > 0 && (
+            <div className="mt-[2.2rem] grid h-[14rem] max-w-[62rem] gap-[1rem]" style={{ gridTemplateColumns: '1fr' }}>
               {slides.length > 0 && <Rotator slides={slides} p={p} />}
             </div>
           )}
@@ -351,7 +333,6 @@ export function TvClient({ tenant, tvKey }: { tenant: string; tvKey: string }) {
         {qr && <div className={portrait ? 'mx-auto w-[28rem]' : 'w-[24rem] self-center'}>{qr(portrait ? 18 : 17)}</div>}
         {portrait && (
           <div className="grid min-h-0 grid-rows-[auto_auto] content-end gap-[1rem]">
-            {musicCard && <div className="h-[15rem]">{musicCard}</div>}
             {slides.length > 0 && <div className="h-[12rem]"><Rotator slides={slides} p={p} /></div>}
           </div>
         )}
@@ -458,8 +439,7 @@ export function TvClient({ tenant, tvKey }: { tenant: string; tvKey: string }) {
       </section>
     ) : null;
     const bottom = (
-      <div className="grid min-h-0 gap-[1rem]" style={{ gridTemplateColumns: [musicCard ? 'minmax(0,1.25fr)' : '', slides.length ? 'minmax(0,1fr)' : '', qr ? 'auto' : ''].filter(Boolean).join(' ') || '1fr' }}>
-        {musicCard}
+      <div className="grid min-h-0 gap-[1rem]" style={{ gridTemplateColumns: [slides.length ? 'minmax(0,1fr)' : '', qr ? 'auto' : ''].filter(Boolean).join(' ') || '1fr' }}>
         {slides.length > 0 && <Rotator slides={slides} p={p} />}
         {qr && <div className="w-[15rem]">{qr(10.5)}</div>}
       </div>
@@ -521,8 +501,6 @@ export function TvClient({ tenant, tvKey }: { tenant: string; tvKey: string }) {
         {isFull ? 'Salir de pantalla completa' : 'Pantalla completa'}
       </button>
 
-      {/* Reproductor de YouTube: invisible, la tarjeta muestra la portada */}
-      <div ref={music.hostRef} aria-hidden className="pointer-events-none fixed bottom-0 left-0 -z-10 h-[180px] w-[320px] overflow-hidden opacity-0" />
     </Shell>
   );
 }

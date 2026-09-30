@@ -187,7 +187,7 @@ async function seed() {
     );
   }
   // ---------------- Caja, productos, paquetes, premios, gastos y fila (demo) ----------------
-  await q(`UPDATE tenant_settings SET features = features || '{"music": true}'::jsonb, tv_config = tv_config || $2::jsonb WHERE tenant_id = $1`, [
+  await q(`UPDATE tenant_settings SET tv_config = tv_config || $2::jsonb WHERE tenant_id = $1`, [
     tenantId,
     JSON.stringify({ message: 'Martes y miércoles: corte + barba a S/ 35', promos: [{ title: 'Paquete 5 cortes', text: 'Paga 4 y el quinto va por la casa' }, { title: 'Invita a un amigo', text: 'Él tiene 10% y tú sumas puntos' }] }),
   ]);

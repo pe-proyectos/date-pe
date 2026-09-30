@@ -5,9 +5,8 @@ import { tenantConfig, FeatureOff, type TenantConfig } from '../lib/features.js'
 import { emitTenantEvent } from '../lib/realtime.js';
 import { pushToTicket, pushToUsers, saveSubscription, pushEnabled } from '../lib/push.js';
 import { env } from '../env.js';
-import { searchTracks, resolveTrack, youtubeSearchEnabled, type Track } from '../lib/youtube.js';
 
-// Fila virtual (QR en la puerta), pantalla de TV y música a pedido.
+// Fila virtual (QR en la puerta) y pantalla de TV.
 // Todo en hora de Lima; cada cambio se difunde por WebSocket al instante.
 const TODAY = "(now() AT TIME ZONE 'America/Lima')::date";
 const firstName = (n: string | null) => (n ?? '').trim().split(/\s+/)[0] || 'Cliente';
@@ -107,7 +106,7 @@ function estimate(tickets: TicketRow[], barbers: number, fallback: number) {
 }
 
 async function publicState(sql: Sql, cfg: TenantConfig) {
-  const [tickets, barbers, open, appts, songs, branding, staff, services] = await Promise.all([
+  const [tickets, barbers, open, appts, branding, staff, services] = await Promise.all([
     todayTickets(sql),
     activeBarbers(sql),
     isOpen(sql, cfg.queue.earlyMinutes),
@@ -119,7 +118,6 @@ async function publicState(sql: Sql, cfg: TenantConfig) {
             ORDER BY a.starts_at LIMIT 6`,
         )
       : Promise.resolve({ rows: [] }),
-    cfg.features.music ? musicState(sql) : Promise.resolve(null),
     sql('SELECT logo_url, cover_url, color_primary, tagline, instagram FROM tenant_branding'),
     sql('SELECT id, name, photo_url FROM staff WHERE is_bookable ORDER BY sort_order, name'),
     sql('SELECT id, name, duration_min, price_cents FROM services WHERE is_active AND NOT is_addon ORDER BY sort_order, name'),
@@ -138,10 +136,9 @@ async function publicState(sql: Sql, cfg: TenantConfig) {
     open,
     pushPublicKey: pushEnabled() ? env.vapidPublicKey : null,
     opensAt: opens.rows[0]?.opens ?? null,
-    features: { queue: cfg.features.queue, music: cfg.features.music, booking: cfg.features.booking },
+    features: { queue: cfg.features.queue, booking: cfg.features.booking },
     tv: cfg.tv,
     queueConfig: { allowStaffChoice: cfg.queue.allowStaffChoice, askPhone: cfg.queue.askPhone, welcome: cfg.queue.welcome, closedMessage: cfg.queue.closedMessage, maxWaiting: cfg.queue.maxWaiting },
-    musicConfig: { volume: cfg.music.volume, allowVotes: cfg.music.allowVotes, requireTicket: cfg.music.requireTicket, maxDurationMin: cfg.music.maxDurationMin, searchEnabled: youtubeSearchEnabled() },
     branding: branding.rows[0] ?? null,
     staff: staff.rows,
     services: services.rows,
@@ -153,18 +150,7 @@ async function publicState(sql: Sql, cfg: TenantConfig) {
       .map((t) => ({ id: t.id, number: t.number, name: firstName(t.name), status: t.status, staff: t.served_by_name ?? t.staff_name, calledAt: t.called_at })),
     waiting: waiting.map((t) => ({ id: t.id, number: t.number, name: firstName(t.name), service: t.service_name, staff: t.staff_name, etaMin: est.get(t.id)?.etaMin ?? null })),
     appointments: (appts.rows as Array<{ starts_at: Date; client_name: string | null; staff_name: string | null }>).map((a) => ({ at: a.starts_at, name: firstName(a.client_name), staff: a.staff_name })),
-    music: songs,
   };
-}
-
-// ------------------------------- Música -------------------------------
-async function musicState(sql: Sql) {
-  const { rows } = await sql<{ id: string; video_id: string; title: string; channel: string | null; thumbnail: string | null; duration_s: number | null; status: string; votes: number; requested_by: string; started_at: Date | null }>(
-    `SELECT id, video_id, title, channel, thumbnail, duration_s, status, votes, requested_by, started_at FROM song_requests
-      WHERE status IN ('queued','playing') AND created_at > now() - interval '18 hours'
-      ORDER BY (status = 'playing') DESC, votes DESC, created_at`,
-  );
-  return { nowPlaying: rows.find((r) => r.status === 'playing') ?? null, upNext: rows.filter((r) => r.status === 'queued').map((r) => ({ ...r, requested_by: firstName(r.requested_by) })) };
 }
 
 interface TicketLite { id: string; name: string; status: string; number: number; day: string; staff_id: string | null; service_id: string | null; delays: number }
@@ -251,9 +237,6 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
       const tickets = await todayTickets(sql, ['waiting', 'called', 'serving', 'done']);
       const est = estimate(tickets, await activeBarbers(sql), cfg.queue.fallbackMinutes);
       const me = tickets.find((x) => x.id === ticket.id);
-      const mySongs = cfg.features.music
-        ? (await sql('SELECT id, title, status FROM song_requests WHERE ticket_id = $1 ORDER BY created_at DESC LIMIT 3', [ticket.id])).rows
-        : [];
       return {
         ticket: {
           number: ticket.number,
@@ -268,7 +251,6 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
           etaMin: est.get(ticket.id)?.etaMin ?? null,
           canDelay: ticket.status === 'waiting' && ticket.delays < 2,
         },
-        songs: mySongs,
         tenant: { name: t.name, slug: t.slug },
         ...(await publicState(sql, cfg)),
       };
@@ -315,100 +297,7 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
     return { ok: true };
   });
 
-  // ============================ Música (público) ============================
-  app.get('/public/music/search', async (request, reply) => {
-    const t = tenantOf(request);
-    const { q } = z.object({ q: z.string().trim().min(2).max(80) }).parse(request.query);
-    const cfg = await withTenant(t.id, (sql) => tenantConfig(sql));
-    if (!cfg.features.music) return reply.code(403).send({ error: 'funcion_desactivada' });
-    // Un enlace pegado se resuelve directo, con o sin clave de YouTube
-    const direct = await resolveTrack(q);
-    if (direct) return { tracks: [direct], searchEnabled: youtubeSearchEnabled() };
-    const tracks = await searchTracks(q);
-    const blocked = cfg.music.blockedWords.map((w) => w.toLowerCase()).filter(Boolean);
-    return {
-      tracks: tracks.filter((tr) => (tr.durationS ?? 0) <= cfg.music.maxDurationMin * 60 && !blocked.some((w) => tr.title.toLowerCase().includes(w))),
-      searchEnabled: youtubeSearchEnabled(),
-    };
-  });
-
-  const requestBody = z.object({ token: z.string().optional(), name: z.string().max(40).optional(), videoId: z.string().optional(), query: z.string().max(200).optional() });
-  app.post('/public/music/request', async (request, reply) => {
-    const t = tenantOf(request);
-    const b = requestBody.parse(request.body);
-    const out = await withTenant(t.id, async (sql) => {
-      const cfg = await tenantConfig(sql);
-      if (!cfg.features.music) return { error: 'funcion_desactivada' };
-      let ticket: TicketLite | null = null;
-      if (b.token) ticket = await ticketByToken(sql, b.token);
-      if (cfg.music.requireTicket && (!ticket || !['waiting', 'called', 'serving'].includes(ticket.status))) return { error: 'solo_con_turno' };
-      const track: Track | null = await resolveTrack(b.videoId ?? b.query ?? '');
-      if (!track) return { error: 'cancion_no_encontrada' };
-      if (track.durationS && track.durationS > cfg.music.maxDurationMin * 60) return { error: 'cancion_muy_larga', max: cfg.music.maxDurationMin };
-      const blocked = cfg.music.blockedWords.map((w) => w.toLowerCase()).filter(Boolean);
-      if (blocked.some((w) => track.title.toLowerCase().includes(w))) return { error: 'cancion_no_permitida' };
-      const q = await sql<{ n: number; dup: number; mine: number }>(
-        `SELECT count(*)::int AS n,
-                count(*) FILTER (WHERE video_id = $1)::int AS dup,
-                count(*) FILTER (WHERE ticket_id = $2)::int AS mine
-           FROM song_requests WHERE status IN ('queued','playing') AND created_at > now() - interval '18 hours'`,
-        [track.videoId, ticket?.id ?? null],
-      );
-      if (q.rows[0].dup > 0) return { error: 'ya_esta_en_la_lista' };
-      if (q.rows[0].n >= cfg.music.maxQueue) return { error: 'lista_llena' };
-      if (ticket && q.rows[0].mine >= cfg.music.perTicket) return { error: 'ya_pediste', max: cfg.music.perTicket };
-      const { rows } = await sql(
-        `INSERT INTO song_requests (tenant_id, ticket_id, requested_by, video_id, title, channel, thumbnail, duration_s)
-         VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-        [ticket?.id ?? null, ticket?.name ?? b.name ?? 'Cliente', track.videoId, track.title.slice(0, 200), track.channel, track.thumbnail, track.durationS],
-      );
-      return { ok: true, id: rows[0].id, title: track.title };
-    });
-    if ('error' in out) return reply.code(out.error === 'funcion_desactivada' ? 403 : 409).send(out);
-    await emitTenantEvent(t.id, 'music_changed');
-    return reply.code(201).send(out);
-  });
-
-  app.post('/public/music/vote', async (request, reply) => {
-    const t = tenantOf(request);
-    const b = z.object({ songId: z.string().uuid(), voter: z.string().min(8).max(64) }).parse(request.body);
-    const out = await withTenant(t.id, async (sql) => {
-      const cfg = await tenantConfig(sql);
-      if (!cfg.features.music || !cfg.music.allowVotes) return { error: 'funcion_desactivada' };
-      const ins = await sql(`INSERT INTO song_votes (song_id, tenant_id, voter) VALUES ($1, current_setting('app.tenant_id')::uuid, $2) ON CONFLICT DO NOTHING RETURNING 1`, [b.songId, b.voter]);
-      if (!ins.rows.length) return { error: 'ya_votaste' };
-      await sql("UPDATE song_requests SET votes = votes + 1 WHERE id = $1 AND status = 'queued'", [b.songId]);
-      return { ok: true };
-    });
-    if ('error' in out) return reply.code(409).send(out);
-    await emitTenantEvent(t.id, 'music_changed');
-    return out;
-  });
-
-  // La TV avisa que terminó una canción (o que no se pudo reproducir) y pide la siguiente
-  app.post('/public/music/tv/advance', async (request, reply) => {
-    const t = tenantOf(request);
-    const b = z.object({ key: z.string().min(16), finishedId: z.string().uuid().optional(), failed: z.boolean().optional() }).parse(request.body);
-    const out = await withTenant(t.id, async (sql) => {
-      const k = await sql<{ tv_key: string }>('SELECT tv_key FROM tenant_settings');
-      if (k.rows[0]?.tv_key !== b.key) return { error: 'llave_invalida' };
-      if (b.finishedId) {
-        await sql(`UPDATE song_requests SET status = $2, played_at = now() WHERE id = $1 AND status IN ('playing','queued')`, [b.finishedId, b.failed ? 'skipped' : 'played']);
-      }
-      const playing = await sql<{ id: string }>("SELECT id FROM song_requests WHERE status = 'playing' AND created_at > now() - interval '18 hours' LIMIT 1");
-      if (playing.rows.length) return { ok: true };
-      await sql(
-        `UPDATE song_requests SET status = 'playing', started_at = now()
-          WHERE id = (SELECT id FROM song_requests WHERE status = 'queued' AND created_at > now() - interval '18 hours' ORDER BY votes DESC, created_at LIMIT 1)`,
-      );
-      return { ok: true };
-    });
-    if ('error' in out) return reply.code(403).send(out);
-    await emitTenantEvent(t.id, 'music_changed');
-    return out;
-  });
-
-  // ============================ Panel: fila y música ============================
+  // ============================ Panel: fila ============================
   app.register(async (panel) => {
     panel.addHook('preHandler', app.requireTenant);
 
@@ -513,44 +402,6 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
       await emitTenantEvent(t.id, 'queue_changed');
       if (b.status === 'done' || b.status === 'no_show' || b.status === 'cancelled') void notifyNearTickets(t.id);
       return { ok: true };
-    });
-
-    panel.get('/admin/music', async (request) => {
-      const t = tenantOf(request);
-      return withTenant(t.id, async (sql) => {
-        const state = await musicState(sql);
-        const played = await sql(`SELECT id, title, requested_by, status, played_at FROM song_requests WHERE status IN ('played','skipped','rejected') AND created_at > now() - interval '18 hours' ORDER BY played_at DESC NULLS LAST LIMIT 20`);
-        return { ...state, history: played.rows };
-      });
-    });
-    panel.post('/admin/music/:id/skip', async (request) => {
-      const t = tenantOf(request);
-      const id = (request.params as { id: string }).id;
-      await withTenant(t.id, (sql) => sql("UPDATE song_requests SET status = CASE WHEN status = 'playing' THEN 'skipped' ELSE 'rejected' END, played_at = now() WHERE id = $1", [id]));
-      await emitTenantEvent(t.id, 'music_changed', { skipped: id });
-      return { ok: true };
-    });
-    panel.post('/admin/music/clear', async (request) => {
-      const t = tenantOf(request);
-      await withTenant(t.id, (sql) => sql("UPDATE song_requests SET status = 'rejected', played_at = now() WHERE status = 'queued'"));
-      await emitTenantEvent(t.id, 'music_changed');
-      return { ok: true };
-    });
-    // El dueño también puede poner una canción (sin turno)
-    panel.post('/admin/music', async (request, reply) => {
-      const t = tenantOf(request);
-      const b = z.object({ query: z.string().min(2).max(200) }).parse(request.body);
-      const track = await resolveTrack(b.query);
-      if (!track) return reply.code(404).send({ error: 'cancion_no_encontrada' });
-      await withTenant(t.id, (sql) =>
-        sql(
-          `INSERT INTO song_requests (tenant_id, requested_by, video_id, title, channel, thumbnail, duration_s, votes)
-           VALUES (current_setting('app.tenant_id')::uuid, 'La barbería', $1, $2, $3, $4, $5, 1000)`,
-          [track.videoId, track.title.slice(0, 200), track.channel, track.thumbnail, track.durationS],
-        ),
-      );
-      await emitTenantEvent(t.id, 'music_changed');
-      return reply.code(201).send({ ok: true });
     });
 
     panel.post('/admin/tv/rotate-key', async (request) => {

@@ -452,7 +452,8 @@ CREATE INDEX IF NOT EXISTS idx_receipts_tenant ON receipts (tenant_id, created_a
 ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS features jsonb NOT NULL DEFAULT '{}';
 ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS tv_config jsonb NOT NULL DEFAULT '{}';
 ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS queue_config jsonb NOT NULL DEFAULT '{}';
-ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS music_config jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE tenant_settings DROP COLUMN IF EXISTS music_config;
+UPDATE tenant_settings SET features = features - 'music', tv_config = tv_config - 'showMusic' WHERE features ? 'music' OR tv_config ? 'showMusic';
 ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS pos_config jsonb NOT NULL DEFAULT '{}';
 ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS marketing_config jsonb NOT NULL DEFAULT '{}';
 ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS google_review_url text;
@@ -631,7 +632,7 @@ CREATE TABLE IF NOT EXISTS staff_advances (
 );
 
 -- ===========================================================================
--- Fila virtual, pantalla de TV y música a pedido
+-- Fila virtual y pantalla de TV
 -- ===========================================================================
 CREATE TABLE IF NOT EXISTS queue_tickets (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -664,29 +665,9 @@ ALTER TABLE queue_tickets ADD COLUMN IF NOT EXISTS client_id uuid REFERENCES cli
 ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS tv_key text NOT NULL DEFAULT replace(gen_random_uuid()::text, '-', '');
 CREATE INDEX IF NOT EXISTS idx_queue_day ON queue_tickets (tenant_id, day, status);
 
-CREATE TABLE IF NOT EXISTS song_requests (
-  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id    uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  ticket_id    uuid REFERENCES queue_tickets(id) ON DELETE SET NULL,
-  requested_by text NOT NULL,
-  video_id     text NOT NULL,
-  title        text NOT NULL,
-  channel      text,
-  thumbnail    text,
-  duration_s   int,
-  status       text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','playing','played','skipped','rejected')),
-  votes        int NOT NULL DEFAULT 0,
-  created_at   timestamptz NOT NULL DEFAULT now(),
-  started_at   timestamptz,
-  played_at    timestamptz
-);
-CREATE INDEX IF NOT EXISTS idx_songs_queue ON song_requests (tenant_id, status, votes DESC, created_at);
-CREATE TABLE IF NOT EXISTS song_votes (
-  song_id  uuid NOT NULL REFERENCES song_requests(id) ON DELETE CASCADE,
-  tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  voter    text NOT NULL,
-  PRIMARY KEY (song_id, voter)
-);
+-- La música a pedido se retiró: se eliminan sus tablas
+DROP TABLE IF EXISTS song_votes;
+DROP TABLE IF EXISTS song_requests;
 
 -- ===========================================================================
 -- Ficha del cliente
@@ -899,7 +880,7 @@ DECLARE
     'appointment_services','payments','reviews','promotions','gift_cards','membership_plans',
     'waitlist','receipts',
     'cash_sessions','cash_movements','sales','sale_items','sale_payments','products','stock_movements',
-    'expenses','staff_payouts','staff_advances','queue_tickets','song_requests','song_votes',
+    'expenses','staff_payouts','staff_advances','queue_tickets',
     'client_photos','packages','client_packages','rewards','reward_redemptions','client_memberships',
     'campaigns','campaign_sends','push_subscriptions'
   ];

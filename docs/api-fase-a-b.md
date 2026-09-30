@@ -1,17 +1,16 @@
 # API fase A y B (contrato para el frontend)
 
 Rutas bajo `/api`. Panel: `useApi` en `app/t/[tenant]/admin/_parts/api.ts` (pone token y `X-Tenant-Slug`). Público: `X-Tenant-Slug` o `?tenant=`. Montos en céntimos. Hora de Lima (UTC-5 fijo).
-Tiempo real: WebSocket `wss://date.pe/api/ws?tenant=<slug>` recibe `{ type, data }` con `type` en: `queue_changed` (data.announce = { number, name, staff } cuando se llama a alguien), `music_changed`, `config_changed`, `sale_created`, `sale_voided`, `cash_changed`, `availability_changed`. Al recibir, volver a pedir el estado.
+Tiempo real: WebSocket `wss://date.pe/api/ws?tenant=<slug>` recibe `{ type, data }` con `type` en: `queue_changed` (data.announce = { number, name, staff } cuando se llama a alguien), `config_changed`, `sale_created`, `sale_voided`, `cash_changed`, `availability_changed`. Al recibir, volver a pedir el estado.
 Subidas: `uploadImage(file, folder, headers)` de `lib/upload.ts` con carpetas `staff|services|branding|gallery|clients|products|receipts|expenses|tv` (PDF solo en receipts y expenses; las fotos se comprimen solas).
 Push: `lib/push.ts` `subscribePush(publicKey)` usa `/sw.js` (ya existe, no editar).
 
 ## Funciones activables y configuración (owner/manager)
-- `GET /admin/features` -> `{ features, tv, queue, music, pos, marketing, googleReviewUrl, youtubeSearch, whatsappReady, pushReady }`
-- `PUT /admin/features` `{ features?: {clave: bool}, tv?: {...}, queue?: {...}, music?: {...}, pos?: {...}, marketing?: {...}, googleReviewUrl? }` (merge parcial; la TV se actualiza sola)
-- features: `booking, queue, tv, music, pos, tips, products, expenses, payroll, packages, rewards, giftcards_online, memberships_sale, marketing, client_photos, push, whatsapp`
-- tv: `theme 'dark'|'light'|'brand', layout 'split'|'queue'|'minimal', showQueue, showAppointments, showMusic, showQr, showClock, showPromos, announceVoice, chime, message, promos [{title,text?,image?}], backgroundUrl, scale`
+- `GET /admin/features` -> `{ features, tv, queue, pos, marketing, googleReviewUrl, whatsappReady, pushReady }`
+- `PUT /admin/features` `{ features?: {clave: bool}, tv?: {...}, queue?: {...}, pos?: {...}, marketing?: {...}, googleReviewUrl? }` (merge parcial; la TV se actualiza sola)
+- features: `booking, queue, tv, pos, tips, products, expenses, payroll, packages, rewards, giftcards_online, memberships_sale, marketing, client_photos, push, whatsapp`
+- tv: `theme 'dark'|'light'|'brand', layout 'split'|'queue'|'minimal', showQueue, showAppointments, showQr, showClock, showPromos, announceVoice, chime, message, promos [{title,text?,image?}], backgroundUrl, scale`
 - queue: `maxWaiting, askPhone, allowStaffChoice, noShowMinutes, fallbackMinutes, earlyMinutes, welcome, closedMessage`
-- music: `maxQueue, perTicket, allowVotes, maxDurationMin, requireTicket, blockedWords [], volume`
 - pos: `tipPresets [0,10,15,20], methods [...], requireSession, askReceipt`
 - marketing: `birthdayEnabled, birthdayDiscountPercent, winbackEnabled, winbackDays, winbackDiscountPercent, membershipRenewReminder`
 - `GET /admin/me` -> `{ me: { id, name, email, role: owner|manager|cashier|staff, staffId }, features, pushPublicKey }` (usar para armar el menú por rol)
@@ -22,23 +21,18 @@ Push: `lib/push.ts` `subscribePush(publicKey)` usa `/sw.js` (ya existe, no edita
 - `POST /admin/team/invite { email, role: manager|cashier|staff, staffId? }` (staff requiere staffId) -> `{ ok, url }` (409 `ya_es_parte_del_equipo`)
 - `PATCH /admin/team/:userId { role?, staffId? }` · `DELETE /admin/team/:userId` · `DELETE /admin/team/invites/:email`
 - Público: `GET /team/invite?token=` -> `{ invite: { email, role, tenant_name, staff_name, has_account } }` · `POST /team/invite/accept { token, name, password }` -> `{ token, user }` (guardar token como en el login del panel). Página: `/admin/unirme?token=`
-- Permisos: cashier = caja, fila, música, clientes, agenda; staff (barbero) = su día, su agenda, fila, música, cobrar. 403 `sin_permiso`.
+- Permisos: cashier = caja, fila, clientes, agenda; staff (barbero) = su día, su agenda, fila, cobrar. 403 `sin_permiso`.
 - `GET /admin/me/day` -> `{ staffId, appointments: [{ id, starts_at, status, client_name, client_phone, preferences, allergies, service_name, last_photo }], tickets, earnings: { services_cents, commission_cents, tips_cents, clients } }`
 
-## Fila virtual, TV y música
+## Fila virtual y TV
 Público:
-- `GET /public/queue` -> `{ tenant, open, opensAt, pushPublicKey, features, tv, queueConfig, musicConfig: { allowVotes, requireTicket, maxDurationMin, searchEnabled }, branding, staff, services, barbersNow, waitingCount, estimatedWaitMin, serving: [{ number, name, status, staff }], waiting: [{ number, name, service, staff, etaMin }], appointments: [{ at, name, staff }], music: { nowPlaying, upNext: [{ id, video_id, title, channel, thumbnail, votes, requested_by }] } }`
+- `GET /public/queue` -> `{ tenant, open, opensAt, pushPublicKey, features, tv, queueConfig, branding, staff, services, barbersNow, waitingCount, estimatedWaitMin, serving: [{ number, name, status, staff }], waiting: [{ number, name, service, staff, etaMin }], appointments: [{ at, name, staff }] }`
 - `POST /public/queue/join { name, phone?, email?, serviceId?, staffId? }` -> `{ token, number, existing? }` (409 `cerrado` con message, `fila_llena`, `falta_celular`)
-- `GET /public/queue/ticket?token=` -> `{ ticket: { number, name, status waiting|called|serving|done|cancelled|no_show, service, staff, servedBy, position, ahead, etaMin, canDelay }, songs, ...mismo estado público }`
+- `GET /public/queue/ticket?token=` -> `{ ticket: { number, name, status waiting|called|serving|done|cancelled|no_show, service, staff, servedBy, position, ahead, etaMin, canDelay }, ...mismo estado público }`
 - `POST /public/queue/ticket/cancel { token }` · `POST /public/queue/ticket/delay { token }` (409 `eres_el_ultimo`, `no_se_puede`) · `POST /public/queue/ticket/push { token, subscription }`
-- `GET /public/music/search?q=` -> `{ tracks: [{ videoId, title, channel, thumbnail, durationS }], searchEnabled }` (sin clave de YouTube solo resuelve enlaces pegados)
-- `POST /public/music/request { token, query | videoId }` -> 201 (409 `solo_con_turno`, `ya_esta_en_la_lista`, `lista_llena`, `ya_pediste`, `cancion_muy_larga`, `cancion_no_permitida`, `cancion_no_encontrada`)
-- `POST /public/music/vote { songId, voter }` (voter = id del dispositivo guardado en localStorage)
-- TV: `POST /public/music/tv/advance { key, finishedId?, failed? }` (la TV lo llama al empezar y cuando termina o falla una canción; key viene en la URL de la TV `?k=`)
 Panel:
 - `GET /admin/queue` -> `{ tickets: [...con phone, status, served_by_name, price_cents, sale_id], tvKey, features, stats: { atendidos, no_vinieron, espera_promedio_min }, estimatedWaitMin }`
 - `POST /admin/queue { name, phone?, serviceId?, staffId? }` (recepción) · `POST /admin/queue/next { staffId? }` (404 `nadie_esperando`) · `POST /admin/queue/:id/recall` · `PATCH /admin/queue/:id { status?, staffId?, servedBy? }`
-- `GET /admin/music` -> `{ nowPlaying, upNext, history }` · `POST /admin/music { query }` · `POST /admin/music/:id/skip` · `POST /admin/music/clear` · `POST /admin/tv/rotate-key`
 - URL de la TV: `https://{slug}.date.pe/tv?k=<tvKey>`. QR de la fila: `https://{slug}.date.pe/fila`. Ticket: `/turno?t=<token>`.
 
 ## Caja
