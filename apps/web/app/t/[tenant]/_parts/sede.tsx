@@ -73,7 +73,7 @@ export function ReservarLink({ servicio, barbero, className, style, children, ..
 }
 
 /** Selector de sede bajo la portada: filtra el equipo y lleva la sede al reservar. */
-export function SedePicker({ accent, onAccent }: { accent: string; onAccent: string }) {
+export function SedePicker() {
   const { locations, multi, sede, setSede } = useSede();
   const scroller = useRef<HTMLDivElement>(null);
   const current = locations.find((l) => l.id === sede) ?? null;
@@ -85,38 +85,26 @@ export function SedePicker({ accent, onAccent }: { accent: string; onAccent: str
   }, [sede]);
 
   if (!multi) return null;
-  const chip = (active: boolean) =>
-    `flex min-h-[44px] shrink-0 snap-start flex-col justify-center rounded-2xl border px-4 py-2 text-left transition-colors ${active ? 'border-transparent' : 'border-line hover:border-ink'}`;
-
   return (
-    <section aria-label="Elige tu sede" className="mt-8">
-      <div className="flex items-baseline justify-between gap-4">
-        <h2 className="text-[15px] font-semibold">Elige tu sede</h2>
-        <a href="#sedes" className="shrink-0 text-[14px] text-mute underline-offset-4 hover:text-ink hover:underline">
-          Ver {locations.length} sedes
-        </a>
-      </div>
-      <div ref={scroller} className="no-scrollbar -mx-5 mt-3 flex snap-x snap-mandatory scroll-px-5 gap-2 overflow-x-auto px-5 md:mx-0 md:flex-wrap md:px-0">
-        <button type="button" aria-pressed={sede === null} onClick={() => setSede(null)} className={chip(sede === null)} style={sede === null ? { background: accent, color: onAccent } : undefined}>
-          <span className="text-[15px] font-medium">Todas</span>
+    <section aria-label="Elige tu sede">
+      <p className="s-eyebrow">Elige tu sede</p>
+      <div ref={scroller} className="s-no-scrollbar -mx-5 mt-3 flex snap-x snap-mandatory scroll-px-5 gap-2 overflow-x-auto px-5 md:mx-0 md:flex-wrap md:px-0">
+        <button type="button" aria-pressed={sede === null} onClick={() => setSede(null)} className="s-chip shrink-0 snap-start">
+          Todas
         </button>
-        {locations.map((l) => {
-          const active = l.id === sede;
-          return (
-            <button key={l.id} type="button" aria-pressed={active} onClick={() => setSede(l.id)} className={chip(active)} style={active ? { background: accent, color: onAccent } : undefined}>
-              <span className="whitespace-nowrap text-[15px] font-medium">{l.name}</span>
-              {l.district && <span className={`whitespace-nowrap text-[12px] ${active ? 'opacity-80' : 'text-mute'}`}>{l.district}</span>}
-            </button>
-          );
-        })}
+        {locations.map((l) => (
+          <button key={l.id} type="button" aria-pressed={l.id === sede} onClick={() => setSede(l.id)} className="s-chip shrink-0 snap-start">
+            {l.name}
+          </button>
+        ))}
       </div>
       {current && (
-        <div className="mt-3 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-[14px] text-mute">
+        <div className="s-mute mt-3 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-[14px]">
           <span className="flex min-w-0 items-center gap-1.5">
             <MapPin size={15} strokeWidth={1.75} className="shrink-0" />
             <span className="truncate">{[current.address, current.district].filter(Boolean).join(', ') || current.name}</span>
           </span>
-          <a href={current.maps} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[32px] items-center gap-1.5 font-medium text-ink underline-offset-4 hover:underline">
+          <a href={current.maps} target="_blank" rel="noopener noreferrer" className="s-ink inline-flex min-h-[32px] items-center gap-1.5 font-semibold underline-offset-4 hover:underline">
             <Navigation size={14} strokeWidth={1.75} /> Cómo llegar
           </a>
         </div>

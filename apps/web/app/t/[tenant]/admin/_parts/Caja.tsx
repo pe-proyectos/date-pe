@@ -570,7 +570,7 @@ function OfflineBar({ api, tenant, offline, onSynced }: { api: Api; tenant: stri
           <CloudUpload size={18} strokeWidth={1.75} className="shrink-0 text-mute" />
           <p className="min-w-0 flex-1 text-[14px]">
             {pending.length === 1 ? '1 venta por subir' : `${pending.length} ventas por subir`}
-            <span className="block truncate text-mute">{pending.map((s) => s.label).join(' · ')}</span>
+            <span className="block truncate text-mute">{pending.map((s) => s.label).join(', ')}</span>
           </p>
           <Btn variant="secondary" onClick={() => void sync(true)} disabled={syncing}>{syncing ? <Loader2 size={16} className="animate-spin" /> : <CloudUpload size={16} strokeWidth={1.75} />} Subir ahora</Btn>
         </div>

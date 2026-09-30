@@ -26,6 +26,9 @@ export async function apiFetch<T = unknown>(path: string, opts: Opts = {}): Prom
   return res.json() as Promise<T>;
 }
 
+export type SiteMood = 'clasica' | 'urbana' | 'minimal' | 'lujo' | 'vintage';
+export interface SiteTheme { mood?: SiteMood; hero?: 'imagen' | 'tipografia'; headline?: string; marquee?: boolean; since?: number | null }
+
 export interface TenantSite {
   tenant: { slug: string; name: string; is_demo?: boolean; /** false = suscripción vencida: no acepta reservas. */ available?: boolean };
   branding: {
@@ -41,6 +44,8 @@ export interface TenantSite {
     gallery?: Array<{ url: string; caption?: string | null; staffId?: string | null }> | null;
     /** false = sin la mención "Reservas con date.pe" en el pie. */
     show_powered_by?: boolean | null;
+    /** Estilo de la página pública elegido en el panel. */
+    site_theme?: SiteTheme | null;
   } | null;
   /** Funciones activas de la barbería (fila, gift cards en línea, paquetes...). */
   features?: Partial<Record<'booking' | 'queue' | 'tv' | 'pos' | 'tips' | 'products' | 'packages' | 'rewards' | 'giftcards_online' | 'memberships_sale' | 'marketing' | 'client_photos' | 'push' | 'whatsapp', boolean>>;

@@ -1,0 +1,166 @@
+/* Página pública de cada barbería: todo sale de las variables del ambiente (--s-*). */
+.site {
+  background: var(--s-bg);
+  color: var(--s-ink);
+  -webkit-font-smoothing: antialiased;
+}
+.site ::selection { background: var(--accent); color: var(--on-accent); }
+
+.s-display {
+  font-family: var(--s-display);
+  font-weight: var(--s-display-weight);
+  text-transform: var(--s-display-case);
+  letter-spacing: var(--s-display-tracking);
+  line-height: 0.95;
+  text-wrap: balance;
+}
+.s-display em { font-style: italic; color: var(--accent-text); }
+.site[data-mood='urbana'] .s-display em { font-style: normal; color: var(--accent-text); }
+.site[data-mood='minimal'] .s-display em { font-style: normal; color: var(--s-mute); }
+
+.s-mute { color: var(--s-mute); }
+.s-ink { color: var(--s-ink); }
+.s-accent-text { color: var(--accent-text); }
+.s-line { border-color: var(--s-line); }
+.s-divide > * + * { border-top: 1px solid var(--s-line); }
+.s-surface { background: var(--s-surface); }
+.s-bg { background: var(--s-bg); }
+.s-radius { border-radius: var(--s-radius); }
+
+.s-eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--s-mute);
+}
+
+.s-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 52px;
+  padding: 0 1.6rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 16px;
+  font-weight: 600;
+  transition: transform 0.2s var(--ease-out, ease), filter 0.2s;
+}
+.s-btn:hover { filter: brightness(1.08); }
+.s-btn:active { transform: scale(0.98); }
+.site[data-mood='urbana'] .s-btn,
+.site[data-mood='vintage'] .s-btn { text-transform: uppercase; letter-spacing: 0.08em; font-size: 14px; }
+.site[data-mood='lujo'] .s-btn { border-radius: 2px; letter-spacing: 0.12em; text-transform: uppercase; font-size: 13px; }
+
+.s-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 52px;
+  padding: 0 1.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--s-line);
+  font-size: 16px;
+  font-weight: 500;
+  transition: border-color 0.2s, background 0.2s;
+}
+.s-btn-ghost:hover { border-color: currentColor; }
+.site[data-mood='lujo'] .s-btn-ghost { border-radius: 2px; }
+
+.s-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 40px;
+  padding: 0 1rem;
+  border-radius: 999px;
+  background: var(--s-surface);
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s;
+}
+.s-chip[aria-current='true'],
+.s-chip[aria-pressed='true'] { background: var(--s-ink); color: var(--s-bg); }
+
+/* Prefijo del nombre ("Barbería") sobre el nombre grande */
+.s-prefix { font-family: var(--s-display); font-style: italic; font-size: clamp(1.25rem, 2.4vw, 1.75rem); text-transform: none; letter-spacing: 0; opacity: 0.9; line-height: 1.1; }
+.site[data-mood='urbana'] .s-prefix,
+.site[data-mood='minimal'] .s-prefix { font-family: var(--font-sans); font-style: normal; font-size: 13px; font-weight: 600; letter-spacing: 0.32em; text-transform: uppercase; opacity: 0.8; }
+.site[data-mood='vintage'] .s-prefix { font-style: italic; text-transform: none; }
+
+/* "La casa" en ambientes de letras grandes: la historia se lee mejor en tipo normal */
+.site[data-mood='urbana'] .s-casa { font-size: clamp(1.9rem, 3.6vw, 3rem); line-height: 1.05; }
+
+/* Nombre de cada servicio en la carta */
+.s-svc { font-family: var(--s-display); font-weight: var(--s-display-weight); text-transform: var(--s-display-case); letter-spacing: var(--s-display-tracking); font-size: 22px; line-height: 1.15; }
+.site[data-mood='urbana'] .s-svc { font-size: 26px; letter-spacing: 0.01em; }
+.site[data-mood='lujo'] .s-svc { font-size: 26px; }
+.site[data-mood='minimal'] .s-svc { font-family: inherit; font-weight: 600; font-size: 19px; letter-spacing: -0.01em; }
+.site[data-mood='vintage'] .s-svc { font-size: 21px; letter-spacing: 0.04em; }
+
+/* Puntos guía de carta de precios */
+.s-leader {
+  flex: 1;
+  min-width: 1.5rem;
+  margin: 0 0.6rem;
+  border-bottom: 1.5px dotted var(--s-line);
+  transform: translateY(-0.28em);
+}
+
+/* Sobre foto oscura el acento se lee en blanco */
+.s-on-photo .s-display em { color: #fff; opacity: 0.92; }
+
+/* La foto de portada y la del cierre toman el carácter del ambiente */
+.site[data-mood='urbana'] .s-mood-photo { filter: grayscale(0.55) contrast(1.12) brightness(0.92); }
+.site[data-mood='lujo'] .s-mood-photo { filter: saturate(0.75) brightness(0.82) contrast(1.05); }
+.site[data-mood='vintage'] .s-mood-photo { filter: sepia(0.28) saturate(0.85) contrast(1.02); }
+.site[data-mood='clasica'] .s-mood-photo { filter: saturate(0.92) sepia(0.06); }
+
+/* Portada */
+.s-hero-media { animation: s-kenburns 22s ease-out both; transform-origin: 60% 40%; }
+@keyframes s-kenburns { from { transform: scale(1.12); } to { transform: scale(1); } }
+.s-rise { animation: s-rise 900ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.s-rise-2 { animation-delay: 120ms; }
+.s-rise-3 { animation-delay: 240ms; }
+.s-rise-4 { animation-delay: 360ms; }
+@keyframes s-rise { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+
+/* Cinta de servicios */
+.s-marquee { display: flex; width: max-content; animation: s-marquee 38s linear infinite; }
+.s-marquee:hover { animation-play-state: paused; }
+@keyframes s-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+/* Textura de papel en los ambientes cálidos */
+.site[data-mood='vintage']::before,
+.site[data-mood='clasica']::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+.site[data-mood='clasica']::before { opacity: 0.035; }
+
+/* Franja de barbería (poste) para portadas tipográficas */
+.s-pole {
+  background: repeating-linear-gradient(-45deg, var(--accent) 0 14px, transparent 14px 28px);
+  opacity: 0.9;
+}
+
+.s-img-zoom img { transition: transform 900ms cubic-bezier(0.16, 1, 0.3, 1); }
+.s-img-zoom:hover img { transform: scale(1.04); }
+
+.s-no-scrollbar::-webkit-scrollbar { display: none; }
+.s-no-scrollbar { scrollbar-width: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .s-hero-media, .s-rise, .s-marquee { animation: none !important; }
+  .s-img-zoom img { transition: none; }
+}

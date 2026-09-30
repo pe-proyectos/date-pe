@@ -348,14 +348,24 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     about: z.string().nullable().optional(),
     instagram: z.string().nullable().optional(),
     whatsapp: z.string().nullable().optional(),
-      showPoweredBy: z.boolean().optional(),
+    showPoweredBy: z.boolean().optional(),
+    siteTheme: z
+      .object({
+        mood: z.enum(['clasica', 'urbana', 'minimal', 'lujo', 'vintage']).optional(),
+        hero: z.enum(['imagen', 'tipografia']).optional(),
+        headline: z.string().trim().max(80).optional(),
+        marquee: z.boolean().optional(),
+        since: z.number().int().min(1900).max(2100).nullable().optional(),
+      })
+      .optional(),
     gallery: z.array(z.object({ url: z.string().max(500), caption: z.string().max(120).optional(), staffId: z.string().uuid().nullable().optional() })).max(60).optional(),
 });
   // Solo galería o mención de date.pe: no reescribe la marca
   app.patch('/admin/branding', async (request) => {
-    const b = brandingBody.pick({ gallery: true, showPoweredBy: true }).parse(request.body);
+    const b = brandingBody.pick({ gallery: true, showPoweredBy: true, siteTheme: true }).parse(request.body);
     return withTenant(tid(request), async (sql) => {
       if (b.gallery !== undefined) await sql('UPDATE tenant_branding SET gallery = $1::jsonb', [JSON.stringify(b.gallery)]);
+      if (b.siteTheme !== undefined) await sql('UPDATE tenant_branding SET site_theme = site_theme || $1::jsonb, updated_at = now()', [JSON.stringify(b.siteTheme)]);
       if (b.showPoweredBy !== undefined) await sql('UPDATE tenant_branding SET show_powered_by = $1', [b.showPoweredBy]);
       return (await sql('SELECT * FROM tenant_branding')).rows[0];
     });

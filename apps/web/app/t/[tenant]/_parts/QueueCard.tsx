@@ -8,7 +8,7 @@ import { API_BASE_CLIENT } from '@/lib/config';
 interface QueueState { open: boolean; opensAt: string | null; waitingCount: number; estimatedWaitMin: number | null }
 
 /** "¿Sin cita? Saca tu turno": cuántas personas esperan ahora, se actualiza cada 30 segundos. */
-export function QueueCard({ tenant, accent, onAccent }: { tenant: string; accent: string; onAccent: string }) {
+export function QueueCard({ tenant }: { tenant: string }) {
   const [q, setQ] = useState<QueueState | null>(null);
 
   useEffect(() => {
@@ -39,18 +39,27 @@ export function QueueCard({ tenant, accent, onAccent }: { tenant: string; accent
   }
 
   return (
-    <Link href="/fila" className="group flex items-center gap-4 rounded-xl border border-line p-4 transition-colors hover:border-ink">
-      <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full" style={{ background: accent, color: onAccent }}>
-        <UsersRound size={20} strokeWidth={1.75} />
+    <Link href="/fila" className="s-surface s-radius group flex h-full flex-col justify-between gap-8 p-6 md:p-8">
+      <div className="flex items-center justify-between gap-3">
+        <span className="s-eyebrow">Sin cita</span>
         {q?.open && (
-          <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-white bg-ok" aria-hidden />
+          <span className="flex items-center gap-2 text-[13px] font-semibold">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#16a34a] opacity-60 motion-reduce:hidden" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#16a34a]" />
+            </span>
+            En vivo
+          </span>
         )}
+      </div>
+      <div>
+        <p className="s-display text-[34px] md:text-[40px]">Saca tu turno</p>
+        <p className="tnum s-mute mt-2 text-[16px]" aria-live="polite">{status}</p>
+      </div>
+      <span className="flex items-center gap-2 text-[15px] font-semibold">
+        <UsersRound size={18} strokeWidth={1.75} /> Entrar a la fila virtual
+        <ChevronRight size={18} strokeWidth={1.75} className="nudge-x" />
       </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[16px] font-medium tracking-[-0.01em]">¿Sin cita? Saca tu turno</span>
-        <span className="tnum block text-[14px] text-mute" aria-live="polite">{status}</span>
-      </span>
-      <ChevronRight size={18} strokeWidth={1.75} className="nudge-x shrink-0 text-mute" />
     </Link>
   );
 }

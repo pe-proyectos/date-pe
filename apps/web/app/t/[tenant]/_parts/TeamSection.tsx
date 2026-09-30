@@ -30,63 +30,96 @@ export function TeamSection({ staff, available }: { staff: Staff[]; available: b
     if (box) box.scrollBy({ left: dir * box.clientWidth * 0.8, behavior: 'smooth' });
   };
 
+  const solo = shown.length === 1 ? shown[0] : null;
   return (
-    <section id="equipo" className="scroll-mt-24 border-b border-line py-10">
-      <div className="flex items-end justify-between gap-4">
-        <div className="min-w-0">
-          <h2 className="text-[26px] font-semibold tracking-[-0.03em]">Equipo</h2>
-          <p className="mt-0.5 text-[15px] text-mute">
-            {shown.length} {shown.length === 1 ? 'barbero' : 'barberos'}
-            {sedeName ? ` en ${sedeName}` : multi ? ` en ${locations.length} sedes` : ''}
-          </p>
+    <div>
+      {multi && (
+        <p className="s-mute mt-3 text-[15px]">
+          {shown.length} {shown.length === 1 ? 'barbero' : 'barberos'}
+          {sedeName ? ` en ${sedeName}` : ` en ${locations.length} sedes`}
+        </p>
+      )}
+      {big && (
+        <div className="-mt-12 mb-6 hidden justify-end gap-2 md:flex">
+          <button type="button" onClick={() => nudge(-1)} aria-label="Anteriores" className="s-line flex h-11 w-11 items-center justify-center rounded-full border hover:border-[var(--s-ink)]">
+            <ChevronLeft size={18} strokeWidth={1.75} />
+          </button>
+          <button type="button" onClick={() => nudge(1)} aria-label="Siguientes" className="s-line flex h-11 w-11 items-center justify-center rounded-full border hover:border-[var(--s-ink)]">
+            <ChevronRight size={18} strokeWidth={1.75} />
+          </button>
         </div>
-        {big && (
-          <div className="hidden shrink-0 gap-2 md:flex">
-            <button type="button" onClick={() => nudge(-1)} aria-label="Anteriores" className="flex h-10 w-10 items-center justify-center rounded-full border border-line hover:border-ink">
-              <ChevronLeft size={18} strokeWidth={1.75} />
-            </button>
-            <button type="button" onClick={() => nudge(1)} aria-label="Siguientes" className="flex h-10 w-10 items-center justify-center rounded-full border border-line hover:border-ink">
-              <ChevronRight size={18} strokeWidth={1.75} />
-            </button>
-          </div>
-        )}
-      </div>
+      )}
 
       {shown.length === 0 ? (
-        <div className="mt-6 rounded-xl bg-field p-6 text-center">
-          <UsersRound size={22} strokeWidth={1.75} className="mx-auto text-mute" />
-          <p className="mt-2 text-[15px] text-mute">Aún no hay barberos publicados en {sedeName ?? 'esta sede'}.</p>
-          <button type="button" onClick={() => setSede(null)} className="mt-4 inline-flex min-h-[44px] items-center rounded-full border border-line bg-white px-5 text-[15px] font-medium hover:border-ink">
+        <div className="s-surface s-radius mt-8 p-8 text-center">
+          <UsersRound size={22} strokeWidth={1.75} className="s-mute mx-auto" />
+          <p className="s-mute mt-2 text-[15px]">Aún no hay barberos publicados en {sedeName ?? 'esta sede'}.</p>
+          <button type="button" onClick={() => setSede(null)} className="s-btn-ghost mt-4 !min-h-[44px] !text-[15px]">
             Ver todas las sedes
           </button>
         </div>
+      ) : solo ? (
+        <Solo b={solo} available={available} sede={sede} />
       ) : big ? (
         <>
-          <div ref={scroller} className="no-scrollbar -mx-5 mt-6 flex snap-x snap-mandatory scroll-px-5 gap-4 overflow-x-auto px-5 pb-2 md:mx-0 md:scroll-px-0 md:px-0">
+          <div ref={scroller} className="s-no-scrollbar -mx-5 mt-8 flex snap-x snap-mandatory scroll-px-5 gap-4 overflow-x-auto px-5 pb-2 md:mx-0 md:scroll-px-0 md:px-0">
             {shown.map((b) => (
-              <div key={b.id} className="w-[44%] min-w-[148px] max-w-[220px] shrink-0 snap-start sm:w-[30%]">
+              <div key={b.id} className="w-[62%] min-w-[180px] max-w-[280px] shrink-0 snap-start sm:w-[32%] lg:w-[23%]">
                 <Card b={b} available={available} sede={sede} locations={multi ? locations : null} chips={2} />
               </div>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={() => setSheet(true)}
-            className="mt-6 inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-full border border-ink px-6 text-[15px] font-medium transition-colors hover:bg-ink hover:text-white sm:w-auto"
-          >
+          <button type="button" onClick={() => setSheet(true)} className="s-btn-ghost mt-8 w-full sm:w-auto">
             <UsersRound size={17} strokeWidth={1.75} /> Ver todo el equipo ({staff.length})
           </button>
         </>
       ) : (
-        <div className={`mt-6 grid grid-cols-2 gap-x-4 gap-y-6 ${shown.length === 3 ? 'sm:grid-cols-3' : shown.length === 4 ? 'sm:grid-cols-4' : ''}`}>
+        <div className={`mt-8 grid grid-cols-2 gap-x-4 gap-y-8 md:gap-x-6 ${shown.length === 3 ? 'md:grid-cols-3' : shown.length >= 4 ? 'md:grid-cols-4' : ''}`}>
           {shown.map((b) => (
-            <Card key={b.id} b={b} available={available} sede={sede} locations={multi ? locations : null} chips={3} />
+            <Card key={b.id} b={b} available={available} sede={sede} locations={multi ? locations : null} chips={3} large={shown.length === 2} />
           ))}
         </div>
       )}
 
       {big && <TeamSheet open={sheet} onClose={() => setSheet(false)} staff={staff} available={available} />}
-    </section>
+    </div>
+  );
+}
+
+/** Una barbería de un solo barbero: su retrato y su historia, como protagonista. */
+function Solo({ b, available, sede }: { b: Staff; available: boolean; sede: string | null }) {
+  const specialties = (b.specialties ?? []).filter(Boolean);
+  return (
+    <div className="mt-8 grid items-center gap-8 md:grid-cols-2 md:gap-14">
+      <div className="s-radius s-surface aspect-[4/5] overflow-hidden">
+        {b.photo_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={b.photo_url} alt={b.name} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+        ) : (
+          <div className="s-display s-mute flex h-full items-center justify-center text-[120px]">{b.name.charAt(0)}</div>
+        )}
+      </div>
+      <div>
+        <p className="s-display text-[48px] md:text-[64px]">{b.name}</p>
+        {b.rating_count > 0 && (
+          <p className="tnum mt-3 flex items-center gap-1.5 text-[16px]">
+            <Star size={16} strokeWidth={0} className="fill-current" /> {Number(b.rating_avg).toFixed(1)}
+            <span className="s-mute">de {b.rating_count} {b.rating_count === 1 ? 'opinión' : 'opiniones'}</span>
+          </p>
+        )}
+        {b.bio && <p className="s-mute mt-5 max-w-[46ch] text-[18px] leading-relaxed">{b.bio}</p>}
+        {specialties.length > 0 && (
+          <div className="mt-5 flex flex-wrap gap-2">
+            {specialties.map((t) => <span key={t} className="s-chip !min-h-9 !text-[14px]">{t}</span>)}
+          </div>
+        )}
+        {available && (
+          <Link href={reservarHref({ barbero: b.id, sede: b.location_id ?? sede })} className="s-btn mt-8">
+            Reservar con {b.name.split(' ')[0]}
+          </Link>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -160,41 +193,46 @@ function TeamSheet({ open, onClose, staff, available }: { open: boolean; onClose
   );
 }
 
-function Card({ b, available, sede, locations, chips }: { b: Staff; available: boolean; sede: string | null; locations: PublicLocation[] | null; chips: number }) {
+function Card({ b, available, sede, locations, chips, large }: { b: Staff; available: boolean; sede: string | null; locations: PublicLocation[] | null; chips: number; large?: boolean }) {
   const where = locations ? (b.location_id ? locations.find((l) => l.id === b.location_id)?.name : 'Todas las sedes') : null;
   const href = reservarHref({ barbero: b.id, sede: b.location_id ?? sede });
   const specialties = (b.specialties ?? []).filter(Boolean);
   const inner = (
     <>
-      <div className="zoom-media aspect-square rounded-xl bg-field">
+      <div className={`s-img-zoom s-radius s-surface relative overflow-hidden ${large ? 'aspect-[4/5]' : 'aspect-[3/4]'}`}>
         {b.photo_url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={b.photo_url} alt={b.name} width={320} height={320} loading="lazy" decoding="async" className="h-full w-full rounded-xl object-cover" />
+          <img src={b.photo_url} alt={b.name} width={480} height={640} loading="lazy" decoding="async" className="h-full w-full object-cover" />
         ) : (
-          <div className="flex h-full items-center justify-center text-4xl font-semibold text-line-2">{b.name.charAt(0)}</div>
+          <div className="s-display s-mute flex h-full items-center justify-center text-[72px]">{b.name.charAt(0)}</div>
         )}
-      </div>
-      <div className="mt-3 flex min-w-0 items-center justify-between gap-2">
-        <span className="truncate text-[16px] font-medium">{b.name}</span>
-        {b.rating_count > 0 && (
-          <span className="tnum flex shrink-0 items-center gap-1 text-[14px]">
-            <Star size={13} strokeWidth={0} className="fill-ink" /> {Number(b.rating_avg).toFixed(1)}
-            <span className="text-soft">({b.rating_count})</span>
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/75 via-black/25 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-4 text-white">
+          <span className={`s-display min-w-0 truncate ${large ? 'text-[34px] md:text-[44px]' : 'text-[26px] md:text-[30px]'}`}>{b.name}</span>
+          {b.rating_count > 0 && (
+            <span className="tnum flex shrink-0 items-center gap-1 pb-1 text-[14px] font-medium">
+              <Star size={13} strokeWidth={0} className="fill-white" /> {Number(b.rating_avg).toFixed(1)}
+            </span>
+          )}
+        </div>
+        {available && (
+          <span className="absolute right-3 top-3 rounded-full bg-white/90 px-3 py-1.5 text-[13px] font-semibold text-black opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+            Reservar
           </span>
         )}
       </div>
-      {where && <p className="truncate text-[13px] text-soft">{where}</p>}
+      {where && <p className="s-mute mt-3 truncate text-[13px]">{where}</p>}
       {specialties.length > 0 ? (
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        <div className={`${where ? 'mt-1.5' : 'mt-3'} flex flex-wrap gap-1.5`}>
           {specialties.slice(0, chips).map((t) => (
-            <span key={t} className="rounded-full bg-field px-2.5 py-1 text-[12px] font-medium text-ink-2">
+            <span key={t} className="s-surface rounded-full px-2.5 py-1 text-[12px] font-medium">
               {t}
             </span>
           ))}
-          {specialties.length > chips && <span className="px-1 py-1 text-[12px] text-soft">+{specialties.length - chips}</span>}
+          {specialties.length > chips && <span className="s-mute px-1 py-1 text-[12px]">+{specialties.length - chips}</span>}
         </div>
       ) : (
-        b.bio && <p className="mt-1 line-clamp-2 text-[14px] text-mute">{b.bio}</p>
+        b.bio && <p className="s-mute mt-2 line-clamp-2 text-[14px]">{b.bio}</p>
       )}
     </>
   );

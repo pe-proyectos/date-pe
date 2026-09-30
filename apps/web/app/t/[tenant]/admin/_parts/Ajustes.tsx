@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ImagePlus, Loader2, ExternalLink, Palette, CalendarCheck, BellRing, Gift, MapPin, Wallet, Globe, Plus, Trash2, Copy, RefreshCw, Eye, EyeOff, ArrowUp, ArrowDown, GripVertical, Images, Scale,
+  ImagePlus, Loader2, ExternalLink, Palette, CalendarCheck, BellRing, Gift, MapPin, Wallet, Globe, Plus, Trash2, Copy, RefreshCw, Eye, EyeOff, ArrowUp, ArrowDown, GripVertical, Images, Scale, Sparkles,
 } from 'lucide-react';
 import { useAdmin, useApi } from './api';
 import { PageHead, Btn, Switch, Field, inputCls, Skeleton, Drawer, Empty } from './ui';
@@ -12,11 +12,13 @@ import { onColor } from '@/lib/color';
 import { toast } from '@/lib/toast';
 import { haptic } from '@/lib/haptics';
 import { DISTRICTS } from '@/lib/districts';
+import type { SiteTheme } from '@/lib/api';
+import { EstiloPagina } from './EstiloPagina';
 
 interface GalleryItem { url: string; caption?: string; staffId?: string }
 interface Branding {
   logo_url: string | null; cover_url: string | null; color_primary: string; tagline: string | null; about: string | null; instagram: string | null; whatsapp: string | null;
-  gallery?: GalleryItem[] | null; show_powered_by?: boolean;
+  gallery?: GalleryItem[] | null; show_powered_by?: boolean; site_theme?: SiteTheme | null;
 }
 interface Settings {
   deposit_percent: number; require_deposit: boolean; cancel_window_hours: number; slot_interval_min: number; loyalty_points_per_visit: number;
@@ -34,6 +36,7 @@ const REBOOK = [0, 14, 21, 30, 45];
 
 const INDEX = [
   { id: 'marca', label: 'Tu marca', icon: Palette },
+  { id: 'estilo', label: 'Estilo de tu página', icon: Sparkles },
   { id: 'reservas', label: 'Reservas', icon: CalendarCheck },
   { id: 'avisos', label: 'Avisos automáticos', icon: BellRing },
   { id: 'referidos', label: 'Referidos', icon: Gift },
@@ -312,6 +315,11 @@ export function Ajustes() {
                 </div>
               </div>
             )}
+          </Section>
+
+          {/* ------------------------- Estilo de la página ------------------------- */}
+          <Section id="estilo" title="Estilo de tu página" sub="Elige el ambiente que va con tu barbería. Tus clientes lo ven apenas entran.">
+            {!b ? <Skeleton rows={3} /> : <EstiloPagina initial={b.site_theme} accent={b.color_primary} tenant={tenant} pageUrl={tenantUrl(tenant)} />}
           </Section>
 
           {/* ----------------------------- Reservas ----------------------------- */}

@@ -14,7 +14,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     const demo = await admin<{ is_demo: boolean }>('SELECT is_demo FROM tenants WHERE id = $1', [tenantId]);
     return withTenant(tenantId, async (sql) => {
       const [branding, settings, locations, staff, services, reviews, ratingAgg, plans, hours] = await Promise.all([
-        sql('SELECT logo_url, cover_url, color_primary, color_secondary, tagline, about, instagram, whatsapp, gallery, show_powered_by FROM tenant_branding'),
+        sql('SELECT logo_url, cover_url, color_primary, color_secondary, tagline, about, instagram, whatsapp, gallery, show_powered_by, site_theme FROM tenant_branding'),
         sql(`SELECT timezone, slot_interval_min, deposit_percent, require_deposit, cancel_window_hours, allow_client_reschedule,
                     require_verification, referral_enabled, referral_discount_percent FROM tenant_settings`),
         sql('SELECT id, name, address, district, province, lat, lng, phone FROM locations WHERE is_active ORDER BY name'),

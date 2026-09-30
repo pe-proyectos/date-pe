@@ -16,7 +16,7 @@ const slugify = (s: string) => norm(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-
  * Carta de servicios que escala: categorías con barra fija que sigue el scroll,
  * buscador cuando hay muchos, y "Ver los N servicios" en categorías largas.
  */
-export function ServiceMenu({ services, available, accent, onAccent }: { services: Service[]; available: boolean; accent: string; onAccent: string }) {
+export function ServiceMenu({ services, available, leader = false }: { services: Service[]; available: boolean; leader?: boolean }) {
   const main = useMemo(() => services.filter((s) => !s.is_addon), [services]);
   const addons = useMemo(() => services.filter((s) => s.is_addon), [services]);
 
@@ -39,6 +39,8 @@ export function ServiceMenu({ services, available, accent, onAccent }: { service
   const lock = useRef(0);
 
   const showSearch = main.length >= SEARCH_FROM;
+  // Cartas grandes: una categoría a la vez (pestañas) y en dos columnas en escritorio
+  const tabs = main.length > 12 && groups.length > 2;
   const showChips = groups.length > 1 && !q;
   const query = norm(q.trim());
   const results = query
@@ -47,7 +49,7 @@ export function ServiceMenu({ services, available, accent, onAccent }: { service
 
   // La categoría activa sigue al scroll
   useEffect(() => {
-    if (!showChips) return;
+    if (!showChips || tabs) return;
     const visible = new Map<string, boolean>();
     const io = new IntersectionObserver(
       (entries) => {
@@ -63,7 +65,7 @@ export function ServiceMenu({ services, available, accent, onAccent }: { service
       if (el) io.observe(el);
     }
     return () => io.disconnect();
-  }, [groups, showChips]);
+  }, [groups, showChips, tabs]);
 
   // Mantiene visible el chip activo dentro de su propia barra
   useEffect(() => {
@@ -73,6 +75,10 @@ export function ServiceMenu({ services, available, accent, onAccent }: { service
   }, [active]);
 
   const goTo = (id: string) => {
+    if (tabs) {
+      setActive(id);
+      return;
+    }
     const el = document.getElementById(id);
     if (!el) return;
     setActive(id);
@@ -93,8 +99,8 @@ export function ServiceMenu({ services, available, accent, onAccent }: { service
   return (
     <div>
       {showSearch && (
-        <label className="relative mt-5 flex items-center">
-          <Search size={18} strokeWidth={1.75} className="pointer-events-none absolute left-4 text-soft" />
+        <label className="relative mt-8 flex max-w-xl items-center">
+          <Search size={18} strokeWidth={1.75} className="s-mute pointer-events-none absolute left-4" />
           <input
             type="search"
             value={q}
@@ -102,10 +108,10 @@ export function ServiceMenu({ services, available, accent, onAccent }: { service
             placeholder={`Buscar entre ${main.length} servicios`}
             aria-label="Buscar servicio"
             enterKeyHint="search"
-            className="h-12 w-full min-w-0 rounded-full bg-field pl-11 pr-12 text-[16px] outline-none placeholder:text-soft focus:bg-white focus:ring-2 focus:ring-ink [&::-webkit-search-cancel-button]:hidden"
+            className="s-surface h-12 w-full min-w-0 rounded-full border border-transparent pl-11 pr-12 text-[16px] outline-none placeholder:text-[var(--s-mute)] focus:border-[var(--s-ink)] [&::-webkit-search-cancel-button]:hidden"
           />
           {q && (
-            <button type="button" onClick={() => setQ('')} aria-label="Borrar búsqueda" className="absolute right-1 flex h-10 w-10 items-center justify-center rounded-full text-mute hover:text-ink">
+            <button type="button" onClick={() => setQ('')} aria-label="Borrar búsqueda" className="s-mute absolute right-1 flex h-10 w-10 items-center justify-center rounded-full">
               <X size={18} strokeWidth={1.75} />
             </button>
           )}
@@ -113,21 +119,14 @@ export function ServiceMenu({ services, available, accent, onAccent }: { service
       )}
 
       {showChips && (
-        <nav aria-label="Categorías de servicios" className="sticky top-[calc(4rem+env(safe-area-inset-top))] z-20 -mx-5 mt-4 border-b border-line bg-white md:mx-0">
-          <div ref={chipsBox} className="no-scrollbar flex snap-x scroll-px-5 gap-2 overflow-x-auto px-5 py-3 md:px-0">
+        <nav aria-label="Categorías de servicios" className={`s-bg z-20 -mx-5 mt-6 md:mx-0 ${tabs ? '' : 'sticky top-[calc(4rem+env(safe-area-inset-top))] md:top-[calc(72px+env(safe-area-inset-top))]'}`}>
+          <div ref={chipsBox} className="s-no-scrollbar flex snap-x scroll-px-5 gap-2 overflow-x-auto px-5 py-3 md:px-0">
             {groups.map((g) => {
               const on = g.id === active;
               return (
-                <button
-                  key={g.id}
-                  type="button"
-                  aria-current={on ? 'true' : undefined}
-                  data-cat={g.id}
-                  onClick={() => goTo(g.id)}
-                  className={`flex h-10 shrink-0 snap-start items-center gap-1.5 whitespace-nowrap rounded-full px-4 text-[15px] font-medium transition-colors ${on ? 'bg-ink text-white' : 'bg-field text-ink hover:bg-line'}`}
-                >
+                <button key={g.id} type="button" role={tabs ? 'tab' : undefined} aria-selected={tabs ? on : undefined} aria-current={on ? 'true' : undefined} data-cat={g.id} onClick={() => goTo(g.id)} className="s-chip shrink-0 snap-start">
                   {g.name}
-                  <span className={`tnum text-[13px] ${on ? 'text-white/70' : 'text-soft'}`}>{g.items.length}</span>
+                  <span className="tnum text-[13px] opacity-60">{g.items.length}</span>
                 </button>
               );
             })}
@@ -136,62 +135,59 @@ export function ServiceMenu({ services, available, accent, onAccent }: { service
       )}
 
       {query ? (
-        <div className="mt-4">
-          <p className="text-[14px] text-mute" aria-live="polite">
+        <div className="mt-6">
+          <p className="s-mute text-[14px]" aria-live="polite">
             {results.length === 0 ? `No encontramos servicios para "${q.trim()}".` : `${results.length} ${results.length === 1 ? 'servicio' : 'servicios'}`}
           </p>
-          <ul className="mt-1">
+          <ul className="mt-2">
             {results.map((s) => (
-              <Row key={s.id} s={s} available={available} accent={accent} onAccent={onAccent} showCategory={groups.length > 1} />
+              <Row key={s.id} s={s} available={available} leader={leader} showCategory={groups.length > 1} />
             ))}
           </ul>
         </div>
       ) : (
-        groups.map((g) => {
-          const expanded = open.has(g.id);
-          const items = expanded ? g.items : g.items.slice(0, PREVIEW);
-          return (
-            <section key={g.id} id={g.id} aria-label={g.name} className={groups.length > 1 ? 'pt-6' : 'pt-2'}>
-              {groups.length > 1 && (
-                <h3 className="flex items-baseline gap-2 text-[19px] font-semibold tracking-[-0.02em]">
-                  {g.name}
-                  <span className="tnum text-[14px] font-normal text-soft">{g.items.length}</span>
-                </h3>
-              )}
-              <ul className={groups.length > 1 ? 'mt-1' : ''}>
-                {items.map((s) => (
-                  <Row key={s.id} s={s} available={available} accent={accent} onAccent={onAccent} />
-                ))}
-              </ul>
-              {g.items.length > PREVIEW && (
-                <button
-                  type="button"
-                  onClick={() => toggle(g.id)}
-                  aria-expanded={expanded}
-                  className="mt-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-full border border-line px-5 text-[15px] font-medium transition-colors hover:border-ink"
-                >
-                  {expanded ? 'Ver menos' : `Ver los ${g.items.length} servicios`}
-                  <ChevronDown size={16} strokeWidth={1.75} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
-                </button>
-              )}
-            </section>
-          );
-        })
+        <div className={groups.length > 1 && main.length > 8 ? '' : 'md:columns-1'}>
+          {(tabs ? groups.filter((g) => g.id === active) : groups).map((g) => {
+            const expanded = open.has(g.id) || tabs;
+            const items = expanded ? g.items : g.items.slice(0, PREVIEW);
+            return (
+              <section key={g.id} id={g.id} aria-label={g.name} className={groups.length > 1 ? 'scroll-mt-40 pt-10' : 'pt-4'}>
+                {groups.length > 1 && (
+                  <h3 className="s-display flex items-baseline gap-3 text-[28px] md:text-[34px]">
+                    {g.name}
+                    <span className="tnum s-mute font-sans text-[14px] font-normal normal-case tracking-normal">{g.items.length}</span>
+                  </h3>
+                )}
+                <ul className={`${groups.length > 1 ? 'mt-3' : ''} ${tabs ? 'lg:grid lg:grid-cols-2 lg:gap-x-12 [&>li:last-child]:border-b lg:[&>li:nth-last-child(2):nth-child(odd)]:border-0' : ''}`}>
+                  {items.map((s) => (
+                    <Row key={s.id} s={s} available={available} leader={leader} />
+                  ))}
+                </ul>
+                {!tabs && g.items.length > PREVIEW && (
+                  <button type="button" onClick={() => toggle(g.id)} aria-expanded={expanded} className="s-btn-ghost mt-4 !min-h-[44px] !text-[15px]">
+                    {expanded ? 'Ver menos' : `Ver los ${g.items.length} servicios`}
+                    <ChevronDown size={16} strokeWidth={1.75} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                  </button>
+                )}
+              </section>
+            );
+          })}
+        </div>
       )}
 
       {addons.length > 0 && !query && (
-        <div className="mt-8 rounded-xl bg-field p-5">
-          <h3 className="text-[15px] font-semibold">Complementos</h3>
-          <p className="mt-0.5 text-[14px] text-mute">Agrégalos a tu servicio al reservar.</p>
-          <ul className="mt-3 divide-y divide-line">
+        <div className="s-surface s-radius mt-12 p-6 md:p-8">
+          <p className="s-eyebrow">Complementos</p>
+          <p className="s-mute mt-1 text-[15px]">Agrégalos a tu servicio al reservar.</p>
+          <ul className="mt-4 grid gap-x-10 md:grid-cols-2">
             {addons.map((x) => (
-              <li key={x.id} className="flex items-center justify-between gap-4 py-2.5 text-[15px]">
+              <li key={x.id} className="s-line flex items-baseline justify-between gap-3 border-b py-3 text-[15px] last:border-0 md:[&:nth-last-child(2)]:border-0">
                 <span className="flex min-w-0 items-center gap-2">
-                  <Plus size={15} strokeWidth={1.75} className="shrink-0 text-mute" />
+                  <Plus size={15} strokeWidth={1.75} className="s-mute shrink-0" />
                   <span className="truncate">{x.name}</span>
                 </span>
-                <span className="tnum shrink-0 text-mute">
-                  +{soles(x.price_cents)}, +{x.duration_min} min
+                <span className="tnum s-mute shrink-0">
+                  +{soles(x.price_cents)}, {x.duration_min} min
                 </span>
               </li>
             ))}
@@ -202,42 +198,45 @@ export function ServiceMenu({ services, available, accent, onAccent }: { service
   );
 }
 
-function Row({ s, available, accent, onAccent, showCategory }: { s: Service; available: boolean; accent: string; onAccent: string; showCategory?: boolean }) {
+function Row({ s, available, leader, showCategory }: { s: Service; available: boolean; leader: boolean; showCategory?: boolean }) {
   const body = (
     <>
       {s.photo_url && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={s.photo_url} alt="" width={64} height={64} loading="lazy" decoding="async" className="h-16 w-16 shrink-0 rounded-lg bg-field object-cover" />
+        <img src={s.photo_url} alt="" width={72} height={72} loading="lazy" decoding="async" className="s-radius h-[72px] w-[72px] shrink-0 object-cover" />
       )}
       <div className="min-w-0 flex-1">
-        <div className="text-[17px] font-medium leading-snug tracking-[-0.01em]">{s.name}</div>
-        {showCategory && s.category && <div className="text-[13px] text-soft">{s.category}</div>}
-        {s.description && <p className="mt-0.5 line-clamp-2 text-[15px] leading-snug text-mute">{s.description}</p>}
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[14px]">
-          <span className="tnum font-medium text-ink">{soles(s.price_cents)}</span>
-          <span className="flex items-center gap-1 text-soft">
-            <Clock size={14} strokeWidth={1.75} /> {s.duration_min} min
-          </span>
+        <div className="flex items-baseline">
+          <span className="s-svc min-w-0">{s.name}</span>
+          {leader && <span className="s-leader hidden sm:block" aria-hidden />}
+          <span className={`flex-1 ${leader ? 'sm:hidden' : ''}`} />
+          <span className="tnum shrink-0 pl-3 text-[18px] font-semibold md:text-[19px]">{soles(s.price_cents)}</span>
+        </div>
+        {showCategory && s.category && <div className="s-mute text-[13px]">{s.category}</div>}
+        <div className="mt-1 flex items-start justify-between gap-4">
+          <p className="s-mute min-w-0 text-[15px] leading-snug">
+            {s.description && <span className="line-clamp-2">{s.description}</span>}
+            <span className="mt-1 inline-flex items-center gap-1 text-[14px]">
+              <Clock size={13} strokeWidth={1.75} /> {s.duration_min} min
+            </span>
+          </p>
+          {available && (
+            <span className="s-line shrink-0 rounded-full border px-4 py-2 text-[14px] font-semibold transition-colors group-hover:border-transparent group-hover:bg-[var(--accent)] group-hover:text-[var(--on-accent)]">
+              Reservar
+            </span>
+          )}
         </div>
       </div>
-      {available && (
-        <span
-          className="flex h-10 shrink-0 items-center rounded-full border border-line px-4 text-[14px] font-medium transition-colors group-hover:border-transparent group-hover:bg-[var(--accent)] group-hover:text-[var(--on-accent)]"
-          style={{ ['--accent' as string]: accent, ['--on-accent' as string]: onAccent }}
-        >
-          Reservar
-        </span>
-      )}
     </>
   );
   return (
-    <li className="border-b border-line last:border-0">
+    <li className="s-line border-b last:border-0">
       {available ? (
-        <ReservarLink servicio={s.id} className="group flex items-center gap-4 py-4">
+        <ReservarLink servicio={s.id} className="group flex items-start gap-4 py-5">
           {body}
         </ReservarLink>
       ) : (
-        <div className="flex items-center gap-4 py-4">{body}</div>
+        <div className="flex items-start gap-4 py-5">{body}</div>
       )}
     </li>
   );

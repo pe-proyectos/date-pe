@@ -459,6 +459,8 @@ ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS marketing_config jsonb NOT 
 ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS google_review_url text;
 ALTER TABLE tenant_branding ADD COLUMN IF NOT EXISTS show_powered_by boolean NOT NULL DEFAULT true;
 ALTER TABLE tenant_branding ADD COLUMN IF NOT EXISTS gallery jsonb NOT NULL DEFAULT '[]';
+-- Estilo de la página pública: ambiente (clasica|urbana|minimal|lujo|vintage), portada, frase grande
+ALTER TABLE tenant_branding ADD COLUMN IF NOT EXISTS site_theme jsonb NOT NULL DEFAULT '{}';
 
 -- ===========================================================================
 -- Equipo: cuentas con rol (dueño, encargado, caja, barbero)
