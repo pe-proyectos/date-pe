@@ -266,12 +266,7 @@ export function TvClient({ tenant, tvKey }: { tenant: string; tvKey: string }) {
           </span>
         )}
         <div className="min-w-0">
-          <div className="truncate text-[2.1rem] font-semibold leading-tight tracking-[-0.03em]">{shop}</div>
-          {data.open && data.barbersNow > 0 && (
-            <div className="text-[1.2rem]" style={{ color: p.mute }}>
-              {data.barbersNow === 1 ? '1 barbero atendiendo' : `${data.barbersNow} barberos atendiendo`}
-            </div>
-          )}
+          <div className="truncate text-[2.6rem] font-semibold leading-tight tracking-[-0.03em]">{shop}</div>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-[1.4rem]">
@@ -280,14 +275,14 @@ export function TvClient({ tenant, tvKey }: { tenant: string; tvKey: string }) {
             <WifiOff strokeWidth={1.75} style={{ width: '1.1rem', height: '1.1rem' }} /> Reconectando
           </span>
         )}
-        {data.open && active && (
-          <span className="tnum inline-flex items-center gap-[0.6rem] rounded-full px-[1.2rem] py-[0.55rem] text-[1.45rem] font-semibold" style={{ background: p.card }}>
-            <Clock strokeWidth={1.75} style={{ width: '1.4rem', height: '1.4rem', color: p.mute }} /> {waitText}
+        {data.open && active && tv.layout === 'minimal' && (
+          <span className="tnum inline-flex items-center gap-[0.6rem] rounded-full px-[1.2rem] py-[0.55rem] text-[1.8rem] font-semibold" style={{ background: p.card }}>
+            <Clock strokeWidth={1.75} style={{ width: '1.7rem', height: '1.7rem', color: p.mute }} /> {waitText}
           </span>
         )}
         {tv.showClock && now && (
           <div className="text-right">
-            <div className="tnum text-[3rem] font-semibold leading-none tracking-[-0.03em]">
+            <div className="tnum text-[3.6rem] font-semibold leading-none tracking-[-0.03em]">
               {now.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ })}
             </div>
             <div className="mt-[0.2rem] text-[1.05rem] first-letter:uppercase" style={{ color: p.mute }}>
@@ -370,93 +365,132 @@ export function TvClient({ tenant, tvKey }: { tenant: string; tvKey: string }) {
         {qr && <div className={portrait ? 'mx-auto w-[22rem]' : 'w-[18rem] self-end'}>{qr(portrait ? 13 : 12, 'Saca tu turno')}</div>}
       </div>
     );
-  } else if (tv.layout === 'queue') {
-    body = (
-      <div className={`grid h-full min-h-0 gap-[2rem] px-[2.5rem] pb-[2rem] ${portrait ? 'grid-rows-[auto_1fr_auto]' : 'grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_1fr]'}`}>
-        <section className={portrait ? '' : 'col-start-1'}>
-          <SectionTitle p={p}>Pasa ahora</SectionTitle>
-          {data.serving.length ? (
-            <div className="grid gap-[1rem]" style={{ gridTemplateColumns: `repeat(${Math.min(portrait ? 2 : 4, Math.max(1, data.serving.length))}, minmax(0, 1fr))` }}>
-              {data.serving.slice(0, portrait ? 4 : 4).map((t) => (
-                <div key={t.id ?? t.number} className={`flex items-center gap-[1.2rem] rounded-[1.1rem] px-[1.4rem] py-[1rem] ${t.status === 'called' ? 'tv-called' : ''}`} style={{ background: p.card, ['--ring' as string]: p.accent }}>
-                  <span className="tnum text-[6.5rem] font-semibold leading-none tracking-[-0.05em]">{t.number}</span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-[1.7rem] font-semibold">{t.name}</span>
-                    <span className="block truncate text-[1.35rem]" style={{ color: p.mute }}>{t.staff ? `con ${t.staff}` : ''}</span>
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-[1.6rem]" style={{ color: p.mute }}>En un momento llamamos al siguiente.</p>
-          )}
-        </section>
-        {tv.showQueue && (
-          <section className={`flex min-h-0 flex-col ${portrait ? '' : 'col-start-1'}`}>
-            <SectionTitle p={p} right={<span className="tnum text-[1.4rem]" style={{ color: p.mute }}>{data.waitingCount} en espera</span>}>En espera</SectionTitle>
-            <div className="grid content-start gap-[1rem] overflow-hidden" style={{ gridTemplateColumns: `repeat(${portrait ? 4 : 6}, minmax(0, 1fr))` }}>
-              {data.waiting.slice(0, portrait ? 16 : 18).map((w, i) => (
-                <div key={w.id ?? w.number} className="tv-row flex flex-col items-center rounded-[1.1rem] py-[1rem]" style={{ background: i === 0 ? p.accent : p.card, color: i === 0 ? p.onAccent : p.fg, animationDelay: `${i * 40}ms` }}>
-                  <span className="tnum text-[4.4rem] font-semibold leading-none tracking-[-0.04em]">{w.number}</span>
-                  <span className="mt-[0.3rem] max-w-full truncate px-[0.5rem] text-[1.25rem]" style={{ opacity: 0.75 }}>{w.name}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-        <aside className={portrait ? 'grid grid-cols-[1fr_auto] gap-[1rem]' : 'col-start-2 row-span-2 row-start-1 flex w-[20rem] flex-col gap-[1rem]'}>
-          <div className="flex flex-col justify-center rounded-[1.1rem] p-[1.3rem]" style={{ background: p.card }}>
-            <div className="text-[1.2rem]" style={{ color: p.mute }}>Espera aprox.</div>
-            <div className="tnum text-[3.6rem] font-semibold leading-none tracking-[-0.04em]">{data.waitingCount ? fmtMinutes(data.estimatedWaitMin) : '0 min'}</div>
-          </div>
-          {qr && <div className={portrait ? 'w-[17rem]' : 'flex-1'}>{qr(portrait ? 11 : 13)}</div>}
-        </aside>
-      </div>
-    );
   } else {
-    // split
-    const cols = portrait ? Math.min(2, Math.max(1, data.serving.length)) : Math.min(4, Math.max(2, data.serving.length));
-    const serving = (
-      <section className="shrink-0">
-        <SectionTitle p={p}>Atendiendo ahora</SectionTitle>
-        {data.serving.length ? (
-          <ServingGrid serving={data.serving.slice(0, portrait ? 4 : 4)} staff={data.staff} p={p} cols={cols} />
+    // Tablero: pensado para leerse a 5 metros. A la izquierda cada sillón con su número
+    // gigante; a la derecha quién sigue y cuánto se espera; abajo el QR para anotarse.
+    // Un lugar por barbero de turno: con su cliente o "Libre"
+    // El orden de los barberos no cambia: cada uno siempre en el mismo lugar de la pantalla
+    type Chair = { key: string; staff: string | null; ticket: QueueState['serving'][number] | null; appt: { until: string; name: string } | null };
+    const onShift = data.staff.filter((st) => data.staffOnShift?.includes(st.id));
+    const chairsAll: Chair[] = onShift.map((st) => ({
+      key: st.id,
+      staff: st.name,
+      ticket: data.serving.find((t) => t.staff === st.name) ?? null,
+      appt: data.withAppointment?.find((a) => a.staffId === st.id) ?? null,
+    }));
+    for (const t of data.serving) if (!chairsAll.some((c) => c.ticket === t)) chairsAll.push({ key: `t${t.number}`, staff: t.staff, ticket: t, appt: null });
+    const chairs = chairsAll.slice(0, 6);
+    const next = data.waiting.slice(0, portrait ? 4 : 5);
+    const nChairs = Math.max(1, chairs.length);
+    const cols = portrait ? Math.min(2, nChairs) : nChairs <= 3 ? nChairs : 3;
+    const numSize = nChairs === 1 ? 19 : nChairs === 2 ? 15 : nChairs === 3 ? 12 : 8.5;
+    const chairsBlock = (
+      <section className="flex min-h-0 flex-col">
+        <div className="mb-[1.2rem] text-[2.2rem] font-semibold tracking-[-0.02em]" style={{ color: p.mute }}>Atendiendo</div>
+        {chairs.length ? (
+          <div className="grid min-h-0 flex-1 gap-[1.4rem]" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+            {chairs.map(({ key, staff, ticket: t, appt }) => {
+              if (!t && appt) {
+                return (
+                  <div key={key} className="flex min-h-0 flex-col items-center justify-center rounded-[1.6rem] px-[1.4rem] py-[1.6rem] text-center" style={{ background: p.card }}>
+                    <div className="flex items-center gap-[0.9rem]">
+                      {staff && <Avatar name={staff} url={photoOf(staff)} size={nChairs > 3 ? 3.6 : 4.4} p={p} />}
+                      <span className="truncate text-[2.4rem] font-semibold tracking-[-0.02em]">{staff}</span>
+                    </div>
+                    <div className="mt-[1.2rem] font-bold leading-none tracking-[-0.04em]" style={{ fontSize: `${Math.max(3.8, numSize * 0.34)}rem` }}>Con cita</div>
+                    <div className="mt-[0.8rem] text-[2.2rem] font-semibold">{appt.name}</div>
+                    <div className="tnum mt-[0.4rem] text-[1.8rem]" style={{ color: p.mute }}>
+                      Hasta las {new Date(appt.until).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: TZ })}
+                    </div>
+                  </div>
+                );
+              }
+              if (!t) {
+                return (
+                  <div key={key} className="flex min-h-0 flex-col items-center justify-center rounded-[1.6rem] px-[1.4rem] py-[1.6rem] text-center" style={{ boxShadow: `inset 0 0 0 0.2rem ${p.line}` }}>
+                    <div className="flex items-center gap-[0.9rem]">
+                      {staff && <Avatar name={staff} url={photoOf(staff)} size={nChairs > 3 ? 3.6 : 4.4} p={p} />}
+                      <span className="truncate text-[2.4rem] font-semibold tracking-[-0.02em]">{staff}</span>
+                    </div>
+                    <div className="mt-[1.2rem] font-bold leading-none tracking-[-0.04em]" style={{ fontSize: `${Math.max(4.5, numSize * 0.42)}rem`, color: p.accent }}>Libre</div>
+                    {data.waitingCount === 0 && <div className="mt-[0.8rem] text-[1.8rem]" style={{ color: p.mute }}>Pasa directo</div>}
+                  </div>
+                );
+              }
+              const called = t.status === 'called';
+              return (
+                <div
+                  key={key}
+                  className={`flex min-h-0 flex-col items-center justify-center rounded-[1.6rem] px-[1.4rem] py-[1.6rem] text-center ${called ? 'tv-called' : ''}`}
+                  style={{ background: called ? p.brand : p.card, color: called ? p.onBrand : p.fg, ['--ring' as string]: p.onBrand }}
+                >
+                  <div className="flex items-center gap-[0.9rem]">
+                    {staff && <Avatar name={staff} url={photoOf(staff)} size={nChairs > 3 ? 3.6 : 4.4} p={p} />}
+                    <span className="truncate text-[2.4rem] font-semibold tracking-[-0.02em]">{staff ?? 'Sillón'}</span>
+                  </div>
+                  <div className="tnum font-bold leading-[0.85] tracking-[-0.06em]" style={{ fontSize: `${numSize}rem`, marginTop: '1.2rem' }}>{t.number}</div>
+                  <div className="mt-[1rem] max-w-full truncate font-semibold tracking-[-0.03em]" style={{ fontSize: nChairs > 3 ? '2.4rem' : '3rem' }}>{t.name}</div>
+                  <div className="mt-[0.8rem] rounded-full px-[1.2rem] py-[0.35rem] text-[1.6rem] font-semibold" style={{ background: called ? alpha(p.onBrand, 0.16) : alpha(p.fg, 0.08) }}>
+                    {called ? 'Pasa ahora' : 'Atendiéndose'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ) : (
-          <div className="flex items-center gap-[1rem] rounded-[1.1rem] px-[1.4rem] py-[1.4rem] text-[1.6rem]" style={{ background: p.card, color: p.mute }}>
-            {data.waiting[0] ? <>En un momento llamamos al turno <span className="tnum font-semibold" style={{ color: p.fg }}>{data.waiting[0].number}</span></> : 'Sillones listos'}
+          <div className="flex flex-1 flex-col items-center justify-center rounded-[1.6rem] text-center" style={{ background: p.card }}>
+            {next[0] ? (
+              <>
+                <div className="text-[2.6rem] font-semibold" style={{ color: p.mute }}>En un momento llamamos a</div>
+                <div className="tnum mt-[0.6rem] text-[16rem] font-bold leading-[0.85] tracking-[-0.06em]">{next[0].number}</div>
+                <div className="mt-[0.8rem] text-[3rem] font-semibold">{next[0].name}</div>
+              </>
+            ) : (
+              <div className="text-[3.4rem] font-semibold">Sillones listos</div>
+            )}
           </div>
         )}
       </section>
     );
-    const waiting = tv.showQueue ? (
-      <section className="flex min-h-0 flex-1 flex-col">
-        <SectionTitle p={p} right={<span className="tnum text-[1.4rem]" style={{ color: p.mute }}>{data.waitingCount} en espera</span>}>En la fila</SectionTitle>
-        {data.waiting.length ? (
-          <WaitingList items={data.waiting} p={p} />
+    const nextBlock = (
+      <section className="flex min-h-0 flex-col">
+        <div className="mb-[1.2rem] flex items-baseline justify-between gap-[1rem]">
+          <span className="text-[2.2rem] font-semibold tracking-[-0.02em]" style={{ color: p.mute }}>Siguen</span>
+          {data.waitingCount > next.length && <span className="tnum text-[1.8rem]" style={{ color: p.mute }}>+{data.waitingCount - next.length} más</span>}
+        </div>
+        {next.length ? (
+          <ol className="flex min-h-0 flex-col gap-[0.9rem]">
+            {next.map((w, i) => (
+              <li key={w.id ?? w.number} className="flex items-center gap-[1.4rem] rounded-[1.2rem] px-[1.4rem] py-[0.9rem]" style={{ background: i === 0 ? p.fg : p.card, color: i === 0 ? p.bg : p.fg }}>
+                <span className="tnum w-[6.5rem] shrink-0 text-center text-[5rem] font-bold leading-none tracking-[-0.05em]">{w.number}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[2.6rem] font-semibold leading-tight tracking-[-0.02em]">{w.name}</span>
+                  {w.staff && <span className="block truncate text-[1.7rem]" style={{ opacity: 0.7 }}>con {w.staff}</span>}
+                </span>
+              </li>
+            ))}
+          </ol>
         ) : (
-          <p className="text-[1.6rem]" style={{ color: p.mute }}>Nadie esperando. Escanea el QR y eres el siguiente.</p>
+          <div className="rounded-[1.2rem] px-[1.6rem] py-[1.6rem] text-[2.2rem] font-semibold" style={{ background: p.card }}>Nadie esperando</div>
         )}
+        <div className="mt-auto flex items-end gap-[1.4rem] pt-[1.4rem]">
+          <div className="min-w-0 flex-1 rounded-[1.2rem] px-[1.4rem] py-[1.2rem]" style={{ background: p.card }}>
+            <div className="text-[1.7rem] font-medium" style={{ color: p.mute }}>Espera aprox.</div>
+            <div className="tnum text-[4.4rem] font-bold leading-none tracking-[-0.04em]">{data.waitingCount ? fmtMinutes(data.estimatedWaitMin) : 'Sin espera'}</div>
+          </div>
+          {qr && <div className="w-[16rem] shrink-0">{qr(11, 'Saca tu turno')}</div>}
+        </div>
       </section>
-    ) : null;
-    const bottom = (
-      <div className="grid min-h-0 gap-[1rem]" style={{ gridTemplateColumns: [slides.length ? 'minmax(0,1fr)' : '', qr ? 'auto' : ''].filter(Boolean).join(' ') || '1fr' }}>
-        {slides.length > 0 && <Rotator slides={slides} p={p} />}
-        {qr && <div className="w-[15rem]">{qr(10.5)}</div>}
-      </div>
     );
     body = portrait ? (
-      <div className="flex h-full min-h-0 flex-col gap-[1.6rem] px-[2.5rem] pb-[1.6rem]">
-        {serving}
-        {waiting ?? <div className="flex-1" />}
-        <div className="h-[19rem] shrink-0">{bottom}</div>
+      <div className="grid h-full min-h-0 grid-rows-[minmax(0,1.1fr)_minmax(0,1fr)] gap-[2rem] px-[2.5rem] pb-[2rem]">
+        {chairsBlock}
+        {nextBlock}
       </div>
     ) : (
-      <div className={`grid h-full min-h-0 gap-[2rem] px-[2.5rem] pb-[1.6rem] ${waiting ? 'grid-cols-[minmax(0,5fr)_minmax(0,7fr)]' : 'grid-cols-1'}`}>
-        {waiting && <div className="flex min-h-0 flex-col">{waiting}</div>}
-        <div className="flex min-h-0 flex-col gap-[1.6rem]">
-          {serving}
-          <div className="min-h-[16rem] flex-1">{bottom}</div>
-        </div>
+      <div className="grid h-full min-h-0 grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)] gap-[2.4rem] px-[2.5rem] pb-[2rem]">
+        {chairsBlock}
+        {nextBlock}
       </div>
     );
   }
@@ -473,20 +507,20 @@ export function TvClient({ tenant, tvKey }: { tenant: string; tvKey: string }) {
       <div className="relative flex h-full flex-col transition-transform duration-[2000ms]" style={{ transform: `translate(${shift.x}px, ${shift.y}px)` }}>
         {header}
         <main className="min-h-0 flex-1">{body}</main>
-        {tv.message && <Ticker message={tv.message} p={p} />}
+        {tv.message && (closed || idleShop) && <Ticker message={tv.message} p={p} />}
       </div>
 
       {current && <CallCard call={current} photo={photoOf(current.staff)} p={p} ms={CALL_MS} />}
 
       {needsSound && !soundOn && (
-        <div className="fixed inset-x-0 bottom-[6rem] z-50 flex justify-center">
+        <div className="fixed inset-x-0 top-[1.9rem] z-50 flex justify-center">
           <button
             type="button"
             onClick={unlockSound}
-            className="tv-breathe flex items-center gap-[0.8rem] rounded-full px-[2rem] py-[1.1rem] text-[1.6rem] font-semibold shadow-pop"
+            className="tv-breathe flex items-center gap-[0.6rem] rounded-full px-[1.4rem] py-[0.7rem] text-[1.3rem] font-semibold shadow-pop"
             style={{ background: p.fg, color: p.bg }}
           >
-            <Volume2 strokeWidth={1.75} style={{ width: '1.8rem', height: '1.8rem' }} /> Toca para activar el sonido
+            <Volume2 strokeWidth={1.75} style={{ width: '1.4rem', height: '1.4rem' }} /> Toca para activar el aviso con voz
           </button>
         </div>
       )}

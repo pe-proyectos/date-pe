@@ -36,6 +36,8 @@ export interface QueueState {
   queueConfig: { allowStaffChoice: boolean; askPhone: boolean; welcome: string; closedMessage: string; maxWaiting: number };
   branding: { logo_url: string | null; cover_url: string | null; color_primary: string | null; tagline: string | null; instagram: string | null } | null;
   staff: Array<{ id: string; name: string; photo_url: string | null }>;
+  staffOnShift?: string[];
+  withAppointment?: Array<{ staffId: string; until: string; name: string }>;
   services: Array<{ id: string; name: string; duration_min: number; price_cents: number }>;
   barbersNow: number;
   waitingCount: number;

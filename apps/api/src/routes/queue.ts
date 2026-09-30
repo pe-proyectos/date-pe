@@ -66,6 +66,26 @@ async function activeBarbers(sql: Sql): Promise<number> {
 }
 
 /** Abierta si alguien atiende ahora, o si falta poco para abrir (turno anticipado). */
+/** Citas con reserva que se están atendiendo ahora: ese barbero no está libre para la fila. */
+async function appointmentsNow(sql: Sql) {
+  const { rows } = await sql<{ staff_id: string; ends_at: Date; client_name: string | null }>(
+    `SELECT a.staff_id, a.ends_at, c.name AS client_name FROM appointments a LEFT JOIN clients c ON c.id = a.client_id
+      WHERE a.status IN ('confirmed','completed') AND a.staff_id IS NOT NULL AND now() BETWEEN a.starts_at AND a.ends_at`,
+  );
+  return rows;
+}
+
+/** Barberos de turno ahora (fuera de bloqueos): los que pueden atender a la fila. */
+async function staffOnShift(sql: Sql): Promise<string[]> {
+  const { rows } = await sql<{ staff_id: string }>(
+    `SELECT DISTINCT ss.staff_id FROM staff_schedules ss JOIN staff s ON s.id = ss.staff_id
+      WHERE s.is_bookable AND ss.day_of_week = EXTRACT(DOW FROM now() AT TIME ZONE 'America/Lima')
+        AND (now() AT TIME ZONE 'America/Lima')::time BETWEEN ss.start_time AND ss.end_time
+        AND NOT EXISTS (SELECT 1 FROM schedule_exceptions e WHERE e.staff_id = ss.staff_id AND now() BETWEEN e.starts_at AND e.ends_at)`,
+  );
+  return rows.map((r) => r.staff_id);
+}
+
 async function isOpen(sql: Sql, earlyMinutes = 60): Promise<boolean> {
   const { rows } = await sql<{ total: number; open: number }>(
     `SELECT count(*)::int AS total,
@@ -79,30 +99,38 @@ async function isOpen(sql: Sql, earlyMinutes = 60): Promise<boolean> {
 }
 
 /**
- * Posición y espera estimada de cada ticket en espera. Quien pidió un barbero
- * solo avanza con ese barbero; el resto, con cualquiera.
+ * Espera estimada simulando la atención: cada barbero de turno queda libre cuando
+ * termina su cliente actual; cada persona en la fila pasa con el primero que se
+ * desocupa (o con el que pidió). Devuelve la espera de cada ticket y la de alguien
+ * que se anote ahora.
  */
-function estimate(tickets: TicketRow[], barbers: number, fallback: number) {
+function estimate(tickets: TicketRow[], staffOnShift: string[], fallback: number, apptsNow: Array<{ staff_id: string; ends_at: Date }> = []) {
   const waiting = tickets.filter((t) => t.status === 'waiting');
   const busy = tickets.filter((t) => t.status === 'serving' || t.status === 'called');
-  const lanes = Math.max(1, barbers);
-  // Minutos que le faltan a cada barbero ocupado
-  const remainingNow = busy.reduce((sum, t) => {
+  // Minutos que le faltan a cada barbero; los libres están en 0
+  const lanes = new Map<string, number>();
+  for (const id of staffOnShift) lanes.set(id, 0);
+  for (const a of apptsNow) if (lanes.has(a.staff_id)) lanes.set(a.staff_id, Math.max(0, (new Date(a.ends_at).getTime() - Date.now()) / 60000));
+  for (const t of busy) {
     const dur = t.duration_min ?? fallback;
     const started = t.started_at ?? t.called_at;
     const elapsed = started ? (Date.now() - new Date(started).getTime()) / 60000 : 0;
-    return sum + Math.max(3, dur - elapsed);
-  }, 0);
+    const lane = t.served_by ?? `busy-${t.id}`;
+    lanes.set(lane, Math.max(lanes.get(lane) ?? 0, Math.max(3, dur - elapsed)));
+  }
+  if (lanes.size === 0) lanes.set('any', 0);
   const out = new Map<string, { position: number; ahead: number; etaMin: number }>();
   waiting.forEach((t, i) => {
-    // Quienes van delante y compiten por el mismo barbero (o por cualquiera)
-    const before = waiting.slice(0, i).filter((o) => !t.staff_id || !o.staff_id || o.staff_id === t.staff_id);
-    const aheadMinutes = before.reduce((s, o) => s + (o.duration_min ?? fallback), 0);
-    const lanesFor = t.staff_id ? 1 : lanes;
-    const eta = remainingNow / lanes + aheadMinutes / lanesFor;
-    out.set(t.id, { position: i + 1, ahead: before.length, etaMin: Math.max(0, Math.round(eta)) });
+    // Con barbero pedido espera a ese; si no, al primero que se libere
+    let laneId = t.staff_id && lanes.has(t.staff_id) ? t.staff_id : '';
+    if (!laneId) laneId = [...lanes.entries()].sort((a, b) => a[1] - b[1])[0][0];
+    const eta = lanes.get(laneId) ?? 0;
+    const ahead = waiting.slice(0, i).filter((o) => !t.staff_id || !o.staff_id || o.staff_id === t.staff_id).length;
+    out.set(t.id, { position: i + 1, ahead, etaMin: Math.round(eta) });
+    lanes.set(laneId, eta + (t.duration_min ?? fallback));
   });
-  return out;
+  const nextEta = Math.round(Math.min(...lanes.values()));
+  return { perTicket: out, nextEta };
 }
 
 async function publicState(sql: Sql, cfg: TenantConfig) {
@@ -122,16 +150,16 @@ async function publicState(sql: Sql, cfg: TenantConfig) {
     sql('SELECT id, name, photo_url FROM staff WHERE is_bookable ORDER BY sort_order, name'),
     sql('SELECT id, name, duration_min, price_cents FROM services WHERE is_active AND NOT is_addon ORDER BY sort_order, name'),
   ]);
+  const onShift = await staffOnShift(sql);
+  const apptsNowRows = await appointmentsNow(sql);
   const opens = await sql<{ opens: string | null }>(
     `SELECT to_char(min(ss.start_time), 'HH24:MI') AS opens FROM staff_schedules ss JOIN staff s ON s.id = ss.staff_id
       WHERE s.is_bookable AND ss.day_of_week = EXTRACT(DOW FROM now() AT TIME ZONE 'America/Lima') AND ss.start_time > (now() AT TIME ZONE 'America/Lima')::time`,
   );
-  const est = estimate(tickets, barbers, cfg.queue.fallbackMinutes);
+  const sim = estimate(tickets, onShift, cfg.queue.fallbackMinutes, apptsNowRows);
+  const est = sim.perTicket;
   const waiting = tickets.filter((t) => t.status === 'waiting');
-  const nextEta = Math.round(
-    (waiting.reduce((s, t) => s + (t.duration_min ?? cfg.queue.fallbackMinutes), 0) + tickets.filter((t) => t.status !== 'waiting').length * (cfg.queue.fallbackMinutes / 2)) /
-      Math.max(1, barbers),
-  );
+  const nextEta = sim.nextEta;
   return {
     open,
     pushPublicKey: pushEnabled() ? env.vapidPublicKey : null,
@@ -141,6 +169,9 @@ async function publicState(sql: Sql, cfg: TenantConfig) {
     queueConfig: { allowStaffChoice: cfg.queue.allowStaffChoice, askPhone: cfg.queue.askPhone, welcome: cfg.queue.welcome, closedMessage: cfg.queue.closedMessage, maxWaiting: cfg.queue.maxWaiting },
     branding: branding.rows[0] ?? null,
     staff: staff.rows,
+    staffOnShift: onShift,
+    // Barberos atendiendo una cita con reserva en este momento
+    withAppointment: apptsNowRows.map((a) => ({ staffId: a.staff_id, until: a.ends_at, name: firstName(a.client_name) })),
     services: services.rows,
     barbersNow: barbers,
     waitingCount: waiting.length,
@@ -235,7 +266,7 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
       if (!ticket) return reply.code(404).send({ error: 'ticket_no_encontrado' });
       const cfg = await tenantConfig(sql);
       const tickets = await todayTickets(sql, ['waiting', 'called', 'serving', 'done']);
-      const est = estimate(tickets, await activeBarbers(sql), cfg.queue.fallbackMinutes);
+      const est = estimate(tickets, await staffOnShift(sql), cfg.queue.fallbackMinutes, await appointmentsNow(sql)).perTicket;
       const me = tickets.find((x) => x.id === ticket.id);
       return {
         ticket: {

@@ -367,7 +367,7 @@ function TvEditor({ value, tvKey, nonce, onSave, onRotate }: { value: TvCfg; tvK
         </div>
         <div>
           <p className="mb-2 text-[14px] font-medium">Distribución</p>
-          <Segmented value={d.layout} onChange={(v) => setD({ ...d, layout: v })} label="Distribución" options={[['split', 'Fila y citas'], ['queue', 'Solo la fila'], ['minimal', 'Mínima']]} />
+          <Segmented value={d.layout} onChange={(v) => setD({ ...d, layout: v })} label="Distribución" options={[['split', 'Tablero'], ['minimal', 'Número grande']]} />
         </div>
         <div>
           <p className="mb-2 text-[14px] font-medium">Qué mostrar</p>
