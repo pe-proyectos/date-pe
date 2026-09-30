@@ -34,13 +34,22 @@ function req(name: string, fallback?: string): string {
   return v;
 }
 
+// En producción el secreto de sesiones es obligatorio y no puede ser el de desarrollo
+function jwtSecret(): string {
+  const v = process.env.JWT_SECRET;
+  if (process.env.NODE_ENV === 'production' && (!v || v === 'dev-secret-change-me' || v.length < 32)) {
+    throw new Error('JWT_SECRET falta o es inseguro: define uno aleatorio de 32+ caracteres');
+  }
+  return v || 'dev-secret-change-me';
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 3001),
   baseDomain: process.env.APP_BASE_DOMAIN ?? 'date.pe',
   databaseUrl: req('DATABASE_URL', 'postgres://datepe:datepe@localhost:5432/datepe'),
   databaseAppUrl: req('DATABASE_APP_URL', 'postgres://datepe_app:datepe_app@localhost:5432/datepe'),
-  jwtSecret: req('JWT_SECRET', 'dev-secret-change-me'),
+  jwtSecret: jwtSecret(),
   cookieDomain: process.env.COOKIE_DOMAIN ?? '.date.pe',
   resendApiKey: process.env.RESEND_API_KEY ?? '',
   emailFrom: process.env.EMAIL_FROM ?? 'date.pe <no-reply@date.pe>',

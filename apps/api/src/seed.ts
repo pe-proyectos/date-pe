@@ -1,6 +1,10 @@
 import { adminPool } from './db.js';
 import { runMigrations } from './migrate.js';
+import { randomBytes } from 'node:crypto';
 import { hashPassword } from './lib/crypto.js';
+
+// La contraseña del superadmin nunca va en el repo: viene del entorno
+const superadminPassword = process.env.SUPERADMIN_PASSWORD || randomBytes(18).toString('base64url');
 
 const DISTRICTS: Array<[string, string, string, number, number]> = [
   ['Lima', 'Miraflores', 'lima/miraflores', -12.1211, -77.0297],
@@ -277,12 +281,12 @@ Para mantener la forma, un arreglo cada dos o tres semanas suele bastar. Reserva
   await q(
     `INSERT INTO users (email, password_hash, name, is_platform_admin) VALUES ('admin@date.pe', $1, 'Superadmin', true)
      ON CONFLICT (email) DO UPDATE SET is_platform_admin = true, password_hash = EXCLUDED.password_hash`,
-    [hashPassword('superadmin123')],
+    [hashPassword(superadminPassword)],
   );
 
   console.log('Seed completo.');
   console.log('  Demo: barberiajuana (panel: juana@date.pe / barberia123)');
-  console.log('  Superadmin: admin@date.pe / superadmin123');
+  console.log('  Superadmin: admin@date.pe (contraseña en SUPERADMIN_PASSWORD del .env)');
   await adminPool.end();
 }
 
