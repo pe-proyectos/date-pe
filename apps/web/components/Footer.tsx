@@ -45,6 +45,8 @@ export function Footer() {
         <span>© {new Date().getFullYear()} date.pe</span>
         <span>Hecho en Lima, Perú</span>
       </div>
+      {/* Espacio para la barra inferior de pestañas en el teléfono */}
+      <div className="h-[calc(64px+env(safe-area-inset-bottom))] md:hidden" aria-hidden />
     </footer>
   );
 }

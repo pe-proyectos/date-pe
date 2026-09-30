@@ -88,7 +88,7 @@ export function Horarios() {
                   const bad = r.on && r.end <= r.start;
                   return (
                     <li key={d} className="flex flex-wrap items-center gap-4 py-3.5">
-                      <Switch checked={r.on} onChange={(v) => setRows({ ...rows, [d]: { ...r, on: v } })} label={`Atiende ${label}`} />
+                      <Switch checked={r.on} onChange={(v) => setRows({ ...rows, [d]: { ...r, on: v } })} label={`Atiende ${label}`} states={['Abierto', 'Cerrado']} />
                       <span className={`w-24 text-[15px] ${r.on ? 'font-medium' : 'text-soft'}`}>{label}</span>
                       {r.on ? (
                         <div className="flex items-center gap-2">

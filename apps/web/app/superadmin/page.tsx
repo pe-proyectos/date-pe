@@ -1,5 +1,6 @@
 'use client';
 
+import { Sheet } from '@/components/Sheet';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Search, ExternalLink, LogOut, Loader2, Store, LayoutDashboard } from 'lucide-react';
 import { API_BASE_CLIENT, tenantUrl } from '@/lib/config';
@@ -111,11 +112,11 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
         <div className="mx-auto flex h-16 max-w-[1280px] items-center justify-between px-5 md:px-8">
           <div className="flex items-center gap-3">
             <Logo />
-            <span className="rounded-full bg-field px-2.5 py-1 text-[12px] font-medium text-mute">Administración</span>
+            <span className="hidden rounded-full bg-field px-2.5 py-1 text-[12px] font-medium text-mute sm:inline">Administración</span>
           </div>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => setCreating(true)} className="inline-flex items-center gap-2 rounded-full bg-ink px-4 py-2.5 text-[14px] font-medium text-white hover:bg-ink-2">
-              <Plus size={16} strokeWidth={2} /> Nueva barbería
+            <button type="button" onClick={() => setCreating(true)} aria-label="Nueva barbería" className="inline-flex h-10 items-center gap-2 rounded-full bg-ink px-3 text-[14px] font-medium text-white hover:bg-ink-2 sm:px-4">
+              <Plus size={18} strokeWidth={2} /> <span className="hidden sm:inline">Nueva barbería</span>
             </button>
             <button type="button" onClick={onLogout} className="flex h-10 w-10 items-center justify-center rounded-full hover:bg-field" aria-label="Cerrar sesión"><LogOut size={18} strokeWidth={1.75} /></button>
           </div>
@@ -129,7 +130,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
         ) : (
           <>
             <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <StatTile label="Barberías" value={t.tenants ?? '0'} sub={`${t.activos ?? 0} activas, ${t.trials ?? 0} en prueba`} />
+              <StatTile label="Barberías" value={t.tenants ?? '0'} sub={`${t.activos ?? 0} ${Number(t.activos) === 1 ? 'activa' : 'activas'}, ${t.trials ?? 0} en prueba`} />
               <StatTile label="Citas" value={t.citas_total ?? '0'} sub={`${t.citas_7d ?? 0} en los últimos 7 días`} />
               <StatTile label="Clientes" value={t.clientes ?? '0'} sub={`${t.no_shows ?? 0} ausencias registradas`} />
               <StatTile label="Adelantos cobrados" value={soles(t.senas_cents ?? 0)} />
@@ -154,7 +155,36 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
         ) : filtered.length === 0 ? (
           <div className="mt-6 flex items-center gap-3 rounded-xl border border-dashed border-line-2 p-8 text-mute"><Store size={20} strokeWidth={1.5} /> No hay barberías que coincidan.</div>
         ) : (
-          <div className="mt-6 overflow-x-auto">
+          <>
+          <ul className="mt-6 space-y-3 md:hidden">
+            {filtered.map((tn) => (
+              <li key={tn.id} className="rounded-xl border border-line p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{tn.name}</div>
+                    <div className="truncate text-[13px] text-mute">{tn.slug}.date.pe</div>
+                  </div>
+                  <TenantStatus status={tn.status} />
+                </div>
+                <dl className="tnum mt-3 grid grid-cols-4 gap-2 text-[13px]">
+                  <div><dt className="text-mute">Barberos</dt><dd className="font-medium">{tn.barberos}</dd></div>
+                  <div><dt className="text-mute">Citas</dt><dd className="font-medium">{tn.citas}</dd></div>
+                  <div><dt className="text-mute">Ausencias</dt><dd className="font-medium">{tn.no_shows}</dd></div>
+                  <div><dt className="text-mute">Adelantos</dt><dd className="font-medium">{soles(tn.senas_cents)}</dd></div>
+                </dl>
+                <div className="mt-3 flex items-center gap-2 border-t border-line pt-3">
+                  <a href={tenantUrl(tn.slug)} target="_blank" rel="noopener noreferrer" className="flex h-10 flex-1 items-center justify-center gap-2 rounded-full bg-field text-[14px] font-medium"><ExternalLink size={16} strokeWidth={1.75} /> Sitio</a>
+                  <a href={tenantUrl(tn.slug, '/admin')} target="_blank" rel="noopener noreferrer" className="flex h-10 flex-1 items-center justify-center gap-2 rounded-full bg-field text-[14px] font-medium"><LayoutDashboard size={16} strokeWidth={1.75} /> Panel</a>
+                  {tn.status === 'active' ? (
+                    <button type="button" onClick={() => setStatus(tn, 'suspended')} className="h-10 rounded-full px-4 text-[14px] font-medium text-red active:bg-red-tint">Suspender</button>
+                  ) : (
+                    <button type="button" onClick={() => setStatus(tn, 'active')} className="h-10 rounded-full px-4 text-[14px] font-medium active:bg-field">Activar</button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-6 hidden overflow-x-auto md:block">
             <table className="w-full min-w-[860px] text-left text-[15px]">
               <thead>
                 <tr className="border-b border-ink text-[13px] text-mute">
@@ -197,6 +227,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
               </tbody>
             </table>
           </div>
+          </>
         )}
       </main>
 
@@ -238,29 +269,31 @@ function CreateTenant({ headers, onClose, onDone }: { headers: Record<string, st
       setBusy(false);
     }
   }
-  const cls = 'w-full rounded-xl border border-line-2 px-3.5 py-2.5 text-[15px] outline-none focus:border-ink';
+  const cls = 'w-full rounded-xl border border-line-2 px-3.5 py-3 text-[16px] outline-none focus:border-ink';
   return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal aria-label="Nueva barbería">
-      <div className="absolute inset-0 bg-ink/20" onClick={onClose} />
-      <form onSubmit={submit} className="drawer-in absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-white shadow-pop">
-        <div className="flex h-16 items-center border-b border-line px-6 text-[17px] font-semibold">Nueva barbería</div>
-        <div className="flex-1 space-y-4 overflow-y-auto p-6">
-          <input required placeholder="Nombre de la barbería" value={f.shopName} onChange={(e) => setF({ ...f, shopName: e.target.value, slug: slugify(e.target.value) })} className={cls} />
-          <div className="flex items-center rounded-xl border border-line-2 pr-3 focus-within:border-ink">
-            <input placeholder="subdominio" value={f.slug} onChange={(e) => setF({ ...f, slug: slugify(e.target.value) })} className="w-full bg-transparent px-3.5 py-2.5 text-[15px] outline-none" />
-            <span className="text-mute">.date.pe</span>
-          </div>
-          <input required placeholder="Nombre del dueño" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={cls} />
-          <input required type="email" placeholder="Correo del dueño" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} className={cls} />
-          <input required type="password" minLength={8} placeholder="Contraseña inicial" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} className={cls} />
-        </div>
-        <div className="flex justify-end gap-2 border-t border-line px-6 py-4">
-          <button type="button" onClick={onClose} className="rounded-full px-4 py-2.5 text-[14px] font-medium hover:bg-field">Cancelar</button>
-          <button disabled={busy} className="inline-flex items-center gap-2 rounded-full bg-ink px-4 py-2.5 text-[14px] font-medium text-white disabled:opacity-50">
+    <Sheet
+      open
+      onClose={onClose}
+      title="Nueva barbería"
+      footer={
+        <>
+          <button type="button" onClick={onClose} className="rounded-full px-4 py-3 text-[15px] font-medium hover:bg-field">Cancelar</button>
+          <button form="new-tenant" disabled={busy} className="inline-flex items-center gap-2 rounded-full bg-ink px-5 py-3 text-[15px] font-medium text-white disabled:opacity-50">
             {busy && <Loader2 size={16} className="animate-spin" />} Crear barbería
           </button>
+        </>
+      }
+    >
+      <form id="new-tenant" onSubmit={submit} className="space-y-4">
+        <input required placeholder="Nombre de la barbería" value={f.shopName} onChange={(e) => setF({ ...f, shopName: e.target.value, slug: slugify(e.target.value) })} className={cls} />
+        <div className="flex items-center rounded-xl border border-line-2 pr-3 focus-within:border-ink">
+          <input placeholder="subdominio" autoCapitalize="none" autoCorrect="off" value={f.slug} onChange={(e) => setF({ ...f, slug: slugify(e.target.value) })} className="w-full bg-transparent px-3.5 py-3 text-[16px] outline-none" />
+          <span className="text-mute">.date.pe</span>
         </div>
+        <input required placeholder="Nombre del dueño" autoComplete="name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={cls} />
+        <input required type="email" inputMode="email" autoCapitalize="none" placeholder="Correo del dueño" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} className={cls} />
+        <input required type="password" minLength={8} autoComplete="new-password" placeholder="Contraseña inicial" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} className={cls} />
       </form>
-    </div>
+    </Sheet>
   );
 }

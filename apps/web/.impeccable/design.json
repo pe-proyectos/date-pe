@@ -1,0 +1,562 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-30T03:48:18.251Z",
+  "title": "Design System: date.pe",
+  "extensions": {
+    "colorMeta": {
+      "ink": {
+        "role": "neutral",
+        "displayName": "Tinta",
+        "canonical": "oklch(14.5% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#242424",
+          "#404040",
+          "#5d5d5d",
+          "#808080",
+          "#a4a4a4",
+          "#cacaca",
+          "#eeeeee"
+        ]
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "Tinta Suave",
+        "canonical": "oklch(27.4% 0.005 286.0)",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242426",
+          "#3f3f42",
+          "#5d5d60",
+          "#808083",
+          "#a4a4a7",
+          "#cacacd",
+          "#eeeef1"
+        ]
+      },
+      "mute": {
+        "role": "neutral",
+        "displayName": "Gris Medio",
+        "canonical": "oklch(48.8% 0.011 286.0)",
+        "tonalRamp": [
+          "#0b0b0e",
+          "#232328",
+          "#3f3f45",
+          "#5d5d63",
+          "#7f7f86",
+          "#a4a4aa",
+          "#cacad0",
+          "#eeeef3"
+        ]
+      },
+      "soft": {
+        "role": "neutral",
+        "displayName": "Gris Claro",
+        "canonical": "oklch(55.2% 0.014 285.9)",
+        "tonalRamp": [
+          "#0b0b0f",
+          "#232329",
+          "#3f3f46",
+          "#5d5d65",
+          "#7f7f88",
+          "#a4a4ac",
+          "#cacad1",
+          "#eeeef4"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Línea",
+        "canonical": "oklch(92.6% 0.004 286.3)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242425",
+          "#3f3f41",
+          "#5d5d60",
+          "#808082",
+          "#a4a4a7",
+          "#cacacc",
+          "#eeeef0"
+        ]
+      },
+      "line-2": {
+        "role": "neutral",
+        "displayName": "Línea Fuerte",
+        "canonical": "oklch(87.1% 0.005 286.3)",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#242426",
+          "#3f3f42",
+          "#5d5d60",
+          "#808083",
+          "#a4a4a7",
+          "#cacacd",
+          "#eeeef1"
+        ]
+      },
+      "field": {
+        "role": "neutral",
+        "displayName": "Campo",
+        "canonical": "oklch(96.7% 0.001 286.4)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#242424",
+          "#404040",
+          "#5d5d5e",
+          "#808081",
+          "#a4a4a5",
+          "#cacacb",
+          "#eeeeef"
+        ]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Lienzo",
+        "canonical": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#242424",
+          "#404040",
+          "#5d5d5d",
+          "#808080",
+          "#a4a4a4",
+          "#cacaca",
+          "#eeeeee"
+        ]
+      },
+      "red": {
+        "role": "primary",
+        "displayName": "Rojo Peru",
+        "canonical": "oklch(56.1% 0.222 25.8)",
+        "tonalRamp": [
+          "#2f0000",
+          "#570000",
+          "#820001",
+          "#af101c",
+          "#db413f",
+          "#fd746b",
+          "#ffa298",
+          "#ffcdc2"
+        ]
+      },
+      "red-deep": {
+        "role": "primary",
+        "displayName": "Rojo Profundo",
+        "canonical": "oklch(48.7% 0.192 25.7)",
+        "tonalRamp": [
+          "#2e0000",
+          "#560000",
+          "#800006",
+          "#ac1920",
+          "#d84642",
+          "#fa766e",
+          "#ffa49a",
+          "#ffcec4"
+        ]
+      },
+      "red-tint": {
+        "role": "primary",
+        "displayName": "Rubor",
+        "canonical": "oklch(95.7% 0.019 9.3)",
+        "tonalRamp": [
+          "#10090a",
+          "#2a2123",
+          "#483c3e",
+          "#675a5b",
+          "#8a7c7e",
+          "#aea1a2",
+          "#d3c7c8",
+          "#f6ebed"
+        ]
+      },
+      "pole-blue": {
+        "role": "secondary",
+        "displayName": "Azul Poste",
+        "canonical": "oklch(39.8% 0.146 264.3)",
+        "tonalRamp": [
+          "#000331",
+          "#081d57",
+          "#1d3a7f",
+          "#3558aa",
+          "#557cd3",
+          "#7da3f2",
+          "#a7caff",
+          "#cfefff"
+        ]
+      },
+      "ok": {
+        "role": "success",
+        "displayName": "Verde Confirmado",
+        "canonical": "oklch(50.9% 0.130 151.5)",
+        "tonalRamp": [
+          "#001300",
+          "#003007",
+          "#004f1f",
+          "#0f7038",
+          "#3c9559",
+          "#6db881",
+          "#9bddab",
+          "#c6ffd3"
+        ]
+      },
+      "ok-tint": {
+        "role": "success",
+        "displayName": "Verde Tenue",
+        "canonical": "oklch(95.9% 0.017 162.7)",
+        "tonalRamp": [
+          "#070d0a",
+          "#1f2622",
+          "#39423e",
+          "#56605b",
+          "#78837d",
+          "#9da7a2",
+          "#c4cdc8",
+          "#e9f1ec"
+        ]
+      },
+      "chart-series": {
+        "role": "data",
+        "displayName": "Serie (grafito)",
+        "canonical": "#3f3f46",
+        "tonalRamp": [
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#52525b",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "chart-series-hover": {
+        "role": "data",
+        "displayName": "Serie Hover",
+        "canonical": "#0a0a0a",
+        "tonalRamp": [
+          "#18181b",
+          "#27272a",
+          "#3f3f46",
+          "#52525b",
+          "#71717a",
+          "#a1a1aa",
+          "#d4d4d8",
+          "#f4f4f5"
+        ]
+      },
+      "staff-1": {
+        "role": "data-categorical",
+        "displayName": "Staff 1",
+        "canonical": "#2f5bd3",
+        "tonalRamp": []
+      },
+      "staff-2": {
+        "role": "data-categorical",
+        "displayName": "Staff 2",
+        "canonical": "#d97706",
+        "tonalRamp": []
+      },
+      "staff-3": {
+        "role": "data-categorical",
+        "displayName": "Staff 3",
+        "canonical": "#0a9a8a",
+        "tonalRamp": []
+      },
+      "staff-4": {
+        "role": "data-categorical",
+        "displayName": "Staff 4",
+        "canonical": "#b83fc4",
+        "tonalRamp": []
+      },
+      "staff-5": {
+        "role": "data-categorical",
+        "displayName": "Staff 5",
+        "canonical": "#5f8f14",
+        "tonalRamp": []
+      },
+      "staff-6": {
+        "role": "data-categorical",
+        "displayName": "Staff 6",
+        "canonical": "#e0457b",
+        "tonalRamp": []
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Home hero headline only, two lines, second line in Gris Medio."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section headings on discovery pages."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Admin page titles."
+      },
+      "title-sm": {
+        "displayName": "Title Small",
+        "purpose": "Sheet, card and empty-state titles."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Copy, list rows, nav links, metadata; 16px in mobile forms."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, button text, hints, status pills."
+      },
+      "label-xs": {
+        "displayName": "Label XS",
+        "purpose": "Mobile tab bar labels and tiny tags only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "lift",
+        "value": "0 18px 40px -16px rgb(10 10 10 / 0.28), 0 2px 8px rgb(10 10 10 / 0.06)",
+        "purpose": "The selected or raised item: picked slot, active search segment, sticky booking card, floating buttons."
+      },
+      {
+        "name": "pop",
+        "value": "0 24px 60px -20px rgb(10 10 10 / 0.35), 0 4px 14px rgb(10 10 10 / 0.08)",
+        "purpose": "Floating overlays: bottom sheets, side panels, dropdown panels, toasts."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "The only easing curve, used by every transition and keyframe."
+      },
+      {
+        "name": "reveal-up",
+        "value": "animation-timeline: view(); animation-range: entry 0% entry 55%; from translateY(18px) blur(6px) opacity 0",
+        "purpose": "CSS scroll-driven reveal on [data-reveal]; content visible without support."
+      },
+      {
+        "name": "zoom-media",
+        "value": "transform scale(1.04) 900ms ease-out",
+        "purpose": "Slow photo zoom on card hover."
+      },
+      {
+        "name": "sheet-up",
+        "value": "translateY(100%) to 0, 380ms ease-out",
+        "purpose": "Bottom sheet entry on phones."
+      },
+      {
+        "name": "drawer-in",
+        "value": "translateX(28px) and fade, 320ms ease-out",
+        "purpose": "Side panel entry from 768px."
+      },
+      {
+        "name": "page-in",
+        "value": "opacity 0 to 1, 220ms ease-out",
+        "purpose": "Route transition."
+      },
+      {
+        "name": "rise-in",
+        "value": "translateY(8px) and fade, 500ms ease-out",
+        "purpose": "Toasts and dropdown panels."
+      },
+      {
+        "name": "press",
+        "value": "scale(0.97), 140ms ease-out",
+        "purpose": "Pressed feedback on touch devices (hover: none)."
+      },
+      {
+        "name": "pole-spin",
+        "value": "translateY(-16px), 1.4s linear infinite",
+        "purpose": "Barber-pole stripes, running only on hover or live."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "coarse-pointer",
+        "value": "(pointer: coarse): inputs at least 16px"
+      },
+      {
+        "name": "no-hover",
+        "value": "(hover: none): pressed scale feedback"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Black pill for primary actions such as registering or opening the shop page.",
+      "html": "<button class=\"ds-btn-primary\">Registra tu barbería</button>",
+      "css": ".ds-btn-primary { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 9999px; padding: 10px 16px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 150ms, border-color 150ms, transform 140ms var(--ease-out, cubic-bezier(0.16,1,0.3,1)); border: 0; background: var(--color-ink, #0a0a0a); color: #fff; } .ds-btn-primary:hover { background: var(--color-ink-2, #27272a); } .ds-btn-primary:active { transform: scale(0.97); } .ds-btn-primary:focus-visible { outline: 2px solid var(--color-red, #d91023); outline-offset: 2px; }"
+    },
+    {
+      "name": "Accent Button",
+      "kind": "button",
+      "refersTo": "button-accent",
+      "description": "The single red focused action per viewport, such as the search submit.",
+      "html": "<button class=\"ds-btn-accent\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/></svg>Buscar</button>",
+      "css": ".ds-btn-accent { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 9999px; padding: 10px 16px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 150ms, border-color 150ms, transform 140ms var(--ease-out, cubic-bezier(0.16,1,0.3,1)); border: 0; padding: 14px 24px; font-size: 15px; background: var(--color-red, #d91023); color: #fff; } .ds-btn-accent:hover { background: var(--color-red-deep, #b30d1c); } .ds-btn-accent:active { transform: scale(0.97); } .ds-btn-accent:focus-visible { outline: 2px solid var(--color-red, #d91023); outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "White pill with a hairline border for secondary actions.",
+      "html": "<button class=\"ds-btn-secondary\">Copiar enlace de reservas</button>",
+      "css": ".ds-btn-secondary { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 9999px; padding: 10px 16px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 150ms, border-color 150ms, transform 140ms var(--ease-out, cubic-bezier(0.16,1,0.3,1)); background: #fff; color: var(--color-ink, #0a0a0a); border: 1px solid var(--color-line, #e6e6e9); } .ds-btn-secondary:hover { border-color: var(--color-ink, #0a0a0a); } .ds-btn-secondary:active { transform: scale(0.97); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--color-red, #d91023); outline-offset: 2px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Unfilled pill that washes gray on hover; header login, tertiary actions.",
+      "html": "<button class=\"ds-btn-ghost\">Ingresar</button>",
+      "css": ".ds-btn-ghost { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 9999px; padding: 10px 16px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 150ms, border-color 150ms, transform 140ms var(--ease-out, cubic-bezier(0.16,1,0.3,1)); border: 0; background: transparent; color: var(--color-ink, #0a0a0a); font-size: 15px; font-weight: 400; } .ds-btn-ghost:hover { background: var(--color-field, #f4f4f5); } .ds-btn-ghost:focus-visible { outline: 2px solid var(--color-red, #d91023); outline-offset: 2px; }"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "District and service chips; selected turns ink.",
+      "html": "<div class=\"ds-chips\"><button class=\"ds-chip\">Miraflores</button><button class=\"ds-chip ds-chip-on\">Barranco</button><button class=\"ds-chip\">Surco</button></div>",
+      "css": ".ds-chips { display: flex; gap: 8px; flex-wrap: wrap; } .ds-chip { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); border: 0; border-radius: 9999px; padding: 8px 16px; font-size: 14px; background: var(--color-field, #f4f4f5); color: var(--color-ink, #0a0a0a); cursor: pointer; transition: background-color 150ms; } .ds-chip:hover { background: var(--color-line, #e6e6e9); } .ds-chip-on, .ds-chip-on:hover { background: var(--color-ink, #0a0a0a); color: #fff; } .ds-chip:focus-visible { outline: 2px solid var(--color-red, #d91023); outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Labelled input with a hairline border that turns ink on focus.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Nombre</span><input class=\"ds-input\" placeholder=\"Tu nombre\"/><span class=\"ds-field-hint\">Lo verá la barbería.</span></label>",
+      "css": ".ds-field { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); display: block; max-width: 320px; } .ds-field-label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 500; color: var(--color-ink, #0a0a0a); } .ds-field-hint { display: block; margin-top: 4px; font-size: 13px; color: var(--color-soft, #71717a); } .ds-input { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); width: 100%; box-sizing: border-box; border: 1px solid var(--color-line-2, #d4d4d8); border-radius: 12px; background: #fff; padding: 10px 14px; font-size: 15px; color: var(--color-ink, #0a0a0a); outline: none; transition: border-color 150ms; } .ds-input::placeholder { color: var(--color-soft, #71717a); } .ds-input:hover { border-color: var(--color-soft, #71717a); } .ds-input:focus, .ds-input:focus-visible { border-color: var(--color-ink, #0a0a0a); }"
+    },
+    {
+      "name": "Search Bar",
+      "kind": "custom",
+      "refersTo": "button-accent",
+      "description": "Desktop three-segment pill search with the red Buscar action; active segment lifts.",
+      "html": "<form class=\"ds-search\"><button type=\"button\" class=\"ds-seg ds-seg-on\"><span class=\"ds-seg-k\">Dónde</span><span class=\"ds-seg-v\">Busca tu distrito</span></button><span class=\"ds-sep\"></span><button type=\"button\" class=\"ds-seg\"><span class=\"ds-seg-k\">Qué</span><span class=\"ds-seg-v\">Corte, barba, fade</span></button><span class=\"ds-sep\"></span><button type=\"button\" class=\"ds-seg\"><span class=\"ds-seg-k\">Cuándo</span><span class=\"ds-seg-v\">Cualquier día</span></button><button type=\"submit\" class=\"ds-search-go\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/></svg>Buscar</button></form>",
+      "css": ".ds-search { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); display: flex; align-items: stretch; max-width: 640px; border: 1px solid var(--color-line, #e6e6e9); border-radius: 9999px; padding: 6px; background: #fff; } .ds-seg { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; border: 0; background: transparent; border-radius: 9999px; padding: 8px 20px; cursor: pointer; text-align: left; transition: background-color 200ms, box-shadow 200ms; } .ds-seg:hover { background: var(--color-field, #f4f4f5); } .ds-seg-on, .ds-seg-on:hover { background: #fff; box-shadow: var(--shadow-lift, 0 18px 40px -16px rgb(10 10 10 / 0.28), 0 2px 8px rgb(10 10 10 / 0.06)); } .ds-seg-k { font-size: 12px; font-weight: 500; color: var(--color-ink, #0a0a0a); } .ds-seg-v { font-size: 15px; color: var(--color-soft, #71717a); white-space: nowrap; } .ds-sep { width: 1px; margin: 12px 0; background: var(--color-line, #e6e6e9); } .ds-search-go { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); margin-left: 4px; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 9999px; padding: 0 24px; font-size: 15px; font-weight: 500; background: var(--color-red, #d91023); color: #fff; cursor: pointer; transition: background-color 150ms; } .ds-search-go:hover { background: var(--color-red-deep, #b30d1c); } .ds-seg:focus-visible { outline: 2px solid var(--color-red, #d91023); outline-offset: 2px; } .ds-search-go:focus-visible { outline: 2px solid var(--color-red, #d91023); outline-offset: 2px; }"
+    },
+    {
+      "name": "Shop Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Uncontained card: 12px-rounded photo that zooms on hover, name, district, rating and price in tabular numerals.",
+      "html": "<a class=\"ds-shop\" href=\"#\"><div class=\"ds-shop-media\"><div class=\"ds-shop-img\"></div><span class=\"ds-shop-tag\">Demo</span></div><div class=\"ds-shop-row\"><div><h3 class=\"ds-shop-name\">Barbería Juana</h3><p class=\"ds-shop-sub\">Miraflores</p></div><span class=\"ds-shop-rate\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"#0a0a0a\"><path d=\"M11.5 2.3a.5.5 0 0 1 .9 0l2.3 4.7a2 2 0 0 0 1.6 1.1l5.2.8a.5.5 0 0 1 .3.9l-3.8 3.7a2 2 0 0 0-.6 1.8l.9 5.1a.5.5 0 0 1-.8.6l-4.6-2.4a2 2 0 0 0-1.9 0l-4.6 2.4a.5.5 0 0 1-.8-.6l.9-5.1a2 2 0 0 0-.6-1.8L2.2 9.8a.5.5 0 0 1 .3-.9l5.2-.8a2 2 0 0 0 1.6-1.1z\"/></svg> 5.0</span></div><p class=\"ds-shop-price\"><b>Desde S/ 30.00</b> <span>3 barberos</span></p></a>",
+      "css": ".ds-shop { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); display: block; width: 280px; color: var(--color-ink, #0a0a0a); text-decoration: none; } .ds-shop-media { position: relative; aspect-ratio: 4/3; border-radius: 12px; overflow: hidden; background: var(--color-field, #f4f4f5); } .ds-shop-img { width: 100%; height: 100%; background: linear-gradient(135deg, #e6e6e9, #d4d4d8); transition: transform 900ms var(--ease-out, cubic-bezier(0.16,1,0.3,1)); } .ds-shop:hover .ds-shop-img { transform: scale(1.04); } .ds-shop-tag { position: absolute; left: 12px; top: 12px; border-radius: 9999px; background: #fff; padding: 4px 10px; font-size: 12px; font-weight: 500; } .ds-shop-row { margin-top: 12px; display: flex; justify-content: space-between; gap: 12px; } .ds-shop-name { margin: 0; font-size: 16px; font-weight: 500; letter-spacing: -0.02em; } .ds-shop-sub { margin: 0; font-size: 15px; color: var(--color-mute, #5f5f66); } .ds-shop-rate { display: flex; align-items: center; gap: 4px; font-size: 15px; font-variant-numeric: tabular-nums; } .ds-shop-price { margin: 4px 0 0; font-size: 15px; font-variant-numeric: tabular-nums; } .ds-shop-price b { font-weight: 500; } .ds-shop-price span { color: var(--color-mute, #5f5f66); } .ds-shop:focus-visible { outline: 2px solid var(--color-red, #d91023); outline-offset: 2px; border-radius: 12px; }"
+    },
+    {
+      "name": "Time Slots",
+      "kind": "custom",
+      "refersTo": "slot-selected",
+      "description": "Slot grid where the picked slot turns ink, rises and takes the Lift shadow while siblings dim.",
+      "html": "<div class=\"ds-slots\"><button class=\"ds-slot\">10:00</button><button class=\"ds-slot\">10:30</button><button class=\"ds-slot ds-slot-on\">11:00</button><button class=\"ds-slot\">11:30</button></div>",
+      "css": ".ds-slots { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); display: grid; grid-template-columns: repeat(4, 80px); gap: 8px; } .ds-slot { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); border: 1px solid var(--color-line, #e6e6e9); border-radius: 12px; background: #fff; padding: 12px 0; font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--color-ink, #0a0a0a); cursor: pointer; transition: opacity 400ms var(--ease-out, cubic-bezier(0.16,1,0.3,1)), filter 400ms var(--ease-out, cubic-bezier(0.16,1,0.3,1)), transform 400ms var(--ease-out, cubic-bezier(0.16,1,0.3,1)), box-shadow 400ms var(--ease-out, cubic-bezier(0.16,1,0.3,1)), border-color 150ms; } .ds-slot:hover { border-color: var(--color-ink, #0a0a0a); } .ds-slots:has(.ds-slot-on) > .ds-slot:not(.ds-slot-on) { opacity: 0.35; filter: grayscale(1); } .ds-slot-on { background: var(--color-ink, #0a0a0a); border-color: var(--color-ink, #0a0a0a); color: #fff; transform: translateY(-2px); box-shadow: var(--shadow-lift, 0 18px 40px -16px rgb(10 10 10 / 0.28), 0 2px 8px rgb(10 10 10 / 0.06)); } .ds-slot:focus-visible { outline: 2px solid var(--color-red, #d91023); outline-offset: 2px; }"
+    },
+    {
+      "name": "Bottom Sheet",
+      "kind": "custom",
+      "refersTo": "sheet",
+      "description": "Mobile bottom sheet with grab handle, hairline header and close button; becomes a side panel from 768px.",
+      "html": "<div class=\"ds-sheet\"><div class=\"ds-sheet-grab\"></div><div class=\"ds-sheet-head\"><h2>Filtrar</h2><button class=\"ds-sheet-x\" aria-label=\"Cerrar\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\"><path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/></svg></button></div><div class=\"ds-sheet-body\">Contenido de la hoja.</div><div class=\"ds-sheet-foot\"><button class=\"ds-sheet-cta\">Mostrar resultados</button></div></div>",
+      "css": ".ds-sheet { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); width: 360px; background: #fff; border-radius: 20px 20px 0 0; box-shadow: var(--shadow-pop, 0 24px 60px -20px rgb(10 10 10 / 0.35), 0 4px 14px rgb(10 10 10 / 0.08)); color: var(--color-ink, #0a0a0a); } .ds-sheet-grab { width: 40px; height: 6px; margin: 10px auto 0; border-radius: 9999px; background: var(--color-line-2, #d4d4d8); } .ds-sheet-head { display: flex; align-items: center; justify-content: space-between; height: 56px; padding: 0 20px; border-bottom: 1px solid var(--color-line, #e6e6e9); } .ds-sheet-head h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.02em; } .ds-sheet-x { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; margin-right: -8px; border: 0; border-radius: 9999px; background: transparent; color: inherit; cursor: pointer; } .ds-sheet-x:hover { background: var(--color-field, #f4f4f5); } .ds-sheet-body { padding: 20px; font-size: 16px; color: var(--color-mute, #5f5f66); } .ds-sheet-foot { display: flex; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--color-line, #e6e6e9); } .ds-sheet-cta { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 9999px; padding: 10px 16px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background-color 150ms, border-color 150ms, transform 140ms var(--ease-out, cubic-bezier(0.16,1,0.3,1)); border: 0; background: var(--color-ink, #0a0a0a); color: #fff; } .ds-sheet-cta:hover { background: var(--color-ink-2, #27272a); } .ds-sheet-x:focus-visible { outline: 2px solid var(--color-red, #d91023); outline-offset: 2px; } .ds-sheet-cta:focus-visible { outline: 2px solid var(--color-red, #d91023); outline-offset: 2px; }"
+    },
+    {
+      "name": "Mobile Tab Bar",
+      "kind": "nav",
+      "refersTo": "tab-bar",
+      "description": "Fixed bottom navigation on phones with four icon tabs; active tab in ink with heavier stroke.",
+      "html": "<nav class=\"ds-tabs\"><a class=\"ds-tab ds-tab-on\" href=\"#\"><svg width=\"23\" height=\"23\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8\"/><path d=\"M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/></svg>Inicio</a><a class=\"ds-tab\" href=\"#\"><svg width=\"23\" height=\"23\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/></svg>Explorar</a><a class=\"ds-tab\" href=\"#\"><svg width=\"23\" height=\"23\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M15 18h-5\"/><path d=\"M18 14h-8\"/><path d=\"M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0v-9a2 2 0 0 1 2-2h2\"/><rect width=\"8\" height=\"4\" x=\"10\" y=\"6\" rx=\"1\"/></svg>Blog</a><a class=\"ds-tab\" href=\"#\"><svg width=\"23\" height=\"23\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M18 20a6 6 0 0 0-12 0\"/><circle cx=\"12\" cy=\"10\" r=\"4\"/><circle cx=\"12\" cy=\"12\" r=\"10\"/></svg>Mi panel</a></nav>",
+      "css": ".ds-tabs { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); display: grid; grid-template-columns: repeat(4, 1fr); width: 390px; border-top: 1px solid var(--color-line, #e6e6e9); background: rgb(255 255 255 / 0.95); backdrop-filter: blur(12px); padding-bottom: 12px; } .ds-tab { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 0 4px; font-size: 11px; font-weight: 500; color: var(--color-soft, #71717a); text-decoration: none; transition: transform 140ms var(--ease-out, cubic-bezier(0.16,1,0.3,1)), color 150ms; } .ds-tab:hover { color: var(--color-ink, #0a0a0a); } .ds-tab:active { transform: scale(0.97); } .ds-tab-on { color: var(--color-ink, #0a0a0a); } .ds-tab:focus-visible { outline: 2px solid var(--color-red, #d91023); outline-offset: 2px; }"
+    },
+    {
+      "name": "Toast",
+      "kind": "custom",
+      "refersTo": "toast",
+      "description": "Ink pill notification with a status icon.",
+      "html": "<div class=\"ds-toast\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m9 12 2 2 4-4\"/></svg><span>Reserva confirmada</span></div>",
+      "css": ".ds-toast { font-family: var(--font-sans, 'Figtree', ui-sans-serif, system-ui, sans-serif); display: inline-flex; align-items: center; gap: 12px; border-radius: 9999px; background: var(--color-ink, #0a0a0a); color: #fff; padding: 12px 20px 12px 16px; font-size: 14px; box-shadow: var(--shadow-pop, 0 24px 60px -20px rgb(10 10 10 / 0.35), 0 4px 14px rgb(10 10 10 / 0.08)); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Barber Pole in Daylight",
+    "overview": "date.pe is a white room with one red stripe in it. The ground is pure white, the ink is near black, the grays are faintly cool, and the only color with a voice is rojo Peru, the red shared by the barber pole and the flag. Everything else is carried by typography, hairlines, real daylight photography of barbershops, and the booking interface itself doing its job. The craft bar is Airbnb and Apple: calm, generous, confident, with nothing on the page that is not either content or an action.\n\nDensity is low on discovery surfaces (home, search, district, tenant sites) and moderate in the admin, where lists and agendas sit directly on the ground separated by 1px lines rather than boxed in cards. Enclosure is rare. When something is selected, it becomes black, lifts by a hair and gains the one lifted shadow, and its siblings may dim; selection is the loudest event on any screen.\n\nThe phone is the primary device, so the web behaves like a native app there: bottom tab bars, bottom sheets that drag to dismiss and close on the browser back gesture, a pinch-zoom lightbox, safe-area insets, 16px inputs on coarse pointers, and a pressed scale on every tappable element. The owner rejected an earlier glass/liquid design; this white, daylight direction is the approved one.",
+    "keyCharacteristics": [
+      "White ground, near-black ink, one accent (rojo Peru) reserved for the single focused action.",
+      "Figtree as the only face, semibold headlines with tight negative tracking, tabular numerals for money and time.",
+      "1px hairlines instead of boxes and shadows; 12px corners on cards and fields; black pill buttons.",
+      "One lifted shadow for the selected or raised item, one pop shadow for floating overlays.",
+      "Lucide line icons at 1.75 stroke.",
+      "Motion is purposeful: CSS scroll-driven reveals, slow image zoom on hover, sheets that rise, a barber pole that spins on hover.",
+      "Native mobile grammar: tab bars, bottom sheets, back-to-close, safe areas, press feedback."
+    ],
+    "rules": [
+      {
+        "name": "The One Red Rule",
+        "body": "Rojo Peru appears on one focused action per viewport, plus at most one closing red band per page. If two red things compete on a screen, one of them is wrong.",
+        "section": "colors"
+      },
+      {
+        "name": "The Pole Stays on the Pole Rule",
+        "body": "Azul Poste lives in the barber-pole mark. Interface states, links and badges do not borrow it.",
+        "section": "colors"
+      },
+      {
+        "name": "The Ink Data Rule",
+        "body": "Single-series charts are drawn in graphite ink, never the brand red and never a second accent, so data never reads as an action or an error and the page keeps one red. Categorical hues exist only to tell barbers apart.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tight Heading Rule",
+        "body": "Every h1 to h3 carries negative tracking (between -0.02em and -0.04em, tighter as size grows) and balanced wrapping; body paragraphs use pretty wrapping.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Money Rule",
+        "body": "Prices in soles, times, dates and counts use tabular numerals so columns and slot grids align.",
+        "section": "typography"
+      },
+      {
+        "name": "The Sentence Case Rule",
+        "body": "No uppercase eyebrows or tracked-out kickers above headings. Uppercase exists only where the data is uppercase, such as discount codes.",
+        "section": "typography"
+      },
+      {
+        "name": "The Selection Earns the Shadow Rule",
+        "body": "Resting cards, rows and images carry no shadow. A shadow appears only when an item is selected, floats above content, or must stay reachable while scrolling.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep the ground pure white and let hairlines (1px Línea) separate content before reaching for a container.",
+      "Do spend Rojo Peru on one focused action per viewport: the search submit, the key step in a flow, or one closing band per page.",
+      "Do use black pill buttons for primary actions and 12px corners for cards, photos, fields and slots.",
+      "Do mark selection by turning the item Tinta and giving it the Lift shadow; dim siblings when the choice matters.",
+      "Do use Lucide line icons at 1.75 stroke, inlined at 16px to 23px.",
+      "Do set prices, times and counts in tabular numerals, with soles written as \"S/ 35.00\".",
+      "Do use real daylight photography of barbershop moments in 12px-rounded frames.",
+      "Do give every mobile surface its native behavior: bottom sheets with drag-to-dismiss and back-to-close, safe-area insets, 16px inputs on touch, pressed scale 0.97.",
+      "Do gate every animation behind `prefers-reduced-motion` and make scroll reveals degrade to visible content.",
+      "Do draw single-series charts in the graphite Serie and the fixed staff order for barbers."
+    ],
+    "donts": [
+      "Don't use em dashes or en dashes anywhere in UI copy; use commas, colons or periods.",
+      "Don't use emojis or decorative text symbols; use real icons from the icon library.",
+      "Don't build glass or liquid surfaces: no frosted cards, gradient panels or dark gradient heroes. The only translucency is the white sticky header and tab bar.",
+      "Don't add a second accent color or use Azul Poste outside the barber-pole mark.",
+      "Don't put shadows on resting cards or rows, and don't invent shadows beyond Lift and Pop.",
+      "Don't add a second typeface or use a system display face for headlines.",
+      "Don't put uppercase eyebrows or kickers above headings.",
+      "Don't fake social proof, counters or scarcity in the visual design; show real availability and prices."
+    ]
+  }
+}

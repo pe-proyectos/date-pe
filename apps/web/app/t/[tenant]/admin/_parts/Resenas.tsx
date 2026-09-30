@@ -56,7 +56,7 @@ export function Resenas() {
                   </span>
                   <div className="ml-auto flex items-center gap-2">
                     <span className="text-[13px] text-mute">{r.is_published ? 'Publicada' : 'Oculta'}</span>
-                    <Switch checked={r.is_published} onChange={async (v) => { await api(`/admin/reviews/${r.id}`, { method: 'PATCH', body: { isPublished: v } }); load(); }} label="Publicada" />
+                    <Switch checked={r.is_published} onChange={async (v) => { await api(`/admin/reviews/${r.id}`, { method: 'PATCH', body: { isPublished: v } }); load(); }} label="Reseña" states={['Publicada', 'Oculta']} />
                   </div>
                 </div>
                 {r.comment && <p className="mt-2 max-w-[70ch] text-[15px] leading-relaxed">{r.comment}</p>}

@@ -65,7 +65,7 @@ export function Resumen({ go }: { go: (s: string) => void }) {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatTile label="Citas hoy" value={data.today.citas_hoy} sub={Number(data.today.pendientes_hoy) ? `${data.today.pendientes_hoy} esperando adelanto` : 'Todas confirmadas'} />
+            <StatTile label="Citas hoy" value={data.today.citas_hoy} sub={Number(data.today.pendientes_hoy) ? `${data.today.pendientes_hoy} esperando adelanto` : Number(data.today.citas_hoy) ? 'Todas confirmadas' : 'Sin citas hoy'} />
             <StatTile label="Ingresos hoy" value={soles(data.today.ingresos_hoy)} />
             <StatTile label="Citas esta semana" value={data.week.citas_semana} />
             <StatTile label="Ingresos esta semana" value={soles(data.week.ingresos_semana)} />
@@ -89,7 +89,7 @@ export function Resumen({ go }: { go: (s: string) => void }) {
                         {new Date(u.starts_at).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Lima' })}
                       </span>
                       <div>
-                        <div className="text-[15px] font-medium">{u.client_name ?? 'Walk-in'}</div>
+                        <div className="text-[15px] font-medium">{u.client_name ?? 'Cliente sin cita'}</div>
                         <div className="text-[14px] text-mute">con {u.staff_name}</div>
                       </div>
                     </div>

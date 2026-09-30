@@ -121,11 +121,13 @@ async function seed() {
     ['Kevin Torres', '+51911000003', 2, 4, 4, 'El afeitado con toalla caliente vale cada sol. El local es chico, mejor reservar.'],
     ['Jorge Salazar', '+51911000004', 0, 3, 5, 'Reservé a las 9 de la noche para el día siguiente y pagué el adelanto con Yape. Cero llamadas.'],
   ];
+  const clientIds: string[] = [];
   for (const [i, [name, phone, staffIdx, svcIdx, stars, comment]] of history.entries()) {
     const c = await one(
       `INSERT INTO clients (tenant_id, phone, name, loyalty_points) VALUES ($1, $2, $3, 10) RETURNING id`,
       [tenantId, phone, name],
     );
+    clientIds.push(c.id);
     const price = services[svcIdx][3];
     const a = await one(
       `INSERT INTO appointments (tenant_id, location_id, staff_id, client_id, starts_at, ends_at, status, price_cents, list_price_cents, points_awarded)
@@ -141,6 +143,29 @@ async function seed() {
       `INSERT INTO reviews (tenant_id, appointment_id, staff_id, stars, comment, is_published, created_at)
        VALUES ($1, $2, $3, $4, $5, true, now() - ($6 || ' days')::interval)`,
       [tenantId, a.id, staffIds[staffIdx], stars, comment, String(3 + i * 4)],
+    );
+  }
+  // Próximas citas para que la agenda del demo tenga movimiento (hora de Lima)
+  const upcoming: Array<[number, number, number, number, number]> = [
+    // [días desde hoy, hora, minuto, barbero, servicio]
+    [1, 10, 0, 0, 1], [1, 11, 30, 1, 0], [1, 16, 0, 2, 3],
+    [2, 10, 30, 1, 2], [2, 15, 0, 0, 1],
+    [3, 12, 0, 2, 4], [3, 17, 0, 0, 0],
+  ];
+  for (const [k, [days, h, m, staffIdx, svcIdx]] of upcoming.entries()) {
+    const [, , dur, price] = services[svcIdx];
+    const a = await one(
+      `INSERT INTO appointments (tenant_id, location_id, staff_id, client_id, starts_at, ends_at, status, price_cents, list_price_cents)
+       VALUES ($1, $2, $3, $4,
+         (date_trunc('day', now() AT TIME ZONE 'America/Lima') + make_interval(days => $5::int, hours => $6::int, mins => $7::int)) AT TIME ZONE 'America/Lima',
+         (date_trunc('day', now() AT TIME ZONE 'America/Lima') + make_interval(days => $5::int, hours => $6::int, mins => $7::int + $8::int)) AT TIME ZONE 'America/Lima',
+         'confirmed', $9, $9)
+       RETURNING id`,
+      [tenantId, locationId, staffIds[staffIdx], clientIds[k % clientIds.length], days, h, m, dur, price],
+    );
+    await q(
+      `INSERT INTO appointment_services (appointment_id, tenant_id, service_id, price_cents, duration_min) VALUES ($1, $2, $3, $4, $5)`,
+      [a.id, tenantId, serviceIds[svcIdx], price, dur],
     );
   }
   for (const sid of staffIds) {

@@ -7,7 +7,7 @@ export function Toaster() {
   const toasts = useToasts();
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-5 z-[100] flex flex-col items-center gap-2 px-4 md:bottom-auto md:left-auto md:right-5 md:top-5 md:items-end"
+      className="pointer-events-none fixed inset-x-0 top-[calc(10px+env(safe-area-inset-top))] z-[100] flex flex-col items-center gap-2 px-4 md:left-auto md:right-5 md:top-5 md:items-end"
       aria-live="polite"
     >
       {toasts.map((t) => {

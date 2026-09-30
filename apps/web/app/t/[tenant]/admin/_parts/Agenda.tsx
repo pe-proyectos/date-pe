@@ -5,9 +5,10 @@ import FullCalendar from '@fullcalendar/react';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import luxonPlugin from '@fullcalendar/luxon3';
+import listPlugin from '@fullcalendar/list';
 import type { EventDropArg, EventClickArg, DateSelectArg } from '@fullcalendar/core';
 import type { EventResizeDoneArg } from '@fullcalendar/interaction';
-import { Check, UserX, XCircle, Link2, Phone, MessageCircle } from 'lucide-react';
+import { Check, UserX, XCircle, Link2, Phone, MessageCircle, Plus, CalendarClock } from 'lucide-react';
 import { useAdmin, useApi, soles } from './api';
 import { PageHead, Btn, Drawer, Field, inputCls, StatusPill } from './ui';
 import { staffColor } from '@/components/charts';
@@ -25,7 +26,11 @@ function calendarTitle(arg: { date: { marker: Date }; start?: { marker: Date }; 
     const last = new Date(start.getTime() + 6 * 864e5);
     return `${f(start, { day: 'numeric', month: 'short' })} al ${f(last, { day: 'numeric', month: 'short', year: 'numeric' })}`.replace(/\./g, '');
   }
-  const t = f(start, { weekday: 'long', day: 'numeric', month: 'long' });
+  return dayLabel({ date: { marker: start } });
+}
+/** Cabecera de día de la lista: "Miércoles 30 de setiembre", con el mes como se escribe en Perú. */
+function dayLabel(arg: { date: { marker: Date } }) {
+  const t = new Intl.DateTimeFormat('es-PE', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(arg.date.marker).replace(',', '');
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 interface Appt {
@@ -41,7 +46,9 @@ export function Agenda() {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [appts, setAppts] = useState<Appt[]>([]);
   const [open, setOpen] = useState<Appt | null>(null);
-  const [walkIn, setWalkIn] = useState<{ start: Date; end: Date } | null>(null);
+  const [walkIn, setWalkIn] = useState<ApptDraft | null>(null);
+  const [isMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches);
+  const swipe = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     api<{ staff: Staff[] }>('/admin/staff').then((d) => setStaff(d.staff)).catch(() => {});
@@ -79,7 +86,7 @@ export function Agenda() {
         .filter((a) => a.status !== 'cancelled' && !(a.staff_id && hidden.has(a.staff_id)))
         .map((a) => ({
           id: a.id,
-          title: `${a.client_name ?? 'Walk-in'}${a.service_name ? `, ${a.service_name}` : ''}`,
+          title: `${a.client_name ?? 'Cliente sin cita'}${a.service_name ? `, ${a.service_name}` : ''}`,
           start: a.starts_at,
           end: a.ends_at,
           backgroundColor: a.status === 'no_show' ? '#a1a1aa' : colorOf(a.staff_id),
@@ -118,7 +125,10 @@ export function Agenda() {
 
   return (
     <>
-      <PageHead title="Agenda" sub="Arrastra una cita para moverla. Selecciona un espacio vacío para registrar un walk-in." />
+      <PageHead
+        title="Agenda"
+        sub={isMobile ? 'Toca una cita para verla o cambiarla. Usa + para anotar a un cliente sin cita.' : 'Arrastra una cita para moverla. Selecciona un espacio vacío para anotar a un cliente sin cita.'}
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-2" aria-label="Barberos">
         {staff.map((s, i) => {
@@ -143,15 +153,35 @@ export function Agenda() {
         })}
       </div>
 
-      <div className="rounded-xl border border-line p-3">
+      <div
+        className="rounded-xl border border-line p-2 md:p-3"
+        onTouchStart={(e) => { const t = e.touches[0]; swipe.current = { x: t.clientX, y: t.clientY }; }}
+        onTouchEnd={(e) => {
+          const s0 = swipe.current;
+          swipe.current = null;
+          if (!s0 || !isMobile) return;
+          const t = e.changedTouches[0];
+          const dx = t.clientX - s0.x;
+          const dy = t.clientY - s0.y;
+          if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+            const api = calRef.current?.getApi();
+            if (dx < 0) api?.next();
+            else api?.prev();
+          }
+        }}
+      >
         <FullCalendar
           ref={calRef}
-          plugins={[timeGridPlugin, interactionPlugin, luxonPlugin]}
+          plugins={[timeGridPlugin, interactionPlugin, luxonPlugin, listPlugin]}
           timeZone="America/Lima"
           titleFormat={calendarTitle}
-          initialView="timeGridDay"
-          headerToolbar={{ left: 'prev,next today', center: 'title', right: 'timeGridDay,timeGridWeek' }}
-          buttonText={{ today: 'Hoy', day: 'Día', week: 'Semana' }}
+          initialView={isMobile ? 'listWeek' : 'timeGridDay'}
+          headerToolbar={isMobile ? { left: 'prev', center: 'title', right: 'next' } : { left: 'prev,next today', center: 'title', right: 'timeGridDay,timeGridWeek,listWeek' }}
+          footerToolbar={isMobile ? { center: 'today listWeek,timeGridDay' } : undefined}
+          buttonText={{ today: 'Hoy', day: 'Día', week: 'Semana', list: 'Lista' }}
+          noEventsContent="No hay citas en estos días"
+          listDayFormat={dayLabel}
+          listDaySideFormat={false}
           locale="es"
           firstDay={1}
           slotMinTime="08:00:00"
@@ -175,11 +205,20 @@ export function Agenda() {
         />
       </div>
 
+      <button
+        type="button"
+        onClick={() => setWalkIn({ auto: true })}
+        className="fixed bottom-[calc(84px+env(safe-area-inset-bottom))] right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-ink text-white shadow-pop md:bottom-8 md:right-8"
+        aria-label="Nueva cita"
+      >
+        <Plus size={26} strokeWidth={2} />
+      </button>
+
       <Drawer open={!!open} onClose={() => setOpen(null)} title="Cita">
         {open && (
           <div>
             <StatusPill status={open.status} />
-            <div className="mt-4 text-[22px] font-semibold tracking-[-0.03em]">{open.client_name ?? 'Walk-in'}</div>
+            <div className="mt-4 text-[22px] font-semibold tracking-[-0.03em]">{open.client_name ?? 'Cliente sin cita'}</div>
             <div className="mt-1 text-[15px] text-mute">
               {open.service_name ?? 'Servicio'} con {staff.find((s) => s.id === open.staff_id)?.name ?? 'sin asignar'}
             </div>
@@ -191,7 +230,7 @@ export function Agenda() {
                 </dd>
               </div>
               <div className="flex justify-between py-3"><dt className="text-mute">Precio</dt><dd className="tnum">{soles(open.price_cents)}</dd></div>
-              <div className="flex justify-between py-3"><dt className="text-mute">Origen</dt><dd>{open.source === 'walk_in' ? 'Walk-in' : 'Reserva online'}</dd></div>
+              <div className="flex justify-between py-3"><dt className="text-mute">Origen</dt><dd>{open.source === 'walk_in' ? 'Sin cita, en el local' : 'Reserva online'}</dd></div>
               {open.note && <div className="py-3"><dt className="text-mute">Nota</dt><dd className="mt-1">{open.note}</dd></div>}
             </dl>
 
@@ -206,6 +245,16 @@ export function Agenda() {
               {open.status === 'pending' && <ActionRow icon={Check} label="Confirmar sin adelanto" onClick={() => setStatus(open, 'confirmed')} />}
               {['pending', 'confirmed'].includes(open.status) && (
                 <>
+                  <ActionRow
+                    icon={CalendarClock}
+                    label="Cambiar hora o barbero"
+                    onClick={() => {
+                      const a = open;
+                      setOpen(null);
+                      // Espera a que se cierre la hoja actual para abrir la siguiente
+                      setTimeout(() => setWalkIn({ start: new Date(a.starts_at), end: new Date(a.ends_at), edit: a }), 60);
+                    }}
+                  />
                   <ActionRow icon={Check} label="Marcar como completada" onClick={() => setStatus(open, 'completed')} />
                   <ActionRow icon={UserX} label="No asistió" onClick={() => setStatus(open, 'no_show')} />
                   <ActionRow icon={XCircle} label="Cancelar cita" danger onClick={() => setStatus(open, 'cancelled')} />
@@ -239,27 +288,87 @@ function ActionRow({ icon: Icon, label, onClick, danger }: { icon: React.Compone
   );
 }
 
-function WalkInDrawer({ range, staff, onClose, onDone }: { range: { start: Date; end: Date } | null; staff: Staff[]; onClose: () => void; onDone: () => void }) {
+/** Borrador de cita: un rango elegido, "auto" (próximo horario abierto) o una cita existente a reprogramar. */
+type ApptDraft = { start?: Date; end?: Date; auto?: boolean; edit?: Appt };
+interface Schedule { day_of_week: number; start_time: string; end_time: string }
+
+function WalkInDrawer({ range, staff, onClose, onDone }: { range: ApptDraft | null; staff: Staff[]; onClose: () => void; onDone: () => void }) {
   const api = useApi();
   const [staffId, setStaffId] = useState('');
   const [name, setName] = useState('');
+  const [date, setDate] = useState('');
+  const [time, setTime] = useState('');
+  const [minutes, setMinutes] = useState(30);
+  // Duración original de la cita si no es una de las estándar: se mantiene como opción
+  const [extra, setExtra] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const limaParts = (d: Date) => {
+    const f = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
+    const g = (t: string) => f.find((x) => x.type === t)?.value ?? '';
+    return { date: `${g('year')}-${g('month')}-${g('day')}`, time: `${g('hour')}:${g('minute')}` };
+  };
+  const edit = range?.edit ?? null;
+
+  // Próximo horario dentro del turno del barbero (hora de Lima), redondeado a 15 minutos
+  async function nextOpen(sid: string) {
+    try {
+      const { schedules } = await api<{ schedules: Schedule[] }>(`/admin/staff/${sid}/schedules`);
+      const now = Date.now();
+      for (let d = 0; d < 8; d++) {
+        const day = new Date(now + d * 864e5);
+        const p = limaParts(day);
+        const dow = new Date(`${p.date}T12:00:00-05:00`).getUTCDay();
+        for (const sc of schedules.filter((x) => x.day_of_week === dow).sort((a, b) => a.start_time.localeCompare(b.start_time))) {
+          const open = new Date(`${p.date}T${sc.start_time.slice(0, 5)}:00-05:00`).getTime();
+          const close = new Date(`${p.date}T${sc.end_time.slice(0, 5)}:00-05:00`).getTime();
+          const t = Math.max(open, Math.ceil(now / 9e5) * 9e5);
+          if (t + 15 * 60000 <= close) return new Date(t);
+        }
+      }
+    } catch { /* sin horario: usamos ahora */ }
+    return new Date(Math.ceil(Date.now() / 9e5) * 9e5);
+  }
+
   useEffect(() => {
-    if (range) {
-      setStaffId(staff[0]?.id ?? '');
-      setName('');
-    }
+    if (!range) return;
+    const sid = range.edit?.staff_id ?? staff[0]?.id ?? '';
+    setStaffId(sid);
+    setName('');
+    const apply = (start: Date, end: Date) => {
+      const p = limaParts(start);
+      setDate(p.date);
+      setTime(p.time);
+      const m = Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000));
+      setMinutes(m);
+      setExtra([15, 30, 45, 60].includes(m) ? null : m);
+    };
+    if (range.auto) {
+      setDate('');
+      setTime('');
+      setMinutes(30);
+      setExtra(null);
+      if (sid) nextOpen(sid).then((st) => apply(st, new Date(st.getTime() + 30 * 60000)));
+    } else if (range.start && range.end) apply(range.start, range.end);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range, staff]);
 
   async function save() {
-    if (!range || !staffId) return;
+    if (!staffId || !date || !time) return;
     setBusy(true);
     try {
-      await api('/admin/appointments', { method: 'POST', body: { staffId, startsAt: range.start.toISOString(), endsAt: range.end.toISOString(), clientName: name || undefined } });
-      toast.success('Walk-in registrado');
+      // Hora de Lima (UTC-5, sin horario de verano)
+      const start = new Date(`${date}T${time}:00-05:00`);
+      const end = new Date(start.getTime() + minutes * 60000);
+      if (edit) {
+        await api(`/admin/appointments/${edit.id}`, { method: 'PATCH', body: { staffId, startsAt: start.toISOString(), endsAt: end.toISOString() } });
+        toast.success('Cita reprogramada');
+      } else {
+        await api('/admin/appointments', { method: 'POST', body: { staffId, startsAt: start.toISOString(), endsAt: end.toISOString(), clientName: name || undefined } });
+        toast.success('Cita registrada');
+      }
       onDone();
-    } catch {
-      toast.error('No se pudo registrar.');
+    } catch (e) {
+      toast.error((e as Error).message === 'slot_ocupado' ? 'Ese barbero ya tiene una cita a esa hora.' : 'No se pudo registrar.');
     } finally {
       setBusy(false);
     }
@@ -269,23 +378,40 @@ function WalkInDrawer({ range, staff, onClose, onDone }: { range: { start: Date;
     <Drawer
       open={!!range}
       onClose={onClose}
-      title="Registrar walk-in"
-      footer={<><Btn variant="ghost" onClick={onClose}>Cancelar</Btn><Btn onClick={save} busy={busy} disabled={!staffId}>Guardar</Btn></>}
+      title={edit ? 'Cambiar hora o barbero' : 'Cliente sin cita'}
+      footer={<><Btn variant="ghost" onClick={onClose}>Cancelar</Btn><Btn onClick={save} busy={busy} disabled={!staffId || !date || !time}>{edit ? 'Guardar cambios' : 'Guardar'}</Btn></>}
     >
       {range && (
         <div className="space-y-4">
-          <p className="tnum text-[15px] text-mute">
-            {range.start.toLocaleString('es-PE', { weekday: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} a{' '}
-            {range.end.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false })}
-          </p>
+          {edit && (
+            <p className="rounded-xl bg-field px-4 py-3 text-[15px]">
+              <span className="font-medium">{edit.client_name ?? 'Cliente sin cita'}</span>
+              {edit.service_name && <span className="text-mute">, {edit.service_name}</span>}
+            </p>
+          )}
           <Field label="Barbero">
             <select value={staffId} onChange={(e) => setStaffId(e.target.value)} className={inputCls}>
               {staff.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </Field>
-          <Field label="Nombre del cliente (opcional)">
-            <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Día"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} /></Field>
+            <Field label="Hora"><input type="time" step={900} value={time} onChange={(e) => setTime(e.target.value)} className={`tnum ${inputCls}`} /></Field>
+          </div>
+          <Field label="Duración">
+            <div className={`grid gap-2 ${extra ? 'grid-cols-5' : 'grid-cols-4'}`}>
+              {[15, 30, 45, 60, ...(extra ? [extra] : [])].sort((x, y) => x - y).map((m) => (
+                <button key={m} type="button" onClick={() => setMinutes(m)} className={`tnum whitespace-nowrap rounded-xl border py-2.5 text-[14px] sm:text-[15px] ${minutes === m ? 'border-ink bg-ink text-white' : 'border-line'}`}>
+                  {m} min
+                </button>
+              ))}
+            </div>
           </Field>
+          {!edit && (
+            <Field label="Nombre del cliente (opcional)">
+              <input value={name} onChange={(e) => setName(e.target.value)} autoCapitalize="words" className={inputCls} />
+            </Field>
+          )}
         </div>
       )}
     </Drawer>

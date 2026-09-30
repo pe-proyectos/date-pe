@@ -8,7 +8,7 @@ import { toast } from '@/lib/toast';
 
 interface Client {
   id: string; name: string | null; phone: string; email: string | null; loyalty_points: number;
-  visitas: string; ausencias: string; gastado_cents: string; ultima_cita: string | null;
+  visitas: string; ausencias: string; gastado_cents: string; ultima_cita: string | null; proxima_cita: string | null;
 }
 
 export function Clientes() {
@@ -51,7 +51,28 @@ export function Clientes() {
       ) : list.length === 0 ? (
         <Empty icon={Contact} title={q ? 'Sin resultados' : 'Aún no tienes clientes'} body={q ? 'Prueba con otro nombre o número.' : 'Aparecen aquí apenas alguien reserva.'} />
       ) : (
-        <div className="overflow-x-auto">
+        <>
+        <ul className="divide-y divide-line border-y border-line md:hidden">
+          {list.map((c) => (
+            <li key={c.id}>
+              <button type="button" onClick={() => { setOpen(c); setPoints(String(c.loyalty_points)); }} className="flex w-full items-center gap-3 py-3.5 text-left active:bg-field">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-field text-[15px] font-semibold">{(c.name ?? '?').trim().charAt(0).toUpperCase()}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{c.name ?? 'Sin nombre'}</span>
+                  <span className="tnum block text-[13px] text-mute">
+                    {c.visitas} {Number(c.visitas) === 1 ? 'visita' : 'visitas'}, {soles(c.gastado_cents)}
+                    {Number(c.ausencias) > 0 && <span className="text-red">, {c.ausencias} {Number(c.ausencias) === 1 ? 'ausencia' : 'ausencias'}</span>}
+                  </span>
+                  <span className="block text-[13px] text-soft">
+                    {c.proxima_cita ? `Próxima: ${shortDate(c.proxima_cita)}` : c.ultima_cita ? `Última: ${shortDate(c.ultima_cita)}` : 'Sin visitas aún'}
+                  </span>
+                </span>
+                <span className="tnum shrink-0 text-right text-[13px] font-medium">{c.loyalty_points} pts</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[720px] text-left text-[15px]">
             <thead>
               <tr className="border-b border-ink text-[13px] text-mute">
@@ -60,7 +81,8 @@ export function Clientes() {
                 <th className="py-3 pr-4 text-right font-medium">Ausencias</th>
                 <th className="py-3 pr-4 text-right font-medium">Gastado</th>
                 <th className="py-3 pr-4 text-right font-medium">Puntos</th>
-                <th className="py-3 font-medium">Última cita</th>
+                <th className="py-3 pr-4 font-medium">Última visita</th>
+                <th className="py-3 font-medium">Próxima cita</th>
               </tr>
             </thead>
             <tbody>
@@ -74,14 +96,14 @@ export function Clientes() {
                   <td className={`tnum py-3.5 pr-4 text-right ${Number(c.ausencias) > 0 ? 'text-red' : ''}`}>{c.ausencias}</td>
                   <td className="tnum py-3.5 pr-4 text-right">{soles(c.gastado_cents)}</td>
                   <td className="tnum py-3.5 pr-4 text-right">{c.loyalty_points}</td>
-                  <td className="py-3.5 text-mute">
-                    {c.ultima_cita ? new Date(c.ultima_cita).toLocaleDateString('es-PE', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Nunca'}
-                  </td>
+                  <td className="py-3.5 pr-4 text-mute">{c.ultima_cita ? shortDate(c.ultima_cita, true) : 'Nunca'}</td>
+                  <td className="py-3.5 text-mute">{c.proxima_cita ? shortDate(c.proxima_cita, true) : 'Sin agendar'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <Drawer open={!!open} onClose={() => setOpen(null)} title={open?.name ?? 'Cliente'} footer={<><Btn variant="ghost" onClick={() => setOpen(null)}>Cerrar</Btn><Btn onClick={savePoints}>Guardar puntos</Btn></>}>
@@ -97,6 +119,8 @@ export function Clientes() {
               {open.email && <div className="flex justify-between py-3"><dt className="text-mute">Correo</dt><dd>{open.email}</dd></div>}
               <div className="flex justify-between py-3"><dt className="text-mute">Visitas</dt><dd className="tnum">{open.visitas}</dd></div>
               <div className="flex justify-between py-3"><dt className="text-mute">Gastado</dt><dd className="tnum">{soles(open.gastado_cents)}</dd></div>
+              <div className="flex justify-between py-3"><dt className="text-mute">Última visita</dt><dd>{open.ultima_cita ? shortDate(open.ultima_cita, true) : 'Nunca'}</dd></div>
+              <div className="flex justify-between py-3"><dt className="text-mute">Próxima cita</dt><dd>{open.proxima_cita ? shortDate(open.proxima_cita, true) : 'Sin agendar'}</dd></div>
             </dl>
             <Field label="Puntos de lealtad" hint="Puedes ajustarlos si el cliente canjeó un premio.">
               <div className="flex items-center gap-2">
@@ -109,4 +133,8 @@ export function Clientes() {
       </Drawer>
     </>
   );
+}
+
+function shortDate(iso: string, year = false) {
+  return new Date(iso).toLocaleDateString('es-PE', { day: 'numeric', month: 'short', ...(year ? { year: 'numeric' } : {}), timeZone: 'America/Lima' }).replace('.', '');
 }

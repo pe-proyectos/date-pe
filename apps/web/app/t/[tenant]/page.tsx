@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { Star, MapPin, Clock, Navigation, ArrowRight, Check, Info } from 'lucide-react';
 import { apiFetch, soles, type TenantSite } from '@/lib/api';
 import { onColor, DAY_NAMES } from '@/lib/color';
+import { TenantGallery } from '@/components/TenantGallery';
 
 async function getSite(tenant: string): Promise<TenantSite | null> {
   try {
@@ -26,6 +27,7 @@ export async function generateMetadata({ params }: { params: Promise<{ tenant: s
     description,
     alternates: { canonical: `https://${tenant}.date.pe` },
     openGraph: { title, description, url: `https://${tenant}.date.pe`, images: [img] },
+    appleWebApp: { capable: true, title: site.tenant.name, statusBarStyle: 'default' },
   };
 }
 
@@ -88,7 +90,7 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
       )}
 
       {/* Barra superior de la barbería */}
-      <header className="sticky top-0 z-40 border-b border-line bg-white/90 backdrop-blur-md">
+      <header className="pt-safe sticky top-0 z-40 border-b border-line bg-white/90 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-[1180px] items-center justify-between px-5 md:px-8">
           <a href="#inicio" className="flex items-center gap-3">
             {site.branding?.logo_url ? (
@@ -130,14 +132,11 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
           )}
         </div>
 
-        <div className="mt-6 overflow-hidden rounded-xl bg-field">
-          {site.branding?.cover_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={site.branding.cover_url} alt={`Interior de ${site.tenant.name}`} fetchPriority="high" className="aspect-[16/10] w-full object-cover md:aspect-[21/9]" />
-          ) : (
-            <div className="aspect-[21/9] w-full" style={{ background: accent }} />
-          )}
-        </div>
+        <TenantGallery
+          accent={accent}
+          cover={site.branding?.cover_url ? { src: site.branding.cover_url, alt: `Interior de ${site.tenant.name}` } : null}
+          images={site.staff.filter((b) => b.photo_url).map((b) => ({ src: b.photo_url as string, alt: `${b.name}${b.bio ? `, ${b.bio.replace(/\.$/, '').toLowerCase()}` : ''}` }))}
+        />
 
         <div className="mt-10 grid gap-12 lg:grid-cols-12">
           <div className="lg:col-span-7">
@@ -178,9 +177,9 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
             {/* Equipo */}
             <section id="equipo" className="scroll-mt-24 border-b border-line py-10">
               <h2 className="text-[26px] font-semibold tracking-[-0.03em]">Equipo</h2>
-              <div className="mt-6 grid grid-cols-2 gap-6 sm:grid-cols-3">
+              <div className="no-scrollbar -mx-5 mt-6 flex snap-x snap-mandatory scroll-px-5 gap-4 overflow-x-auto px-5 pb-2 sm:mx-0 sm:grid sm:grid-cols-3 sm:gap-6 sm:overflow-visible sm:px-0">
                 {site.staff.map((b) => (
-                  <Link key={b.id} href={`/reservar?barbero=${b.id}`} className="group block">
+                  <Link key={b.id} href={`/reservar?barbero=${b.id}`} className="group block w-[62%] shrink-0 snap-start sm:w-auto">
                     <div className="zoom-media aspect-square rounded-xl bg-field">
                       {b.photo_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -238,8 +237,7 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
               <section id="opiniones" className="scroll-mt-24 border-b border-line py-10">
                 <h2 className="tnum flex items-center gap-2 text-[26px] font-semibold tracking-[-0.03em]">
                   <Star size={22} strokeWidth={0} className="fill-ink" /> {rating?.toFixed(1)}
-                  <span className="mx-1 h-1.5 w-1.5 rounded-full bg-ink" aria-hidden />
-                  {reviewCount} opiniones
+                  <span className="font-normal text-mute">de {reviewCount} {reviewCount === 1 ? 'opinión' : 'opiniones'}</span>
                 </h2>
                 <div className="mt-6 grid gap-x-10 gap-y-8 sm:grid-cols-2">
                   {site.reviews.map((r, i) => (
@@ -339,7 +337,7 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
       </footer>
 
       {/* Barra de reserva en móvil */}
-      <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-4 border-t border-line bg-white px-5 py-3 lg:hidden">
+      <div className="pb-safe fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-4 border-t border-line bg-white/95 px-5 pt-3 backdrop-blur-md lg:hidden">
         {from != null && (
           <div>
             <div className="tnum text-[16px] font-semibold">Desde {soles(from)}</div>
@@ -357,7 +355,7 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
           target="_blank"
           rel="noopener noreferrer"
           aria-label={`Escribir a ${site.tenant.name} por WhatsApp`}
-          className="fixed bottom-24 right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lift transition-transform hover:scale-105 lg:bottom-6"
+          className="fixed bottom-[calc(88px+env(safe-area-inset-bottom))] right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lift transition-transform hover:scale-105 lg:bottom-6"
         >
           <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.21 4.79 1.21 5.46 0 9.91-4.45 9.91-9.91C21.95 6.45 17.5 2 12.04 2Zm5.8 14.03c-.24.68-1.4 1.3-1.94 1.35-.5.05-1.13.07-1.82-.11-.42-.13-.96-.31-1.65-.61-2.9-1.25-4.79-4.17-4.94-4.36-.14-.19-1.18-1.57-1.18-2.99 0-1.42.75-2.12 1.01-2.41.26-.29.57-.36.76-.36.19 0 .38 0 .55.01.18.01.41-.07.64.49.24.57.81 1.97.88 2.11.07.14.12.31.02.5-.09.19-.14.31-.28.48-.14.17-.29.37-.42.5-.14.14-.28.29-.12.57.16.28.72 1.19 1.55 1.93 1.06.95 1.96 1.24 2.24 1.38.28.14.44.12.6-.07.16-.19.69-.81.88-1.09.19-.28.37-.23.62-.14.25.09 1.61.76 1.89.9.28.14.46.21.53.33.07.12.07.68-.17 1.36Z" /></svg>
         </a>

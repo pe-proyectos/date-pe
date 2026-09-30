@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect } from 'react';
-import { X, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import { Sheet } from '@/components/Sheet';
 
 export function PageHead({ title, sub, actions }: { title: string; sub?: string; actions?: React.ReactNode }) {
   return (
@@ -35,18 +35,27 @@ export function Btn({
   );
 }
 
-export function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
-  return (
+export function Switch({ checked, onChange, label, states }: { checked: boolean; onChange: (v: boolean) => void; label: string; states?: [string, string] }) {
+  const btn = (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
-      aria-label={label}
+      aria-label={states ? `${label}: ${checked ? states[0] : states[1]}` : label}
       onClick={() => onChange(!checked)}
       className={`relative h-6 w-10 shrink-0 rounded-full transition-colors duration-200 ${checked ? 'bg-ink' : 'bg-line-2'}`}
     >
       <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ${checked ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
     </button>
+  );
+  if (!states) return btn;
+  // Estado visible junto al interruptor: se lee sin tener que adivinar qué controla
+  return (
+    // En el teléfono el estado va debajo del interruptor para no robarle ancho al contenido
+    <span className="inline-flex shrink-0 flex-col-reverse items-center gap-1 sm:flex-row sm:gap-2">
+      <span className={`text-[12px] sm:w-[4.5rem] sm:text-right sm:text-[13px] ${checked ? 'text-ink' : 'text-soft'}`} aria-hidden>{checked ? states[0] : states[1]}</span>
+      {btn}
+    </span>
   );
 }
 
@@ -64,27 +73,10 @@ export const inputCls =
   'w-full rounded-xl border border-line-2 bg-white px-3.5 py-2.5 text-[15px] outline-none transition-colors focus:border-ink';
 
 export function Drawer({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; footer?: React.ReactNode }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal aria-label={title}>
-      <div className="absolute inset-0 bg-ink/20" onClick={onClose} />
-      <div className="drawer-in absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-white shadow-pop">
-        <div className="flex h-16 items-center justify-between border-b border-line px-6">
-          <h2 className="text-[17px] font-semibold tracking-[-0.02em]">{title}</h2>
-          <button type="button" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-field" aria-label="Cerrar">
-            <X size={19} strokeWidth={1.75} />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto px-6 py-6">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-line px-6 py-4">{footer}</div>}
-      </div>
-    </div>
+    <Sheet open={open} onClose={onClose} title={title} footer={footer}>
+      {children}
+    </Sheet>
   );
 }
 

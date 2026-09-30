@@ -26,6 +26,8 @@ async function main() {
   // CORS: refleja orígenes de date.pe y sus subdominios (+ localhost/lvh.me en dev)
   await app.register(cors, {
     credentials: true,
+    // El panel de cada barbería vive en su subdominio y edita con PATCH, PUT y DELETE
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     origin(origin, cb) {
       if (!origin) return cb(null, true); // curl / same-origin
       try {

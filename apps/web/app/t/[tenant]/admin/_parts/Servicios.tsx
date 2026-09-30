@@ -88,7 +88,7 @@ export function Servicios() {
                 </div>
               </button>
               <span className="tnum w-24 text-right text-[16px] font-medium">{soles(s.price_cents)}</span>
-              <Switch checked={s.is_active} onChange={(v) => toggle(s, v)} label={`Activo: ${s.name}`} />
+              <Switch checked={s.is_active} onChange={(v) => toggle(s, v)} label={`Servicio ${s.name}`} states={['Visible', 'Oculto']} />
             </li>
           ))}
         </ul>

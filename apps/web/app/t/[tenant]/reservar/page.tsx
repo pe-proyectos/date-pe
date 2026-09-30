@@ -2,14 +2,16 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import {
-  ArrowLeft, ChevronLeft, ChevronRight, Clock, Users, Smartphone, CreditCard, Wallet, Ticket, CalendarPlus, Navigation, Loader2, Star, Info,
+  ArrowLeft, ChevronLeft, ChevronRight, ChevronUp, Clock, Users, Smartphone, CreditCard, Wallet, Ticket, CalendarPlus, Navigation, Loader2, Star, Info,
 } from 'lucide-react';
 import { API_BASE_CLIENT } from '@/lib/config';
 import { onColor } from '@/lib/color';
 import { Toaster } from '@/components/Toaster';
 import { toast } from '@/lib/toast';
+import { haptic } from '@/lib/haptics';
+import { Sheet } from '@/components/Sheet';
 
 interface Service { id: string; name: string; description: string | null; duration_min: number; price_cents: number }
 interface Staff { id: string; name: string; photo_url: string | null; bio: string | null; rating_avg: string; rating_count: number }
@@ -28,6 +30,7 @@ interface Quote {
   giftCard: { code: string; valid: boolean; reason?: string; appliedCents: number } | null;
 }
 type Step = 'service' | 'staff' | 'time' | 'you' | 'pay';
+const STEPS: Step[] = ['service', 'staff', 'time', 'you', 'pay'];
 type Method = 'mercadopago' | 'culqi' | 'paypal';
 
 const soles = (c: number) => `S/ ${(c / 100).toFixed(2)}`;
@@ -49,7 +52,7 @@ function buildDays(n = 14) {
     const w = wd.format(d).replace('.', '');
     return {
       iso: isoFmt.format(d),
-      top: i === 0 ? 'Hoy' : i === 1 ? 'Mañ.' : w.charAt(0).toUpperCase() + w.slice(1),
+      top: i === 0 ? 'Hoy' : w.charAt(0).toUpperCase() + w.slice(1),
       num: dn.format(d),
       month: mo.format(d).replace('.', ''),
     };
@@ -73,12 +76,35 @@ function ReservarInner() {
   const [site, setSite] = useState<Site | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [step, setStep] = useState<Step>('service');
+  const router = useRouter();
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const dayStripRef = useRef<HTMLDivElement>(null);
+  // Cada paso entra al historial: el gesto "atrás" del teléfono retrocede un paso.
+  const goStep = useCallback((next: Step) => {
+    setStep(next);
+    window.history.pushState({ ...(window.history.state ?? {}), __step: next }, '');
+  }, []);
+  useEffect(() => {
+    const onPop = (e: PopStateEvent) => {
+      const st = (e.state ?? {}).__step as Step | undefined;
+      setStep(st && STEPS.includes(st) ? st : 'service');
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  useEffect(() => {
+    if (window.matchMedia('(max-width: 1023px)').matches) window.scrollTo({ top: 0 });
+  }, [step]);
   const [service, setService] = useState<Service | null>(null);
   const [staffId, setStaffId] = useState<string | 'any' | null>(null);
   const days = useMemo(() => buildDays(), []);
   const [dayIdx, setDayIdx] = useState(0);
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [slot, setSlot] = useState<Slot | null>(null);
+  useEffect(() => {
+    const el = dayStripRef.current?.querySelector<HTMLElement>(`[data-day="${dayIdx}"]`);
+    el?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+  }, [dayIdx]);
   const autoSeek = useRef(true); // busca el próximo día con horarios tras elegir servicio/barbero
   const [skipped, setSkipped] = useState(0);
   const [you, setYou] = useState({ name: '', phone: '', email: '' });
@@ -101,8 +127,9 @@ function ReservarInner() {
         const st = d.staff.find((s) => s.id === params.get('barbero'));
         if (sv) setService(sv);
         if (st) setStaffId(st.id);
-        if (sv && st) setStep('time');
-        else if (sv) setStep('staff');
+        const initial: Step = sv && st ? 'time' : sv ? 'staff' : 'service';
+        setStep(initial);
+        window.history.replaceState({ ...(window.history.state ?? {}), __step: initial }, '');
       })
       .catch(() => setLoadError(true));
     try {
@@ -220,7 +247,7 @@ function ReservarInner() {
         if (d.error === 'slot_ocupado') {
           toast.error('Alguien tomó esa hora hace un momento. Elige otra.');
           setSlot(null);
-          setStep('time');
+          goStep('time');
           loadSlots();
         } else toast.error('No pudimos crear la reserva. Revisa tus datos.');
         return;
@@ -334,28 +361,96 @@ function ReservarInner() {
     { label: 'Noche', items: daySlots.filter((s) => limaHour(s.start) >= 18) },
   ].filter((g) => g.items.length > 0);
 
+  const summary = (
+    <>
+            <div className="flex items-center gap-3">
+              {site.branding?.cover_url && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={site.branding.cover_url} alt="" className="h-14 w-14 rounded-lg object-cover" />
+              )}
+              <div>
+                <div className="text-[16px] font-medium">{site.tenant.name}</div>
+                <div className="text-[14px] text-mute">{loc?.district}</div>
+              </div>
+            </div>
+            <dl className="mt-5 space-y-3 border-t border-line pt-5 text-[15px]">
+              <SummaryRow label="Servicio" value={service?.name} />
+              <SummaryRow label="Barbero" value={slot ? staffForSlot?.name : staffId === 'any' ? 'Cualquiera disponible' : site.staff.find((s) => s.id === staffId)?.name} />
+              <SummaryRow label="Fecha" value={slot ? fmtDayLong(slot.start) : undefined} />
+              <SummaryRow label="Hora" value={slot ? fmtTime(slot.start) : undefined} />
+            </dl>
+            {quote && service && (
+              <dl className="rise-in mt-5 space-y-2 border-t border-line pt-5 text-[15px]">
+                <div className="flex justify-between"><dt className="text-mute">Precio</dt><dd className="tnum">{soles(quote.listPriceCents)}</dd></div>
+                {quote.promo?.valid && (
+                  <div className="flex justify-between text-ok"><dt>Código {quote.promo.code}</dt><dd className="tnum">- {soles(quote.promo.discountCents)}</dd></div>
+                )}
+                {quote.giftCard?.valid && (
+                  <div className="flex justify-between text-ok"><dt>Gift card</dt><dd className="tnum">- {soles(quote.giftCard.appliedCents)}</dd></div>
+                )}
+                <div className="flex justify-between pt-1 text-[16px] font-medium"><dt>Total</dt><dd className="tnum">{soles(quote.finalCents)}</dd></div>
+                {quote.depositCents > 0 && (
+                  <>
+                    <div className="flex justify-between border-t border-line pt-3 text-[16px] font-semibold">
+                      <dt>Adelanto hoy ({quote.depositPercent}%)</dt><dd className="tnum">{soles(quote.depositCents)}</dd>
+                    </div>
+                    <div className="flex justify-between text-mute"><dt>Pagas en la barbería</dt><dd className="tnum">{soles(quote.finalCents - quote.depositCents)}</dd></div>
+                  </>
+                )}
+              </dl>
+            )}
+          
+    </>
+  );
+
+  const stepIdx = STEPS.indexOf(step);
+  const stepTitle = { service: 'Elige el servicio', staff: 'Elige a tu barbero', time: 'Elige día y hora', you: 'Tus datos', pay: needsDeposit ? 'Adelanto' : 'Confirma tu reserva' }[step];
+  function goBack() {
+    if (stepIdx > 0 && window.history.state?.__step) window.history.back();
+    else if (stepIdx > 0) setStep(STEPS[stepIdx - 1]);
+    else router.push('/');
+  }
+
   const primaryBtn = 'w-full rounded-lg py-3.5 text-[16px] font-medium transition-opacity disabled:cursor-not-allowed disabled:opacity-40';
 
   return (
-    <main className="mx-auto max-w-[1180px] px-5 pb-40 pt-6 md:px-8 lg:pb-20">
+    <main className="mx-auto max-w-[1180px] px-5 pb-[calc(112px+env(safe-area-inset-bottom))] md:px-8 lg:pb-20 lg:pt-6">
       <Toaster />
-      <Link href="/" className="inline-flex items-center gap-1.5 text-[15px] text-mute hover:text-ink">
-        <ArrowLeft size={17} strokeWidth={1.75} /> {site.tenant.name}
-      </Link>
-      <h1 className="mt-4 text-[clamp(2rem,4vw,2.75rem)] font-semibold tracking-[-0.035em]">Reserva tu cita</h1>
+      {/* Barra superior en el teléfono: atrás real + progreso */}
+      <div className="pt-safe sticky top-0 z-30 -mx-5 bg-white/95 backdrop-blur-md md:-mx-8 lg:hidden">
+        <div className="flex h-14 items-center gap-1 px-2">
+          <button type="button" onClick={goBack} className="flex h-11 w-11 items-center justify-center rounded-full active:bg-field" aria-label="Atrás">
+            <ChevronLeft size={26} strokeWidth={1.75} />
+          </button>
+          <div className="min-w-0 flex-1 text-center">
+            <div className="truncate text-[16px] font-semibold tracking-[-0.02em]">{stepTitle}</div>
+            <div className="truncate text-[12px] text-mute">{site.tenant.name}</div>
+          </div>
+          <span className="tnum w-11 text-center text-[13px] text-mute">{stepIdx + 1} de 5</span>
+        </div>
+        <div className="h-[3px] bg-field" aria-hidden>
+          <div className="h-full bg-ink transition-[width] duration-500 ease-out" style={{ width: `${((stepIdx + 1) / 5) * 100}%` }} />
+        </div>
+      </div>
+      <div className="hidden lg:block">
+        <Link href="/" className="inline-flex items-center gap-1.5 text-[15px] text-mute hover:text-ink">
+          <ArrowLeft size={17} strokeWidth={1.75} /> {site.tenant.name}
+        </Link>
+        <h1 className="mt-4 text-[clamp(2rem,4vw,2.75rem)] font-semibold tracking-[-0.035em]">Reserva tu cita</h1>
+      </div>
       {site.tenant.is_demo && (
-        <p className="mt-2 flex items-center gap-2 text-[14px] text-mute">
+        <p className="mt-4 flex items-center gap-2 text-[13px] text-mute lg:mt-2 lg:text-[14px]">
           <Info size={15} strokeWidth={1.75} /> Barbería de demostración: puedes probar todo el flujo, el pago es simulado.
         </p>
       )}
 
-      <div className="mt-8 grid gap-10 lg:grid-cols-12">
-        <div className="lg:col-span-7">
+      <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-10 lg:mt-8 lg:grid-cols-12">
+        <div className="min-w-0 lg:col-span-7">
           {/* 1. Servicio */}
           <StepBlock
             n={1} title="Servicio" open={step === 'service'}
             summary={service ? `${service.name}, ${service.duration_min} min` : undefined}
-            onEdit={() => setStep('service')}
+            onEdit={() => goStep('service')}
           >
             <div className="space-y-2">
               {site.services.map((s) => (
@@ -363,11 +458,12 @@ function ReservarInner() {
                   key={s.id}
                   type="button"
                   onClick={() => {
+                    haptic.select();
                     setService(s);
                     setSlot(null);
                     autoSeek.current = true;
                     setSkipped(0);
-                    setStep(staffId ? 'time' : 'staff');
+                    goStep(staffId ? 'time' : 'staff');
                   }}
                   className={`flex w-full items-center justify-between gap-4 rounded-xl border p-4 text-left transition-colors ${
                     service?.id === s.id ? 'border-ink bg-field' : 'border-line hover:border-ink'
@@ -388,12 +484,12 @@ function ReservarInner() {
           <StepBlock
             n={2} title="Barbero" open={step === 'staff'} disabled={!service}
             summary={staffId === 'any' ? 'Cualquiera disponible' : site.staff.find((s) => s.id === staffId)?.name}
-            onEdit={() => setStep('staff')}
+            onEdit={() => goStep('staff')}
           >
             <div className="dim-others grid grid-cols-2 gap-3 sm:grid-cols-4">
               <button
                 type="button"
-                onClick={() => { setStaffId('any'); setSlot(null); autoSeek.current = true; setSkipped(0); setDayIdx(0); setStep('time'); }}
+                onClick={() => { haptic.select(); setStaffId('any'); setSlot(null); autoSeek.current = true; setSkipped(0); setDayIdx(0); goStep('time'); }}
                 className={`flex flex-col items-center gap-2 rounded-xl border p-4 transition-colors ${staffId === 'any' ? 'is-picked border-ink bg-field' : 'border-line hover:border-ink'}`}
               >
                 <span className="flex h-16 w-16 items-center justify-center rounded-full bg-field"><Users size={24} strokeWidth={1.5} /></span>
@@ -403,7 +499,7 @@ function ReservarInner() {
                 <button
                   key={b.id}
                   type="button"
-                  onClick={() => { setStaffId(b.id); setSlot(null); autoSeek.current = true; setSkipped(0); setDayIdx(0); setStep('time'); }}
+                  onClick={() => { haptic.select(); setStaffId(b.id); setSlot(null); autoSeek.current = true; setSkipped(0); setDayIdx(0); goStep('time'); }}
                   className={`flex flex-col items-center gap-2 rounded-xl border p-4 transition-colors ${staffId === b.id ? 'is-picked border-ink bg-field' : 'border-line hover:border-ink'}`}
                 >
                   {b.photo_url ? (
@@ -425,18 +521,19 @@ function ReservarInner() {
           <StepBlock
             n={3} title="Fecha y hora" open={step === 'time'} disabled={!service || !staffId}
             summary={slot ? `${fmtDayLong(slot.start)}, ${fmtTime(slot.start)}` : undefined}
-            onEdit={() => setStep('time')}
+            onEdit={() => goStep('time')}
           >
             <div className="flex items-center gap-2">
               <button type="button" onClick={() => { autoSeek.current = false; setSkipped(0); setDayIdx(Math.max(0, dayIdx - 1)); }} disabled={dayIdx === 0} className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line hover:border-ink disabled:opacity-30 sm:flex" aria-label="Día anterior">
                 <ChevronLeft size={18} strokeWidth={1.75} />
               </button>
-              <div className="-mx-1 flex flex-1 snap-x gap-2 overflow-x-auto px-1 pb-1">
+              <div ref={dayStripRef} className="no-scrollbar -mx-1 flex min-w-0 flex-1 snap-x gap-2 overflow-x-auto px-1 pb-1">
                 {days.map((d, i) => (
                   <button
                     key={d.iso}
                     type="button"
-                    onClick={() => { autoSeek.current = false; setSkipped(0); setDayIdx(i); setSlot(null); }}
+                    data-day={i}
+                    onClick={() => { haptic.select(); autoSeek.current = false; setSkipped(0); setDayIdx(i); setSlot(null); }}
                     className={`flex w-[60px] shrink-0 snap-start flex-col items-center rounded-xl border py-2.5 transition-colors ${
                       i === dayIdx ? 'border-ink bg-ink text-white' : 'border-line hover:border-ink'
                     }`}
@@ -484,7 +581,7 @@ function ReservarInner() {
                         <button
                           key={s.start + s.staffId}
                           type="button"
-                          onClick={() => { setSlot(s); setStep('you'); }}
+                          onClick={() => { haptic.select(); setSlot(s); goStep('you'); }}
                           className={`tnum h-11 rounded-lg border text-[15px] transition-all ${
                             picked ? 'is-picked -translate-y-0.5 border-ink bg-ink text-white shadow-lift' : 'border-line hover:border-ink'
                           }`}
@@ -503,11 +600,11 @@ function ReservarInner() {
           <StepBlock
             n={4} title="Tus datos" open={step === 'you'} disabled={!slot}
             summary={you.name && phoneOk ? `${you.name}, ${you.phone}` : undefined}
-            onEdit={() => setStep('you')}
+            onEdit={() => goStep('you')}
           >
             <div className="space-y-3">
               <Field label="Nombre">
-                <input value={you.name} onChange={(e) => setYou({ ...you, name: e.target.value })} autoComplete="name" className="fld" placeholder="Tu nombre" />
+                <input value={you.name} onChange={(e) => setYou({ ...you, name: e.target.value })} autoComplete="name" autoCapitalize="words" enterKeyHint="next" className="fld" placeholder="Tu nombre" />
               </Field>
               <Field label="Celular" hint="Para que la barbería pueda contactarte.">
                 <div className="flex items-center rounded-xl border border-line-2 focus-within:border-ink">
@@ -517,20 +614,21 @@ function ReservarInner() {
                     onChange={(e) => setYou({ ...you, phone: e.target.value })}
                     inputMode="tel"
                     autoComplete="tel-national"
+                    enterKeyHint="next"
                     className="tnum w-full bg-transparent px-3 py-3.5 text-[16px] outline-none"
                     placeholder="987 654 321"
                   />
                 </div>
               </Field>
               <Field label="Correo (opcional)" hint="Te enviamos ahí la confirmación.">
-                <input value={you.email} onChange={(e) => setYou({ ...you, email: e.target.value })} type="email" autoComplete="email" className="fld" placeholder="tucorreo@gmail.com" />
+                <input value={you.email} onChange={(e) => setYou({ ...you, email: e.target.value })} type="email" autoComplete="email" enterKeyHint="done" onKeyDown={(e) => { if (e.key === 'Enter' && you.name.trim() && phoneOk && emailOk) goStep('pay'); }} className="fld" placeholder="tucorreo@gmail.com" />
                 {!emailOk && <p className="mt-1 text-[13px] text-red">Revisa el correo.</p>}
               </Field>
               <button
                 type="button"
                 disabled={!you.name.trim() || !phoneOk || !emailOk}
-                onClick={() => setStep('pay')}
-                className={primaryBtn}
+                onClick={() => goStep('pay')}
+                className={`${primaryBtn} max-lg:hidden`}
                 style={{ background: accent, color: onAccent }}
               >
                 Continuar
@@ -579,7 +677,7 @@ function ReservarInner() {
               </fieldset>
             )}
 
-            <button type="button" onClick={confirm} disabled={busy} className={`mt-6 flex items-center justify-center gap-2 ${primaryBtn}`} style={{ background: accent, color: onAccent }}>
+            <button type="button" onClick={confirm} disabled={busy} className={`mt-6 flex items-center justify-center gap-2 max-lg:hidden ${primaryBtn}`} style={{ background: accent, color: onAccent }}>
               {busy && <Loader2 size={18} className="animate-spin" />}
               {needsDeposit ? `Pagar adelanto de ${soles(quote!.depositCents)} y reservar` : 'Confirmar reserva'}
             </button>
@@ -591,48 +689,45 @@ function ReservarInner() {
           </StepBlock>
         </div>
 
-        {/* Resumen que se construye */}
-        <aside className="lg:col-span-5">
-          <div className="rounded-xl border border-line p-6 lg:sticky lg:top-8">
-            <div className="flex items-center gap-3">
-              {site.branding?.cover_url && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={site.branding.cover_url} alt="" className="h-14 w-14 rounded-lg object-cover" />
-              )}
-              <div>
-                <div className="text-[16px] font-medium">{site.tenant.name}</div>
-                <div className="text-[14px] text-mute">{loc?.district}</div>
-              </div>
-            </div>
-            <dl className="mt-5 space-y-3 border-t border-line pt-5 text-[15px]">
-              <SummaryRow label="Servicio" value={service?.name} />
-              <SummaryRow label="Barbero" value={slot ? staffForSlot?.name : staffId === 'any' ? 'Cualquiera disponible' : site.staff.find((s) => s.id === staffId)?.name} />
-              <SummaryRow label="Fecha" value={slot ? fmtDayLong(slot.start) : undefined} />
-              <SummaryRow label="Hora" value={slot ? fmtTime(slot.start) : undefined} />
-            </dl>
-            {quote && service && (
-              <dl className="rise-in mt-5 space-y-2 border-t border-line pt-5 text-[15px]">
-                <div className="flex justify-between"><dt className="text-mute">Precio</dt><dd className="tnum">{soles(quote.listPriceCents)}</dd></div>
-                {quote.promo?.valid && (
-                  <div className="flex justify-between text-ok"><dt>Código {quote.promo.code}</dt><dd className="tnum">- {soles(quote.promo.discountCents)}</dd></div>
-                )}
-                {quote.giftCard?.valid && (
-                  <div className="flex justify-between text-ok"><dt>Gift card</dt><dd className="tnum">- {soles(quote.giftCard.appliedCents)}</dd></div>
-                )}
-                <div className="flex justify-between pt-1 text-[16px] font-medium"><dt>Total</dt><dd className="tnum">{soles(quote.finalCents)}</dd></div>
-                {quote.depositCents > 0 && (
-                  <>
-                    <div className="flex justify-between border-t border-line pt-3 text-[16px] font-semibold">
-                      <dt>Adelanto hoy ({quote.depositPercent}%)</dt><dd className="tnum">{soles(quote.depositCents)}</dd>
-                    </div>
-                    <div className="flex justify-between text-mute"><dt>Pagas en la barbería</dt><dd className="tnum">{soles(quote.finalCents - quote.depositCents)}</dd></div>
-                  </>
-                )}
-              </dl>
-            )}
-          </div>
+        {/* Resumen que se construye (escritorio) */}
+        <aside className="hidden lg:col-span-5 lg:block">
+          <div className="rounded-xl border border-line p-6 lg:sticky lg:top-8">{summary}</div>
         </aside>
       </div>
+
+      {/* Barra inferior en el teléfono: total y acción principal */}
+      <div className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 px-5 pt-3 backdrop-blur-md lg:hidden">
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={() => setSummaryOpen(true)} className="min-w-0 flex-1 text-left" aria-label="Ver resumen de la reserva">
+            <span className="tnum flex items-center gap-1 text-[17px] font-semibold tracking-[-0.02em]">
+              {quote && service ? soles(needsDeposit ? quote.depositCents : quote.finalCents) : 'Tu reserva'}
+              <ChevronUp size={16} strokeWidth={2} className="text-mute" />
+            </span>
+            <span className="block truncate text-[13px] text-mute">
+              {quote && service
+                ? needsDeposit
+                  ? `Adelanto hoy, total ${soles(quote.finalCents)}`
+                  : `${service.name}${slot ? `, ${fmtTime(slot.start)}` : ''}`
+                : 'Elige un servicio para empezar'}
+            </span>
+          </button>
+          {step === 'you' && (
+            <button type="button" disabled={!you.name.trim() || !phoneOk || !emailOk} onClick={() => goStep('pay')} className="rounded-xl px-6 py-3.5 text-[16px] font-medium disabled:opacity-40" style={{ background: accent, color: onAccent }}>
+              Continuar
+            </button>
+          )}
+          {step === 'pay' && (
+            <button type="button" onClick={confirm} disabled={busy} className="flex items-center gap-2 rounded-xl px-5 py-3.5 text-[16px] font-medium disabled:opacity-40" style={{ background: accent, color: onAccent }}>
+              {busy && <Loader2 size={18} className="animate-spin" />}
+              {needsDeposit ? 'Pagar adelanto' : 'Confirmar'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <Sheet open={summaryOpen} onClose={() => setSummaryOpen(false)} title="Tu reserva">
+        {summary}
+      </Sheet>
 
       <style>{`.fld{width:100%;border:1px solid var(--color-line-2);border-radius:12px;padding:0.85rem 1rem;font-size:16px;background:#fff;outline:none;transition:border-color .2s}.fld:focus{border-color:var(--color-ink)}`}</style>
     </main>
@@ -643,8 +738,8 @@ function StepBlock({
   n, title, open, summary, onEdit, disabled, children,
 }: { n: number; title: string; open: boolean; summary?: string; onEdit?: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
-    <section className={`border-b border-line py-6 first:pt-0 ${disabled && !open ? 'opacity-40' : ''}`}>
-      <div className="flex items-center justify-between gap-4">
+    <section className={`border-b border-line py-6 first:pt-0 ${disabled && !open ? 'opacity-40' : ''} ${open ? 'max-lg:border-0 max-lg:pt-2' : 'max-lg:hidden'}`}>
+      <div className={`flex items-center justify-between gap-4 ${open ? 'max-lg:hidden' : ''}`}>
         <div className="min-w-0">
           <h2 className="flex items-center gap-3 text-[19px] font-semibold tracking-[-0.02em]">
             <span className={`tnum flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[13px] font-medium ${open ? 'bg-ink text-white' : summary ? 'bg-field text-ink' : 'border border-line text-soft'}`}>{n}</span>
@@ -656,7 +751,7 @@ function StepBlock({
           <button type="button" onClick={onEdit} className="shrink-0 text-[15px] font-medium underline underline-offset-4">Cambiar</button>
         )}
       </div>
-      {open && !disabled && <div className="rise-in mt-5">{children}</div>}
+      {open && !disabled && <div className="rise-in lg:mt-5">{children}</div>}
     </section>
   );
 }

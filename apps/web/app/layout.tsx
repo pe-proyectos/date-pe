@@ -26,12 +26,17 @@ export const metadata: Metadata = {
     images: ['/img/og.jpg'],
   },
   alternates: { canonical: 'https://date.pe' },
+  manifest: '/app.webmanifest',
+  icons: { icon: '/icon.svg', apple: '/icons/apple-touch-icon.png' },
+  appleWebApp: { capable: true, title: 'date.pe', statusBarStyle: 'default' },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {
   themeColor: '#ffffff',
   width: 'device-width',
   initialScale: 1,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

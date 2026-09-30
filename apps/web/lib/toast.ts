@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { haptic } from './haptics';
 
 export type ToastType = 'success' | 'error' | 'info';
 export interface Toast {
@@ -19,6 +20,8 @@ function emit() {
 
 function push(type: ToastType, message: string, ms = 3500) {
   const id = nextId++;
+  if (type === 'success') haptic.success();
+  else if (type === 'error') haptic.error();
   toasts = [...toasts, { id, type, message }];
   emit();
   setTimeout(() => {

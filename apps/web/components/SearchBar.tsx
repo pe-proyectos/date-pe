@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { MapPin, Scissors, CalendarDays, Search } from 'lucide-react';
+import { MapPin, Search } from 'lucide-react';
+import { Sheet } from './Sheet';
+import { haptic } from '@/lib/haptics';
 import { API_BASE_CLIENT } from '@/lib/config';
 import { DISTRICTS } from '@/lib/districts';
 
@@ -36,11 +38,13 @@ export function SearchBar({
   const [date, setDate] = useState(initial?.date ?? '');
   const [panel, setPanel] = useState<Panel>(null);
   const [remote, setRemote] = useState<string[] | null>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileStep, setMobileStep] = useState<'where' | 'what' | 'when'>('where');
   const boxRef = useRef<HTMLFormElement>(null);
   const days = useMemo(() => nextDays(), []);
 
   useEffect(() => {
-    if (panel !== 'where') return;
+    if (panel !== 'where' && !mobileOpen) return;
     const ctrl = new AbortController();
     const t = setTimeout(async () => {
       try {
@@ -55,7 +59,7 @@ export function SearchBar({
       clearTimeout(t);
       ctrl.abort();
     };
-  }, [district, panel]);
+  }, [district, panel, mobileOpen]);
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -75,14 +79,27 @@ export function SearchBar({
   const suggestions = Array.from(new Set([...(remote ?? []), ...localMatches])).slice(0, 8);
   const dateLabel = days.find((d) => d.iso === date);
 
-  function submit(e?: React.FormEvent) {
-    e?.preventDefault();
+  function buildUrl() {
     const p = new URLSearchParams();
     if (district) p.set('district', district);
     if (service) p.set('service', service);
     if (date) p.set('date', date);
+    return `/search${p.toString() ? `?${p}` : ''}`;
+  }
+
+  function submit(e?: React.FormEvent) {
+    e?.preventDefault();
     setPanel(null);
-    router.push(`/search${p.toString() ? `?${p}` : ''}`);
+    router.push(buildUrl());
+  }
+
+  /** Desde la hoja móvil: la entrada del historial de la hoja pasa a ser la de resultados. */
+  function submitMobile() {
+    const st = { ...(window.history.state ?? {}) };
+    delete st.__layer;
+    window.history.replaceState(st, '');
+    setMobileOpen(false);
+    router.replace(buildUrl());
   }
 
   const seg = (id: Panel) =>
@@ -133,42 +150,100 @@ export function SearchBar({
         </button>
       </div>
 
-      {/* Móvil */}
-      <div className="overflow-hidden rounded-xl border border-line bg-white md:hidden">
-        <label className="flex items-center gap-3 border-b border-line px-4 py-3.5">
-          <MapPin size={18} strokeWidth={1.75} className="shrink-0 text-mute" />
-          <input
-            value={district}
-            onChange={(e) => {
-              setDistrict(e.target.value);
-              setPanel('where');
-            }}
-            onFocus={() => setPanel('where')}
-            placeholder="¿En qué distrito?"
-            className="w-full bg-transparent text-[16px] outline-none"
-            aria-label="Distrito"
-          />
-        </label>
-        <button type="button" onClick={() => setPanel(panel === 'what' ? null : 'what')} className="flex w-full items-center gap-3 border-b border-line px-4 py-3.5 text-left">
-          <Scissors size={18} strokeWidth={1.75} className="shrink-0 text-mute" />
-          <span className={`text-[16px] ${service ? 'text-ink' : 'text-soft'}`}>{service || '¿Qué te haces?'}</span>
-        </button>
-        <button type="button" onClick={() => setPanel(panel === 'when' ? null : 'when')} className="flex w-full items-center gap-3 px-4 py-3.5 text-left">
-          <CalendarDays size={18} strokeWidth={1.75} className="shrink-0 text-mute" />
-          <span className={`text-[16px] ${date ? 'text-ink' : 'text-soft'}`}>
-            {dateLabel ? `${dateLabel.top}, ${dateLabel.bottom}` : 'Cualquier día'}
+      {/* Móvil: píldora que abre el buscador a pantalla completa */}
+      <button
+        type="button"
+        onClick={() => { setMobileOpen(true); setMobileStep('where'); }}
+        className="flex w-full items-center gap-3 rounded-full border border-line bg-white px-4 py-3 text-left shadow-[0_6px_20px_-12px_rgba(10,10,10,0.35)] md:hidden"
+      >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red text-white">
+          <Search size={18} strokeWidth={2.2} />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-[15px] font-medium">{district || '¿Dónde te cortas?'}</span>
+          <span className="block truncate text-[13px] text-mute">
+            {[service || 'Cualquier servicio', dateLabel ? `${dateLabel.top}, ${dateLabel.bottom}` : 'Cualquier día'].join(', ')}
           </span>
-        </button>
-        <div className="p-2">
-          <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-lg bg-red py-3.5 text-[16px] font-medium text-white">
-            <Search size={18} strokeWidth={2} />
-            Buscar barberías
-          </button>
+        </span>
+      </button>
+
+      <Sheet
+        open={mobileOpen}
+        onClose={() => setMobileOpen(false)}
+        title="Buscar barberías"
+        full
+        footer={
+          <div className="flex w-full items-center justify-between gap-3">
+            <button type="button" onClick={() => { setDistrict(''); setService(''); setDate(''); setMobileStep('where'); }} className="text-[15px] font-medium underline underline-offset-4">
+              Limpiar
+            </button>
+            <button type="button" onClick={submitMobile} className="flex items-center gap-2 rounded-xl bg-red px-6 py-3.5 text-[16px] font-medium text-white">
+              <Search size={18} strokeWidth={2.2} /> Buscar
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <MobileSection title="Dónde" value={district || 'Cualquier distrito'} open={mobileStep === 'where'} onOpen={() => setMobileStep('where')}>
+            <label className="flex items-center gap-3 rounded-xl border border-line-2 px-4 py-3 focus-within:border-ink">
+              <MapPin size={18} strokeWidth={1.75} className="text-mute" />
+              <input
+                autoFocus
+                value={district}
+                onChange={(e) => setDistrict(e.target.value)}
+                placeholder="Busca tu distrito"
+                enterKeyHint="next"
+                onKeyDown={(e) => e.key === 'Enter' && setMobileStep('what')}
+                className="w-full bg-transparent text-[16px] outline-none"
+              />
+            </label>
+            <ul className="mt-2">
+              {suggestions.slice(0, 6).map((sug) => (
+                <li key={sug}>
+                  <button type="button" onClick={() => { setDistrict(sug); haptic.select(); setMobileStep('what'); }} className="flex w-full items-center gap-3 rounded-lg px-2 py-3 text-left text-[16px] active:bg-field">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-field"><MapPin size={18} strokeWidth={1.75} /></span>
+                    {sug}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </MobileSection>
+
+          <MobileSection title="Qué" value={service || 'Cualquier servicio'} open={mobileStep === 'what'} onOpen={() => setMobileStep('what')}>
+            <div className="flex flex-wrap gap-2">
+              {SERVICES.map((sv) => (
+                <button
+                  key={sv}
+                  type="button"
+                  onClick={() => { setService(sv === service ? '' : sv); haptic.select(); setMobileStep('when'); }}
+                  className={`rounded-full border px-4 py-2.5 text-[15px] ${sv === service ? 'border-ink bg-ink text-white' : 'border-line'}`}
+                >
+                  {sv}
+                </button>
+              ))}
+            </div>
+          </MobileSection>
+
+          <MobileSection title="Cuándo" value={dateLabel ? `${dateLabel.top}, ${dateLabel.bottom}` : 'Cualquier día'} open={mobileStep === 'when'} onOpen={() => setMobileStep('when')}>
+            <div className="grid grid-cols-4 gap-2">
+              {days.map((d) => (
+                <button
+                  key={d.iso}
+                  type="button"
+                  onClick={() => { setDate(d.iso === date ? '' : d.iso); haptic.select(); }}
+                  className={`rounded-xl border py-3 text-center ${d.iso === date ? 'border-ink bg-ink text-white' : 'border-line'}`}
+                >
+                  <div className="text-[14px] font-medium">{d.top}</div>
+                  <div className={`text-[12px] ${d.iso === date ? 'text-white/70' : 'text-soft'}`}>{d.bottom}</div>
+                </button>
+              ))}
+            </div>
+          </MobileSection>
         </div>
-      </div>
+      </Sheet>
 
       {/* Paneles */}
-      {panel === 'where' && suggestions.length > 0 && (
+      {panel === 'where' && suggestions.length > 0 && !mobileOpen && (
         <div className="rise-in absolute left-0 top-full z-30 mt-3 w-full max-w-md rounded-xl bg-white p-2 shadow-pop">
           {suggestions.map((s) => (
             <button
@@ -235,5 +310,23 @@ export function SearchBar({
         </div>
       )}
     </form>
+  );
+}
+
+function MobileSection({ title, value, open, onOpen, children }: { title: string; value: string; open: boolean; onOpen: () => void; children: React.ReactNode }) {
+  return (
+    <section className={`rounded-2xl border ${open ? 'border-transparent p-5 shadow-lift' : 'border-line'}`}>
+      {open ? (
+        <>
+          <h3 className="mb-4 text-[22px] font-semibold tracking-[-0.03em]">{title}</h3>
+          {children}
+        </>
+      ) : (
+        <button type="button" onClick={onOpen} className="flex w-full items-center justify-between px-5 py-4 text-left">
+          <span className="text-[15px] text-mute">{title}</span>
+          <span className="text-[15px] font-medium">{value}</span>
+        </button>
+      )}
+    </section>
   );
 }

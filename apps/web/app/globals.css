@@ -62,10 +62,13 @@ h1, h2, h3 {
 }
 p { text-wrap: pretty; }
 a { text-underline-offset: 3px; text-decoration-thickness: 1px; }
-:focus-visible {
-  outline: 2px solid var(--color-red);
-  outline-offset: 2px;
-  border-radius: 6px;
+/* En la capa base: los campos que ya marcan su foco con el borde usan outline-none y ganan */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-red);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
 }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--color-line-2); border-radius: 99px; border: 3px solid transparent; background-clip: content-box; }
@@ -144,6 +147,44 @@ details .acc-body > div { overflow: hidden; }
   .draw-check path { animation: none; stroke-dasharray: none; }
 }
 
+
+/* ---------- Experiencia táctil tipo app ---------- */
+html { -webkit-text-size-adjust: 100%; }
+a, button, [role='button'], label, summary, input, select, textarea {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+@media (pointer: coarse) {
+  /* iOS no hace zoom al enfocar campos de 16px o más */
+  input, select, textarea { font-size: max(16px, 1em) !important; }
+}
+@media (hover: none) {
+  button:not(:disabled), a[href], [role='button'], summary {
+    transition: transform 140ms var(--ease-out), opacity 140ms var(--ease-out), background-color 140ms, border-color 140ms;
+  }
+  button:not(:disabled):active, a[href]:active, [role='button']:active, summary:active { transform: scale(0.97); }
+}
+.pb-safe { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+.pt-safe { padding-top: env(safe-area-inset-top); }
+.bottom-safe { bottom: max(12px, env(safe-area-inset-bottom)); }
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.overscroll-contain { overscroll-behavior: contain; }
+
+/* Transición entre pantallas */
+@keyframes page-in { from { opacity: 0; } to { opacity: 1; } }
+.page-enter { animation: page-in 200ms var(--ease-out) backwards; }
+
+/* Hoja inferior */
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.sheet-up { animation: sheet-up 380ms var(--ease-out) both; }
+@media (min-width: 768px) { .sheet-up { animation: drawer-in 320ms var(--ease-out) both; } }
+.fade-in { animation: fade-in 240ms var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) {
+  .page-enter, .sheet-up, .fade-in { animation: none; }
+}
+
 /* ---------- FullCalendar con el lenguaje de date.pe ---------- */
 .fc {
   --fc-border-color: var(--color-line);
@@ -168,3 +209,16 @@ details .acc-body > div { overflow: hidden; }
 .fc .fc-event { border-radius: 8px; padding: 2px 4px; box-shadow: 0 1px 2px rgb(10 10 10 / 0.08); }
 .fc .fc-event-main { font-weight: 500; }
 .fc-theme-standard .fc-scrollgrid { border-radius: 12px; overflow: hidden; }
+.fc .fc-list { border: 0; }
+.fc .fc-list-day-cushion { background: var(--color-field); padding: 10px 12px; font-weight: 600; }
+.fc .fc-list-event td { padding: 14px 12px; border-color: var(--color-line); }
+.fc .fc-list-event-time { color: var(--color-mute); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fc .fc-list-event-title { font-weight: 500; }
+.fc .fc-list-event:hover td { background: var(--color-field); }
+.fc .fc-list-empty { background: #fff; color: var(--color-mute); padding: 32px 12px; }
+.fc .fc-footer-toolbar { margin-top: 10px; }
+@media (max-width: 767px) {
+  .fc .fc-toolbar.fc-header-toolbar { margin-bottom: 8px; }
+  .fc .fc-toolbar-title { font-size: 16px; }
+  .fc .fc-button { padding: 8px 14px; }
+}

@@ -17,14 +17,14 @@ export function Promociones() {
   return (
     <>
       <PageHead title="Promociones" sub="Códigos de descuento, gift cards y membresías para que tus clientes vuelvan." />
-      <div className="mb-8 flex gap-1 border-b border-line" role="tablist">
+      <div className="no-scrollbar -mx-4 mb-8 flex gap-1 overflow-x-auto px-4 shadow-[inset_0_-1px_0_var(--color-line)] md:mx-0 md:px-0" role="tablist">
         {([['codigos', 'Códigos', TicketPercent], ['gift', 'Gift cards', Gift], ['membresias', 'Membresías', Crown]] as const).map(([id, label, Icon]) => (
           <button
             key={id}
             role="tab"
             aria-selected={tab === id}
             onClick={() => setTab(id)}
-            className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-3 text-[15px] font-medium transition-colors ${tab === id ? 'border-ink text-ink' : 'border-transparent text-mute hover:text-ink'}`}
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-3 text-[15px] md:px-4 font-medium transition-colors ${tab === id ? 'border-ink text-ink' : 'border-transparent text-mute hover:text-ink'}`}
           >
             <Icon size={16} strokeWidth={1.75} /> {label}
           </button>
@@ -77,21 +77,24 @@ function Codigos() {
       ) : (
         <ul className="divide-y divide-line border-y border-line">
           {list.map((p) => (
-            <li key={p.id} className="flex flex-wrap items-center gap-4 py-4">
-              <button type="button" onClick={() => copy(p.code)} className="tnum flex items-center gap-2 rounded-lg bg-field px-3 py-1.5 font-mono text-[14px] font-medium hover:bg-line" title="Copiar">
-                {p.code} <Copy size={13} strokeWidth={1.75} className="text-mute" />
-              </button>
-              <span className="text-[15px] font-medium">{p.kind === 'percent' ? `${p.value}% de descuento` : `${soles(p.value)} de descuento`}</span>
-              <span className="text-[14px] text-mute">
+            <li key={p.id} className="py-4">
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={() => copy(p.code)} className="tnum flex items-center gap-2 rounded-lg bg-field px-3 py-1.5 font-mono text-[14px] font-medium hover:bg-line" title="Copiar">
+                  {p.code} <Copy size={13} strokeWidth={1.75} className="text-mute" />
+                </button>
+                <span className="hidden text-[15px] font-medium md:inline">{p.kind === 'percent' ? `${p.value}% de descuento` : `${soles(p.value)} de descuento`}</span>
+                <div className="ml-auto flex items-center gap-1">
+                  <Switch checked={p.active} onChange={async (v) => { await api(`/admin/promotions/${p.id}`, { method: 'PATCH', body: { active: v } }); load(); }} label={`Código ${p.code}`} states={['Activo', 'Pausado']} />
+                  <button type="button" onClick={async () => { if (confirm(`¿Eliminar ${p.code}?`)) { await api(`/admin/promotions/${p.id}`, { method: 'DELETE' }); load(); } }} className="flex h-10 w-10 items-center justify-center rounded-full text-mute hover:bg-field hover:text-red" aria-label={`Eliminar ${p.code}`}>
+                    <Trash2 size={16} strokeWidth={1.75} />
+                  </button>
+                </div>
+              </div>
+              <p className="mt-2 text-[14px] text-mute">
+                <span className="font-medium text-ink md:hidden">{p.kind === 'percent' ? `${p.value}% de descuento` : `${soles(p.value)} de descuento`}, </span>
                 {p.used_count} {p.used_count === 1 ? 'uso' : 'usos'}{p.max_uses ? ` de ${p.max_uses}` : ''}
                 {p.expires_at ? `, vence el ${new Date(p.expires_at).toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })}` : ''}
-              </span>
-              <div className="ml-auto flex items-center gap-2">
-                <Switch checked={p.active} onChange={async (v) => { await api(`/admin/promotions/${p.id}`, { method: 'PATCH', body: { active: v } }); load(); }} label={`Activo ${p.code}`} />
-                <button type="button" onClick={async () => { if (confirm(`¿Eliminar ${p.code}?`)) { await api(`/admin/promotions/${p.id}`, { method: 'DELETE' }); load(); } }} className="flex h-9 w-9 items-center justify-center rounded-full text-mute hover:bg-field hover:text-red" aria-label={`Eliminar ${p.code}`}>
-                  <Trash2 size={16} strokeWidth={1.75} />
-                </button>
-              </div>
+              </p>
             </li>
           ))}
         </ul>
@@ -166,7 +169,7 @@ function GiftCards() {
               <div className="h-1.5 w-32 overflow-hidden rounded-full bg-field">
                 <div className="h-full rounded-full bg-ink" style={{ width: `${(g.balance_cents / g.initial_cents) * 100}%` }} />
               </div>
-              <div className="ml-auto"><Switch checked={g.active} onChange={async (v) => { await api(`/admin/gift-cards/${g.id}`, { method: 'PATCH', body: { active: v } }); load(); }} label={`Activa ${g.code}`} /></div>
+              <div className="ml-auto"><Switch checked={g.active} onChange={async (v) => { await api(`/admin/gift-cards/${g.id}`, { method: 'PATCH', body: { active: v } }); load(); }} label={`Gift card ${g.code}`} states={['Activa', 'Pausada']} /></div>
             </li>
           ))}
         </ul>
@@ -214,7 +217,7 @@ function Membresias() {
                   <div className="text-[17px] font-medium">{p.name}</div>
                   <div className="tnum mt-1 text-[22px] font-semibold tracking-[-0.03em]">{soles(p.price_cents)} <span className="text-[14px] font-normal text-mute">al {p.period === 'year' ? 'año' : 'mes'}</span></div>
                 </button>
-                <Switch checked={p.active} onChange={async (v) => { await api(`/admin/memberships/${p.id}`, { method: 'PATCH', body: { active: v } }); load(); }} label={`Activa ${p.name}`} />
+                <Switch checked={p.active} onChange={async (v) => { await api(`/admin/memberships/${p.id}`, { method: 'PATCH', body: { active: v } }); load(); }} label={`Membresía ${p.name}`} states={['Activa', 'Pausada']} />
               </div>
               {p.perks && <ul className="mt-3 list-disc space-y-1 pl-5 text-[14px] text-mute">{p.perks.split('|').map((x) => <li key={x}>{x}</li>)}</ul>}
             </div>

@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {
-  LayoutDashboard, CalendarDays, Users, Clock, Scissors, Contact, TicketPercent, Star, ChartColumn, Settings, LogOut, ExternalLink, Loader2, Eye, EyeOff,
+  LayoutDashboard, CalendarDays, Users, Clock, Scissors, Contact, TicketPercent, Star, ChartColumn, Settings, LogOut, ExternalLink, Loader2, Eye, EyeOff, House, Menu, ChevronRight,
 } from 'lucide-react';
 import { API_BASE_CLIENT, tenantUrl } from '@/lib/config';
 import { PoleMark } from '@/components/brand';
 import { Toaster } from '@/components/Toaster';
 import { toast } from '@/lib/toast';
+import { haptic } from '@/lib/haptics';
+import { Sheet } from '@/components/Sheet';
 import { AdminContext } from './_parts/api';
 import { Resumen } from './_parts/Resumen';
 import { Agenda } from './_parts/Agenda';
@@ -41,6 +43,7 @@ export default function AdminPage() {
   const [token, setToken] = useState<string | null | undefined>(undefined);
   const [section, setSection] = useState<SectionId>('resumen');
   const [shopName, setShopName] = useState(tenant);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     setToken(localStorage.getItem(key));
@@ -117,22 +120,62 @@ export default function AdminPage() {
           </div>
         </aside>
 
-        {/* Móvil: barra superior + navegación horizontal */}
-        <div className="sticky top-0 z-30 border-b border-line bg-white lg:hidden">
+        {/* Móvil: barra superior con el título de la sección */}
+        <div className="pt-safe sticky top-0 z-30 border-b border-line bg-white/95 backdrop-blur-md lg:hidden">
           <div className="flex h-14 items-center justify-between px-4">
-            <span className="truncate text-[16px] font-semibold tracking-[-0.02em]">{shopName}</span>
-            <button type="button" onClick={logout} className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-field" aria-label="Cerrar sesión"><LogOut size={18} strokeWidth={1.75} /></button>
+            <div className="flex min-w-0 items-center gap-2.5">
+              <PoleMark size={22} className="shrink-0" />
+              <div className="truncate text-[16px] font-semibold tracking-[-0.02em]">{shopName}</div>
+            </div>
+            <a href={tenantUrl(tenant)} target="_blank" rel="noopener noreferrer" className="flex h-10 w-10 items-center justify-center rounded-full active:bg-field" aria-label="Ver mi página">
+              <ExternalLink size={19} strokeWidth={1.75} />
+            </a>
           </div>
-          <nav className="flex gap-1 overflow-x-auto px-3 pb-2" aria-label="Secciones del panel">
-            {SECTIONS.map(({ id, label, icon: Icon }) => (
-              <button key={id} type="button" onClick={() => go(id)} className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[14px] ${section === id ? 'bg-ink text-white' : 'text-mute'}`}>
-                <Icon size={15} strokeWidth={1.75} /> {label}
-              </button>
-            ))}
-          </nav>
         </div>
 
-        <main className="min-w-0 px-5 py-8 md:px-10 lg:py-10">
+        {/* Móvil: barra inferior de pestañas */}
+        <nav aria-label="Secciones del panel" className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/95 backdrop-blur-md lg:hidden">
+          <ul className="grid grid-cols-4">
+            {([['resumen', 'Hoy', House], ['agenda', 'Agenda', CalendarDays], ['clientes', 'Clientes', Contact]] as const).map(([id, label, Icon]) => (
+              <li key={id}>
+                <button type="button" onClick={() => { haptic.tap(); go(id); }} aria-current={section === id ? 'page' : undefined} className={`flex w-full flex-col items-center gap-1 pb-1 pt-2.5 text-[11px] font-medium ${section === id ? 'text-ink' : 'text-soft'}`}>
+                  <Icon size={23} strokeWidth={section === id ? 2.1 : 1.7} /> {label}
+                </button>
+              </li>
+            ))}
+            <li>
+              <button type="button" onClick={() => { haptic.tap(); setMoreOpen(true); }} className={`flex w-full flex-col items-center gap-1 pb-1 pt-2.5 text-[11px] font-medium ${['resumen', 'agenda', 'clientes'].includes(section) ? 'text-soft' : 'text-ink'}`}>
+                <Menu size={23} strokeWidth={1.7} /> Más
+              </button>
+            </li>
+          </ul>
+        </nav>
+
+        <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} title="Más opciones">
+          <ul className="-mx-2">
+            {SECTIONS.filter((x) => !['resumen', 'agenda', 'clientes'].includes(x.id)).map(({ id, label, icon: Icon }) => (
+              <li key={id}>
+                <button
+                  type="button"
+                  onClick={() => { setMoreOpen(false); setTimeout(() => go(id), 50); }}
+                  className="flex w-full items-center gap-4 rounded-xl px-3 py-3.5 text-left text-[16px] active:bg-field"
+                >
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-field"><Icon size={19} strokeWidth={1.75} /></span>
+                  <span className="flex-1">{label}</span>
+                  <ChevronRight size={18} strokeWidth={1.75} className="text-soft" />
+                </button>
+              </li>
+            ))}
+            <li className="mt-2 border-t border-line pt-2">
+              <button type="button" onClick={logout} className="flex w-full items-center gap-4 rounded-xl px-3 py-3.5 text-left text-[16px] text-red active:bg-field">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-tint"><LogOut size={19} strokeWidth={1.75} /></span>
+                Cerrar sesión
+              </button>
+            </li>
+          </ul>
+        </Sheet>
+
+        <main className="min-w-0 px-4 pb-[calc(96px+env(safe-area-inset-bottom))] pt-6 md:px-10 lg:py-10">
           <div key={section} className="rise-in mx-auto max-w-[1100px]">
             {View ? <View /> : <Resumen go={go} />}
           </div>

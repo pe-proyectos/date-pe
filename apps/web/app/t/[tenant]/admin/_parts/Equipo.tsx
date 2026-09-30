@@ -120,11 +120,10 @@ export function Equipo() {
                   <span className="text-[16px] font-medium">{s.name}</span>
                   {s.rating_count > 0 && <span className="tnum flex items-center gap-1 text-[13px] text-mute"><Star size={12} strokeWidth={0} className="fill-ink" /> {Number(s.rating_avg).toFixed(1)}</span>}
                 </div>
-                <div className="truncate text-[14px] text-mute">{s.bio || (s.specialties ?? []).join(', ') || 'Sin descripción'}</div>
+                <div className="line-clamp-2 text-[14px] text-mute">{s.bio || (s.specialties ?? []).join(', ') || 'Sin descripción'}</div>
               </button>
               <div className="flex items-center gap-3">
-                <span className="hidden text-[14px] text-mute sm:inline">{s.is_bookable ? 'Visible' : 'Oculto'}</span>
-                <Switch checked={s.is_bookable} onChange={(v) => toggle(s, v)} label={`Visible para reservas: ${s.name}`} />
+                <Switch checked={s.is_bookable} onChange={(v) => toggle(s, v)} label={`Reservas con ${s.name}`} states={['Reservable', 'Oculto']} />
               </div>
             </li>
           ))}

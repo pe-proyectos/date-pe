@@ -1,9 +1,9 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Table2, BarChart3 } from 'lucide-react';
 
-export const CHART = { series: '#2f5bd3', seriesDeep: '#1d3f94', grid: '#e6e6e9', axis: '#71717a' };
+export const CHART = { series: '#3f3f46', seriesDeep: '#0a0a0a', grid: '#e6e6e9', axis: '#71717a' };
 
 /** Colores de identidad por barbero, en orden fijo (validado para daltonismo). */
 export const STAFF_COLORS = ['#2f5bd3', '#d97706', '#0a9a8a', '#b83fc4', '#5f8f14', '#e0457b'];
@@ -36,9 +36,17 @@ export function ColumnChart({
   const [hover, setHover] = useState<number | null>(null);
   const [table, setTable] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
-  const W = 720;
-  const H = height;
-  const pad = { l: 48, r: 8, t: 12, b: 28 };
+  // El ancho del lienzo sigue al contenedor: el texto de los ejes queda en 11px reales en cualquier pantalla.
+  const [W, setW] = useState(720);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setW(Math.max(260, Math.round(el.clientWidth))));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [table]);
+  const H = W < 480 ? Math.round(height * 0.8) : height;
+  const pad = { l: W < 480 ? 36 : 48, r: 8, t: 12, b: 28 };
   const max = useMemo(() => {
     const m = niceMax(Math.max(0, ...data.map((d) => d.value)));
     if (!integer) return m;
@@ -49,7 +57,7 @@ export function ColumnChart({
   const band = (W - pad.l - pad.r) / Math.max(1, data.length);
   const barW = Math.min(24, Math.max(3, band - 2));
   const y = (v: number) => pad.t + (H - pad.t - pad.b) * (1 - v / max);
-  const labelEvery = Math.ceil(data.length / 8);
+  const labelEvery = Math.ceil(data.length / Math.max(3, Math.floor((W - pad.l) / 64)));
 
   return (
     <figure className="w-full">
@@ -108,7 +116,7 @@ export function ColumnChart({
                     </text>
                   )}
                   {/* Zona de hover más grande que la barra */}
-                  <rect x={pad.l + i * band} y={pad.t} width={band} height={H - pad.t - pad.b} fill="transparent" onMouseEnter={() => setHover(i)} />
+                  <rect x={pad.l + i * band} y={pad.t} width={band} height={H - pad.t - pad.b} fill="transparent" onMouseEnter={() => setHover(i)} onPointerDown={() => setHover(i)} />
                 </g>
               );
             })}
@@ -117,7 +125,7 @@ export function ColumnChart({
             <div
               className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-lg bg-ink px-3 py-2 text-[13px] text-white shadow-pop"
               style={{
-                left: `${((pad.l + hover * band + band / 2) / W) * 100}%`,
+                left: Math.min(W - 64, Math.max(64, pad.l + hover * band + band / 2)),
                 top: `${(y(data[hover].value) / H) * 100}%`,
                 marginTop: -8,
               }}
@@ -158,7 +166,7 @@ export function BarList({
             </div>
             <div className="mt-1.5 h-2.5 w-full">
               <div
-                className="h-full rounded-r-[4px] bg-[#2f5bd3] transition-[width,background-color] duration-500 group-hover:bg-[#1d3f94]"
+                className="h-full rounded-r-[4px] bg-[#3f3f46] transition-[width,background-color] duration-500 group-hover:bg-ink"
                 style={{ width: `${Math.max(1.5, (d.value / max) * 100)}%` }}
               />
             </div>
