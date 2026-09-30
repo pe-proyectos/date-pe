@@ -141,6 +141,17 @@ function ReservarInner() {
           autoSeek.current = false;
           pinnedDay.current = true;
         }
+        // ?codigo= (campañas por correo) y ?gift= (gift card regalada) llegan ya escritos
+        const clean = (v: string | null) => (v ?? '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 40);
+        const urlPromo = clean(params.get('codigo'));
+        const urlGift = clean(params.get('gift'));
+        if (urlPromo || urlGift) {
+          if (urlPromo) setPromoCode(urlPromo);
+          if (urlGift) setGiftCode(urlGift);
+          setCodesOpen(true);
+          codesFeedback.current = true;
+          setApplied({ promo: urlPromo || undefined, gift: urlGift || undefined });
+        }
         const needLoc = multi && !loc;
         const initial: Step = needLoc || !sv ? 'service' : st ? 'time' : 'staff';
         setStep(initial);

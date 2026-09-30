@@ -5,6 +5,7 @@ import { env } from '../env.js';
 import { createIntent, culqiCharge, paypalCapture, mercadopagoPayment, type Provider } from '../lib/payments.js';
 import { markInvoicePaid } from '../lib/billing.js';
 import { sendBookingConfirmation, notifyOwnerNewBooking } from '../lib/notify.js';
+import { deliverGiftCard } from '../lib/gifts.js';
 import { emitAvailabilityChange } from '../lib/realtime.js';
 
 // Marca un pago como capturado y confirma la cita (contexto de webhook: admin pool).
@@ -12,16 +13,28 @@ async function confirmCaptured(paymentId: string, providerRef?: string): Promise
   const client = await adminPool.connect();
   try {
     await client.query('BEGIN');
-    const pay = await client.query<{ tenant_id: string; appointment_id: string | null }>(
+    const pay = await client.query<{ tenant_id: string; appointment_id: string | null; purpose: string; purpose_ref: string | null; client_id: string | null }>(
       `UPDATE payments SET status='captured', provider_ref = COALESCE($2, provider_ref)
-        WHERE id=$1 AND status <> 'captured' RETURNING tenant_id, appointment_id`,
+        WHERE id=$1 AND status <> 'captured' RETURNING tenant_id, appointment_id, purpose, purpose_ref, client_id`,
       [paymentId, providerRef ?? null],
     );
     if (pay.rows.length === 0) {
       await client.query('ROLLBACK');
       return;
     }
-    const { tenant_id, appointment_id } = pay.rows[0];
+    const { tenant_id, appointment_id, purpose, purpose_ref, client_id } = pay.rows[0];
+    // Compras en línea: gift card o paquete
+    let giftToDeliver: string | null = null;
+    if (purpose === 'gift_card' && purpose_ref) {
+      await client.query('UPDATE gift_cards SET paid = true, active = true WHERE id = $1', [purpose_ref]);
+      giftToDeliver = purpose_ref;
+    } else if (purpose === 'package' && purpose_ref && client_id) {
+      await client.query(
+        `INSERT INTO client_packages (tenant_id, client_id, package_id, name, service_ids, uses_total, uses_left, expires_at)
+         SELECT tenant_id, $2, id, name, service_ids, uses, uses, now() + make_interval(days => valid_days) FROM packages WHERE id = $1`,
+        [purpose_ref, client_id],
+      );
+    }
     let locationId: string | null = null;
     let confirmedAppt: string | null = null;
     if (appointment_id) {
@@ -38,6 +51,7 @@ async function confirmCaptured(paymentId: string, providerRef?: string): Promise
       void sendBookingConfirmation(confirmedAppt);
       void notifyOwnerNewBooking(confirmedAppt);
     }
+    if (giftToDeliver) void deliverGiftCard(giftToDeliver);
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

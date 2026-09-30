@@ -46,7 +46,7 @@ export function Header() {
               className="rounded-full bg-ink px-4 py-2 text-[14px] font-medium text-white transition-colors hover:bg-ink-2 md:px-5 md:py-2.5 md:text-[15px]"
             >
               <span className="md:hidden">Soy barbería</span>
-              <span className="hidden md:inline">Registra tu barbería</span>
+              <span className="hidden md:inline">Solicitar acceso</span>
             </Link>
           </div>
         </div>

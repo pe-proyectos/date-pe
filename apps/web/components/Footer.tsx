@@ -23,9 +23,9 @@ export function Footer() {
         <FooterCol
           title="Barberías"
           links={[
-            ['Registra tu barbería', '/join'],
+            ['Solicitar acceso', '/join'],
             ['Ingresar a mi panel', '/ingresar'],
-            ['Precio', '/#precio'],
+            ['Cómo empezar', '/#empezar'],
           ]}
         />
         <div className="md:col-span-4">

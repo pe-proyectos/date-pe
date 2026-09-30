@@ -22,6 +22,11 @@ import { wsRoutes } from './routes/ws.js';
 import { billingRoutes } from './routes/billing.js';
 import { opsRoutes } from './routes/ops.js';
 import { clientRoutes } from './routes/client.js';
+import { teamRoutes } from './routes/team.js';
+import { queueRoutes } from './routes/queue.js';
+import { posRoutes } from './routes/pos.js';
+import { financeRoutes } from './routes/finance.js';
+import { crmRoutes } from './routes/crm.js';
 import { tenantSlugByDomain } from './lib/domains.js';
 import { startScheduler } from './lib/scheduler.js';
 
@@ -90,6 +95,11 @@ async function main() {
       await api.register(billingRoutes);
       await api.register(opsRoutes);
       await api.register(clientRoutes);
+      await api.register(teamRoutes);
+      await api.register(queueRoutes);
+      await api.register(posRoutes);
+      await api.register(financeRoutes);
+      await api.register(crmRoutes);
     },
     { prefix: '/api' },
   );

@@ -1,9 +1,9 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Star, Loader2, ArrowLeft } from 'lucide-react';
+import { Star, Loader2, ArrowLeft, ExternalLink } from 'lucide-react';
 import { API_BASE_CLIENT } from '@/lib/config';
 import { Toaster } from '@/components/Toaster';
 import { toast } from '@/lib/toast';
@@ -26,6 +26,15 @@ function ResenaInner() {
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
+  const [googleUrl, setGoogleUrl] = useState<string | null>(null);
+
+  // Enlace de reseñas en Google de la barbería (se ofrece a todos, sin importar las estrellas)
+  useEffect(() => {
+    fetch(`${API_BASE_CLIENT}/api/public/site`, { headers: { 'X-Tenant-Slug': tenant } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { googleReviewUrl?: string | null } | null) => setGoogleUrl(d?.googleReviewUrl || null))
+      .catch(() => {});
+  }, [tenant]);
 
   async function lookup(e: React.FormEvent) {
     e.preventDefault();
@@ -72,6 +81,28 @@ function ResenaInner() {
         <div className="mt-10">
           <h1 className="text-[clamp(2rem,5vw,2.75rem)] font-semibold leading-[1.05] tracking-[-0.035em]">Gracias por tu opinión.</h1>
           <p className="mt-3 text-[17px] text-mute">La publicamos en la página de la barbería. Ayuda a otros a elegir.</p>
+          {googleUrl && (
+            <div className="rise-in mt-8 rounded-xl border border-line p-5">
+              <p className="text-[17px] font-semibold tracking-[-0.02em]">¿Nos ayudas también en Google?</p>
+              <p className="mt-1 text-[15px] text-mute">
+                {stars >= 4
+                  ? 'Nos alegra mucho que te haya gustado. Si copias tu opinión en Google, más vecinos nos encuentran.'
+                  : 'Tu opinión nos sirve para mejorar. Si quieres, también puedes dejarla en Google.'}
+              </p>
+              <a
+                href={googleUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => {
+                  // Copiamos su comentario para que solo tenga que pegarlo
+                  if (comment.trim()) navigator.clipboard?.writeText(comment.trim()).then(() => toast.info('Copiamos tu comentario para que lo pegues en Google.')).catch(() => {});
+                }}
+                className="mt-4 inline-flex min-h-[48px] items-center gap-2 rounded-full border border-line px-5 text-[15px] font-medium hover:border-ink"
+              >
+                Opinar en Google <ExternalLink size={16} strokeWidth={1.75} />
+              </a>
+            </div>
+          )}
           <Link href="/reservar" className="mt-8 inline-block rounded-lg bg-ink px-6 py-3.5 text-[15px] font-medium text-white">Reservar otra vez</Link>
         </div>
       ) : !appt ? (

@@ -1,10 +1,11 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { Star, MapPin, Clock, Navigation, ArrowRight, Check, Info, Plus, CalendarOff } from 'lucide-react';
+import { Star, MapPin, Clock, Navigation, ArrowRight, Check, Info, Plus, CalendarOff, Gift, ChevronRight, ExternalLink } from 'lucide-react';
 import { apiFetch, soles, type TenantSite } from '@/lib/api';
 import { onColor, DAY_NAMES } from '@/lib/color';
 import { TenantGallery } from '@/components/TenantGallery';
+import { QueueCard } from './_parts/QueueCard';
 
 async function getSite(tenant: string): Promise<TenantSite | null> {
   try {
@@ -68,6 +69,13 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
       : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${site.tenant.name} ${l.address ?? l.name}`)}`;
   const from = mainServices.length ? Math.min(...mainServices.map((s) => s.price_cents)) : null;
   const hours = hoursSummary(site.hours);
+  const features = site.features ?? {};
+  const showQueue = available && !!features.queue;
+  const showGifts = available && !!(features.giftcards_online || features.packages);
+  const gallery = (site.branding?.gallery ?? []).filter((g) => g?.url);
+  const galleryImages = gallery.length
+    ? gallery.map((g, i) => ({ src: g.url, alt: g.caption || `Foto ${i + 1} de ${site.tenant.name}` }))
+    : site.staff.filter((b) => b.photo_url).map((b) => ({ src: b.photo_url as string, alt: `${b.name}${b.bio ? `, ${b.bio.replace(/\.$/, '').toLowerCase()}` : ''}` }));
   const mapsUrl = loc?.lat && loc?.lng
     ? `https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lng}`
     : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${site.tenant.name} ${loc?.address ?? ''}`)}`;
@@ -160,7 +168,7 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
         <TenantGallery
           accent={accent}
           cover={site.branding?.cover_url ? { src: site.branding.cover_url, alt: `Interior de ${site.tenant.name}` } : null}
-          images={site.staff.filter((b) => b.photo_url).map((b) => ({ src: b.photo_url as string, alt: `${b.name}${b.bio ? `, ${b.bio.replace(/\.$/, '').toLowerCase()}` : ''}` }))}
+          images={galleryImages}
         />
 
         <div className="mt-10 grid gap-12 lg:grid-cols-12">
@@ -170,6 +178,27 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
               <section className="border-b border-line pb-10">
                 {site.branding?.tagline && <p className="text-[21px] font-medium leading-snug tracking-[-0.02em]">{site.branding.tagline}</p>}
                 {site.branding?.about && <p className="mt-3 max-w-[62ch] text-[17px] leading-relaxed text-mute">{site.branding.about}</p>}
+              </section>
+            )}
+
+            {/* Fila virtual y regalos */}
+            {(showQueue || showGifts) && (
+              <section className={`grid gap-3 border-b border-line ${site.branding?.tagline || site.branding?.about ? 'py-8' : 'pb-8'} ${showQueue && showGifts ? 'sm:grid-cols-2' : ''}`}>
+                {showQueue && <QueueCard tenant={tenant} accent={accent} onAccent={onAccent} />}
+                {showGifts && (
+                  <Link href="/regalos" className="group flex items-center gap-4 rounded-xl border border-line p-4 transition-colors hover:border-ink">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-field">
+                      <Gift size={20} strokeWidth={1.75} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[16px] font-medium tracking-[-0.01em]">Regala un corte</span>
+                      <span className="block text-[14px] text-mute">
+                        {features.giftcards_online && features.packages ? 'Gift cards y paquetes, listos en un minuto.' : features.giftcards_online ? 'Gift card por correo, lista en un minuto.' : 'Paquetes de cortes para ti o para regalar.'}
+                      </span>
+                    </span>
+                    <ChevronRight size={18} strokeWidth={1.75} className="nudge-x shrink-0 text-mute" />
+                  </Link>
+                )}
               </section>
             )}
 
@@ -319,6 +348,16 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
                     </figure>
                   ))}
                 </div>
+                {site.googleReviewUrl && (
+                  <a
+                    href={site.googleReviewUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-8 inline-flex min-h-[44px] items-center gap-2 rounded-full border border-line px-5 text-[15px] font-medium hover:border-ink"
+                  >
+                    Déjanos tu reseña en Google <ExternalLink size={15} strokeWidth={1.75} />
+                  </a>
+                )}
               </section>
             )}
 
@@ -419,7 +458,7 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
       <footer className="border-t border-line">
         <div className="mx-auto flex max-w-[1180px] flex-col gap-2 px-5 py-8 text-[14px] text-soft md:flex-row md:justify-between md:px-8">
           <span>{site.tenant.name}</span>
-          <a href="https://date.pe" className="hover:text-ink">Reservas con date.pe</a>
+          {site.branding?.show_powered_by !== false && <a href="https://date.pe" className="hover:text-ink">Reservas con date.pe</a>}
         </div>
       </footer>
 

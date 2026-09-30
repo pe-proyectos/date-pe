@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ChevronLeft, ChevronRight, CalendarPlus, Navigation, Loader2, MapPin, Scissors, User, Clock, CalendarClock, CalendarX2,
-  Star, Info, CircleCheck, Users, Search, Wallet,
+  Star, Info, CircleCheck, Users, Search, Wallet, Gift, Package, Crown,
 } from 'lucide-react';
 import { API_BASE_CLIENT } from '@/lib/config';
 import { onColor } from '@/lib/color';
@@ -361,6 +361,7 @@ export function CitaClient({ site, tenant }: { site: TenantSite; tenant: string 
     location: `${address ?? ''} ${loc?.district ?? ''}`.trim(),
   });
   const firstName = (b.client_name ?? '').split(' ')[0];
+  const walletToken = b.manage_token ?? (ref && 't' in ref ? ref.t : null);
   const rest = Math.max(0, b.price_cents - b.paid_cents);
   const waText = `Hola, tengo una reserva para el ${fmtDayLong(b.starts_at).toLowerCase()} a las ${fmtTime(b.starts_at)}.`;
   const reviewHref = `/resena?cita=${b.id}${ref && 'phone' in ref ? `&tel=${ref.phone.replace(/\D/g, '').slice(-9)}` : ''}`;
@@ -466,6 +467,8 @@ export function CitaClient({ site, tenant }: { site: TenantSite; tenant: string 
           <ChevronRight size={18} strokeWidth={1.75} className="text-mute" />
         </Link>
       )}
+
+      {walletToken && <WalletCard tenant={tenant} token={walletToken} accent={accent} />}
 
       {/* Utilidades */}
       <div className="mt-6 grid grid-cols-2 gap-2">
@@ -663,6 +666,107 @@ export function CitaClient({ site, tenant }: { site: TenantSite; tenant: string 
         )}
       </Sheet>
     </>,
+  );
+}
+
+interface WalletData {
+  points: number;
+  packages: Array<{ id: string; name: string; uses_total: number; uses_left: number; expires_at: string | null }>;
+  memberships: Array<{ id: string; name: string; ends_at: string; discount_percent: number | null; included_uses: number | null }>;
+  rewards: Array<{ id: string; name: string; points_cost: number; available: boolean }>;
+}
+
+const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric', timeZone: TZ });
+
+/** Lo que el cliente tiene a favor en la barbería: puntos, paquetes y membresía. */
+function WalletCard({ tenant, token, accent }: { tenant: string; token: string; accent: string }) {
+  const [w, setW] = useState<WalletData | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_BASE_CLIENT}/api/public/wallet?t=${encodeURIComponent(token)}`, { headers: { 'X-Tenant-Slug': tenant } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: WalletData | null) => alive && d && setW(d))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [tenant, token]);
+
+  if (!w) return null;
+  const points = Number(w.points ?? 0);
+  const rewards = [...(w.rewards ?? [])].sort((a, c) => a.points_cost - c.points_cost);
+  const packages = w.packages ?? [];
+  const membership = (w.memberships ?? [])[0];
+  if (points === 0 && rewards.length === 0 && packages.length === 0 && !membership) return null;
+
+  const next = rewards.find((r) => r.points_cost > points) ?? null;
+  const ready = rewards.filter((r) => r.points_cost <= points);
+  const best = ready[ready.length - 1] ?? null;
+  const pct = next ? Math.min(100, Math.round((points / next.points_cost) * 100)) : 100;
+
+  return (
+    <section className="mt-6 rounded-xl border border-line" aria-label="Tus beneficios">
+      <div className="flex items-center justify-between gap-3 px-4 pt-4">
+        <h2 className="text-[17px] font-semibold tracking-[-0.02em]">Tus beneficios</h2>
+        <span className="tnum text-[15px] font-medium">{points} {points === 1 ? 'punto' : 'puntos'}</span>
+      </div>
+
+      {rewards.length > 0 && (
+        <div className="px-4 pb-4 pt-3">
+          <div className="h-2 overflow-hidden rounded-full bg-field" role="progressbar" aria-valuemin={0} aria-valuemax={next?.points_cost ?? points} aria-valuenow={points} aria-label="Avance al próximo premio">
+            <div className="h-full rounded-full transition-[width] duration-700" style={{ width: `${pct}%`, background: accent }} />
+          </div>
+          <p className="mt-2 flex items-start gap-2 text-[14px] text-mute">
+            <Gift size={15} strokeWidth={1.75} className="mt-0.5 shrink-0 text-ink" />
+            <span>
+              {best && <span className="font-medium text-ink">Ya puedes canjear {best.name}. Pídelo al pagar. </span>}
+              {next
+                ? `Te faltan ${next.points_cost - points} puntos para ${next.name}.`
+                : !best
+                  ? 'Sumas puntos en cada visita.'
+                  : ''}
+            </span>
+          </p>
+        </div>
+      )}
+
+      {(packages.length > 0 || membership) && (
+        <ul className="divide-y divide-line border-t border-line text-[15px]">
+          {membership && (
+            <li className="flex items-start gap-3 px-4 py-3.5">
+              <Crown size={17} strokeWidth={1.75} className="mt-0.5 shrink-0 text-mute" />
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium">{membership.name}</span>
+                <span className="block text-[14px] text-mute">
+                  Activa hasta el {fmtDate(membership.ends_at)}
+                  {membership.discount_percent ? `, ${membership.discount_percent}% de descuento` : ''}
+                </span>
+              </span>
+            </li>
+          )}
+          {packages.map((p) => (
+            <li key={p.id} className="flex items-start gap-3 px-4 py-3.5">
+              <Package size={17} strokeWidth={1.75} className="mt-0.5 shrink-0 text-mute" />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-baseline justify-between gap-3">
+                  <span className="truncate font-medium">{p.name}</span>
+                  <span className="tnum shrink-0 text-[14px]">
+                    {p.uses_left} de {p.uses_total} {p.uses_total === 1 ? 'uso' : 'usos'}
+                  </span>
+                </span>
+                <span className="mt-1.5 flex gap-1" aria-hidden>
+                  {Array.from({ length: Math.min(p.uses_total, 20) }, (_, i) => (
+                    <span key={i} className="h-1.5 flex-1 rounded-full" style={{ background: i < p.uses_left ? accent : 'var(--color-field)' }} />
+                  ))}
+                </span>
+                {p.expires_at && <span className="mt-1 block text-[13px] text-soft">Vence el {fmtDate(p.expires_at)}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

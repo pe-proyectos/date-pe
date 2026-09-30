@@ -38,11 +38,12 @@ export async function quote(
 
   // Precio específico del barbero, si existe
   if (p.staffId) {
-    const ov = await sql<{ price_cents: number | null }>(
-      'SELECT price_cents FROM service_staff WHERE service_id = $1 AND staff_id = $2',
+    const ov = await sql<{ price_cents: number | null; duration_min: number | null }>(
+      'SELECT price_cents, duration_min FROM service_staff WHERE service_id = $1 AND staff_id = $2',
       [p.serviceId, p.staffId],
     );
     if (ov.rows[0]?.price_cents != null) list = ov.rows[0].price_cents;
+    if (ov.rows[0]?.duration_min != null) durationMin = ov.rows[0].duration_min;
   }
 
   // Extras (lavado, diseño, cejas...) que se suman al servicio principal

@@ -47,8 +47,8 @@ const FAQ = [
     'Cada barbería define cuánto cobra de adelanto y hasta cuándo puedes cancelar. Lo ves antes de pagar y puedes escribirle a la barbería por su WhatsApp.',
   ],
   [
-    'Tengo una barbería, ¿cuánto me cuesta?',
-    'S/ 50 al mes, sin comisión por cita. Empiezas en modo prueba y no te pedimos tarjeta para crear tu cuenta.',
+    'Tengo una barbería, ¿cómo empiezo?',
+    'Envía una solicitud con los datos de tu barbería. Nuestro equipo te contacta, te muestra el sistema con tu propia información y arman juntos un plan según tu equipo y tus locales. Nunca cobramos comisión por cita.',
   ],
   ['¿Puedo usar mi propio dominio?', 'Por ahora tu página vive en tunombre.date.pe, con tu logo, tus colores y tus fotos.'],
 ];
@@ -251,15 +251,14 @@ export default function HomePage() {
                 ))}
               </ul>
 
-              <div id="precio" className="mt-10 scroll-mt-24 border-t border-line pt-8">
-                <div className="flex items-baseline gap-2">
-                  <span className="tnum text-5xl font-semibold tracking-[-0.04em]">S/ 50</span>
-                  <span className="text-[17px] text-mute">al mes</span>
-                </div>
-                <p className="mt-2 text-[15px] text-mute">Sin comisión por cita. Barberos y reservas ilimitados.</p>
+              <div id="empezar" className="mt-10 scroll-mt-24 border-t border-line pt-8">
+                <p className="text-[22px] font-semibold tracking-[-0.03em]">Un plan a la medida de tu barbería</p>
+                <p className="mt-2 max-w-md text-[15px] leading-relaxed text-mute">
+                  Cuéntanos cómo trabajas: cuántos barberos, cuántos locales y cuántos clientes atiendes. Te contactamos y armamos el plan contigo. Sin comisión por cita.
+                </p>
                 <div className="mt-6 flex flex-wrap items-center gap-3">
                   <Link href="/join" className="rounded-full bg-ink px-6 py-3.5 text-[15px] font-medium text-white transition-colors hover:bg-ink-2">
-                    Registra tu barbería
+                    Solicitar acceso
                   </Link>
                   <a
                     href="https://barberiajuana.date.pe"
@@ -367,7 +366,7 @@ export default function HomePage() {
                 href="/join"
                 className="rounded-full border border-white/40 px-6 py-3.5 text-[15px] font-medium text-white transition-colors hover:border-white"
               >
-                Registra tu barbería
+                Solicitar acceso
               </Link>
             </div>
           </div>

@@ -30,11 +30,14 @@ export function useApi() {
       },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
     });
-    if (res.status === 401 || res.status === 403) {
+    const data = await res.json().catch(() => ({}));
+    // Solo se cierra sesión si la sesión venció o no es de esta barbería; un "sin permiso"
+    // o una función apagada se muestran como error sin echar al usuario.
+    const code = (data as { error?: string }).error;
+    if (res.status === 401 || (res.status === 403 && (code === 'sin_acceso_al_tenant' || code === 'no_autenticado'))) {
       logout();
       throw new Error('no_autenticado');
     }
-    const data = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error((data as { error?: string }).error ?? 'error'), { status: res.status, data });
     return data as T;
   };

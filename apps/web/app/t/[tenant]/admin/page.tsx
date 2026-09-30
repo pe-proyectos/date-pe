@@ -1,56 +1,125 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {
   LayoutDashboard, CalendarDays, Users, Clock, Scissors, Contact, TicketPercent, Star, ChartColumn, Settings, LogOut, ExternalLink, Loader2, Eye, EyeOff, House, Menu, ChevronRight, CreditCard, CirclePause, CalendarClock, MailCheck, ArrowLeft,
+  Sun, ListOrdered, Wallet, Package, Megaphone, Landmark, ToggleRight, KeyRound, Radio, BellRing, X,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { API_BASE_CLIENT, tenantUrl } from '@/lib/config';
 import { PoleMark } from '@/components/brand';
 import { Toaster } from '@/components/Toaster';
 import { toast } from '@/lib/toast';
 import { haptic } from '@/lib/haptics';
+import { pushSupported, subscribePush } from '@/lib/push';
 import { Sheet } from '@/components/Sheet';
-import { AdminContext, useApi } from './_parts/api';
+import { AdminContext, useAdmin, useApi } from './_parts/api';
+import { PanelContext, featureOn, ROLE_LABEL, type Features, type PanelMe, type Role } from './_parts/ui';
 import { Resumen } from './_parts/Resumen';
+import { MiDia } from './_parts/MiDia';
 import { Agenda } from './_parts/Agenda';
+import { Fila } from './_parts/Fila';
+import { Caja } from './_parts/Caja';
 import { Equipo } from './_parts/Equipo';
 import { Horarios } from './_parts/Horarios';
 import { Servicios } from './_parts/Servicios';
+import { Productos } from './_parts/Productos';
 import { Clientes } from './_parts/Clientes';
 import { Promociones } from './_parts/Promociones';
+import { Marketing } from './_parts/Marketing';
 import { Resenas } from './_parts/Resenas';
+import { Finanzas } from './_parts/Finanzas';
 import { Reportes } from './_parts/Reportes';
+import { Funciones } from './_parts/Funciones';
+import { Accesos } from './_parts/Accesos';
+import { Difusion } from './_parts/Difusion';
 import { Ajustes } from './_parts/Ajustes';
 import { Facturacion, BILLING_EVENT, diasTexto, type Billing } from './_parts/Facturacion';
 
+type GroupId = 'hoy' | 'clientes' | 'negocio' | 'config';
+const GROUPS: [GroupId, string][] = [['hoy', 'Hoy'], ['clientes', 'Clientes'], ['negocio', 'Negocio'], ['config', 'Configuración']];
+
 const SECTIONS = [
-  { id: 'resumen', label: 'Resumen', icon: LayoutDashboard },
-  { id: 'agenda', label: 'Agenda', icon: CalendarDays },
-  { id: 'equipo', label: 'Equipo', icon: Users },
-  { id: 'horarios', label: 'Horarios', icon: Clock },
-  { id: 'servicios', label: 'Servicios', icon: Scissors },
-  { id: 'clientes', label: 'Clientes', icon: Contact },
-  { id: 'promociones', label: 'Promociones', icon: TicketPercent },
-  { id: 'resenas', label: 'Reseñas', icon: Star },
-  { id: 'reportes', label: 'Reportes', icon: ChartColumn },
-  { id: 'ajustes', label: 'Ajustes', icon: Settings },
-  { id: 'facturacion', label: 'Facturación', icon: CreditCard },
-] as const;
+  { id: 'resumen', label: 'Resumen', icon: LayoutDashboard, group: 'hoy' },
+  { id: 'mi-dia', label: 'Mi día', icon: Sun, group: 'hoy' },
+  { id: 'agenda', label: 'Agenda', icon: CalendarDays, group: 'hoy' },
+  { id: 'fila', label: 'Fila', icon: ListOrdered, group: 'hoy' },
+  { id: 'caja', label: 'Caja', icon: Wallet, group: 'hoy' },
+  { id: 'clientes', label: 'Clientes', icon: Contact, group: 'clientes' },
+  { id: 'promociones', label: 'Promociones', icon: TicketPercent, group: 'clientes' },
+  { id: 'marketing', label: 'Marketing', icon: Megaphone, group: 'clientes' },
+  { id: 'resenas', label: 'Reseñas', icon: Star, group: 'clientes' },
+  { id: 'servicios', label: 'Servicios', icon: Scissors, group: 'negocio' },
+  { id: 'productos', label: 'Productos', icon: Package, group: 'negocio' },
+  { id: 'equipo', label: 'Equipo', icon: Users, group: 'negocio' },
+  { id: 'horarios', label: 'Horarios', icon: Clock, group: 'negocio' },
+  { id: 'finanzas', label: 'Finanzas', icon: Landmark, group: 'negocio' },
+  { id: 'reportes', label: 'Reportes', icon: ChartColumn, group: 'negocio' },
+  { id: 'funciones', label: 'Funciones', icon: ToggleRight, group: 'config' },
+  { id: 'accesos', label: 'Accesos', icon: KeyRound, group: 'config' },
+  { id: 'difusion', label: 'Difusión', icon: Radio, group: 'config' },
+  { id: 'ajustes', label: 'Ajustes', icon: Settings, group: 'config' },
+  { id: 'facturacion', label: 'Facturación', icon: CreditCard, group: 'config' },
+] as const satisfies readonly { id: string; label: string; icon: LucideIcon; group: GroupId }[];
 type SectionId = (typeof SECTIONS)[number]['id'];
+type SectionDef = (typeof SECTIONS)[number];
+
+const ALL_IDS = SECTIONS.map((s) => s.id) as SectionId[];
+
+/** Qué ve cada rol. El dueño ve todo; el encargado todo menos el plan. */
+const ROLE_SECTIONS: Record<Role, readonly SectionId[]> = {
+  owner: ALL_IDS,
+  manager: ALL_IDS.filter((id) => id !== 'facturacion'),
+  cashier: ['resumen', 'agenda', 'fila', 'caja', 'clientes'],
+  staff: ['mi-dia', 'agenda', 'fila', 'caja'],
+};
+
+/** Secciones que dependen de una función activable. */
+const FEATURE_GATE: Partial<Record<SectionId, (f: Features) => boolean>> = {
+  fila: (f) => featureOn(f, 'queue') || featureOn(f, 'tv'),
+  caja: (f) => featureOn(f, 'pos'),
+  productos: (f) => featureOn(f, 'products'),
+  finanzas: (f) => featureOn(f, 'expenses') || featureOn(f, 'payroll'),
+  marketing: (f) => featureOn(f, 'marketing'),
+};
+
+function visibleIds(role: Role, features: Features): Set<SectionId> {
+  return new Set(ROLE_SECTIONS[role].filter((id) => {
+    // Funciones siempre queda a mano para volver a encender lo que se apagó
+    if (id === 'funciones') return true;
+    const gate = FEATURE_GATE[id];
+    return gate ? gate(features) : true;
+  }));
+}
+
+function landingFor(role: Role, vis: Set<SectionId>): SectionId {
+  const order: SectionId[] = role === 'staff' ? ['mi-dia', 'agenda'] : role === 'cashier' ? ['caja', 'resumen', 'agenda'] : ['resumen'];
+  return order.find((id) => vis.has(id)) ?? ([...vis][0] ?? 'agenda');
+}
+
+/** Pestañas de la barra inferior del teléfono según el rol (más "Más"). */
+function mobileTabs(role: Role, vis: Set<SectionId>): SectionId[] {
+  const want: SectionId[] = role === 'staff' ? ['mi-dia', 'agenda', 'fila'] : role === 'cashier' ? ['caja', 'fila', 'agenda'] : ['resumen', 'agenda', 'caja'];
+  const out = want.filter((id) => vis.has(id));
+  for (const id of ['clientes', 'agenda', 'caja', 'fila', 'mi-dia', 'resumen'] as SectionId[]) {
+    if (out.length >= 3) break;
+    if (vis.has(id) && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+/** "#caja?cita=123" => "caja" */
+const hashSection = () => window.location.hash.slice(1).split('?')[0] as SectionId;
 
 export default function AdminPage() {
   const tenant = useParams().tenant as string;
   const key = `datepe_token_${tenant}`;
   const [token, setToken] = useState<string | null | undefined>(undefined);
-  const [section, setSection] = useState<SectionId>('resumen');
   const [shopName, setShopName] = useState(tenant);
-  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     setToken(localStorage.getItem(key));
-    const h = window.location.hash.slice(1) as SectionId;
-    if (SECTIONS.some((s) => s.id === h)) setSection(h);
     fetch(`${API_BASE_CLIENT}/api/public/site`, { headers: { 'X-Tenant-Slug': tenant } })
       .then((r) => r.json())
       .then((d) => d?.tenant?.name && setShopName(d.tenant.name))
@@ -74,21 +143,6 @@ export default function AdminPage() {
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 
-  useEffect(() => {
-    const onHash = () => {
-      const h = window.location.hash.slice(1) as SectionId;
-      if (SECTIONS.some((s) => s.id === h)) setSection(h);
-    };
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
-  }, []);
-
-  const go = useCallback((id: string) => {
-    window.location.hash = id;
-    setSection(id as SectionId);
-    window.scrollTo({ top: 0 });
-  }, []);
-
   const logout = useCallback(() => {
     localStorage.removeItem(key);
     setToken(null);
@@ -97,37 +151,121 @@ export default function AdminPage() {
   if (token === undefined) return <div className="flex min-h-screen items-center justify-center"><Loader2 className="animate-spin text-soft" /></div>;
   if (!token) return <Login tenant={tenant} shopName={shopName} onLogin={(t) => { localStorage.setItem(key, t); setToken(t); }} />;
 
-  const Other = { agenda: Agenda, equipo: Equipo, horarios: Horarios, servicios: Servicios, clientes: Clientes, promociones: Promociones, resenas: Resenas, reportes: Reportes, ajustes: Ajustes, facturacion: Facturacion } as const;
-  const View = section === 'resumen' ? null : Other[section];
-
   return (
     <AdminContext.Provider value={{ tenant, token, logout }}>
       <Toaster />
+      <Panel shopName={shopName} />
+    </AdminContext.Provider>
+  );
+}
+
+interface MeResponse { me: PanelMe | null; features: Features; pushPublicKey: string | null }
+
+/** Panel con sesión: arma el menú según el rol y las funciones activas de la barbería. */
+function Panel({ shopName }: { shopName: string }) {
+  const { tenant, logout } = useAdmin();
+  const api = useApi();
+  const [info, setInfo] = useState<MeResponse | null>(null);
+  const [section, setSection] = useState<SectionId | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  useEffect(() => {
+    api<MeResponse>('/admin/me')
+      .then((d) => setInfo({ me: d.me ?? null, features: d.features ?? {}, pushPublicKey: d.pushPublicKey ?? null }))
+      .catch((e: Error) => {
+        // Si no se pudo leer el rol, seguimos como dueño con todo activo (el API igual protege cada ruta)
+        if (e.message !== 'no_autenticado') setInfo({ me: null, features: {}, pushPublicKey: null });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const role: Role = info?.me?.role ?? 'owner';
+  const features = useMemo(() => info?.features ?? {}, [info]);
+  const vis = useMemo(() => visibleIds(role, features), [role, features]);
+  const landing = landingFor(role, vis);
+
+  // Sección inicial desde el hash, y navegación con atrás y adelante
+  useEffect(() => {
+    if (!info) return;
+    const pick = () => {
+      const h = hashSection();
+      setSection(vis.has(h) ? h : landing);
+    };
+    pick();
+    window.addEventListener('hashchange', pick);
+    return () => window.removeEventListener('hashchange', pick);
+  }, [info, vis, landing]);
+
+  const go = useCallback((id: string) => {
+    window.location.hash = id;
+    setSection(id as SectionId);
+    window.scrollTo({ top: 0 });
+  }, []);
+
+  const setFeatures = useCallback((f: Features) => setInfo((p) => (p ? { ...p, features: { ...p.features, ...f } } : p)), []);
+  const panelValue = useMemo(() => ({ me: info?.me ?? null, features, pushPublicKey: info?.pushPublicKey ?? null, setFeatures }), [info, features, setFeatures]);
+
+  if (!info || !section) return <div className="flex min-h-screen items-center justify-center"><Loader2 className="animate-spin text-soft" /></div>;
+
+  const current: SectionId = vis.has(section) ? section : landing;
+  const visible = SECTIONS.filter((s) => vis.has(s.id));
+  const tabs = mobileTabs(role, vis);
+  const rest = visible.filter((s) => !tabs.includes(s.id));
+  const initial = shopName.replace(/^Barber[ií]a\s+/i, '').charAt(0).toUpperCase();
+
+  const Views: Record<Exclude<SectionId, 'resumen'>, React.ComponentType> = {
+    'mi-dia': MiDia, agenda: Agenda, fila: Fila, caja: Caja, clientes: Clientes, promociones: Promociones, marketing: Marketing, resenas: Resenas,
+    servicios: Servicios, productos: Productos, equipo: Equipo, horarios: Horarios, finanzas: Finanzas, reportes: Reportes,
+    funciones: Funciones, accesos: Accesos, difusion: Difusion, ajustes: Ajustes, facturacion: Facturacion,
+  };
+  const View = current === 'resumen' ? null : Views[current];
+  const tabLabel = (s: SectionDef) => (s.id === 'resumen' ? 'Hoy' : s.label);
+  const tabIcon = (s: SectionDef): LucideIcon => (s.id === 'resumen' ? House : s.icon);
+
+  return (
+    <PanelContext.Provider value={panelValue}>
       <div className="min-h-screen lg:grid lg:grid-cols-[248px_1fr]">
         {/* Barra lateral */}
         <aside className="hidden border-r border-line lg:flex lg:flex-col">
           <div className="sticky top-0 flex h-screen flex-col px-4 py-5">
             <div className="flex items-center gap-2.5 px-2">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-ink text-[15px] font-semibold text-white">{shopName.replace(/^Barber[ií]a\s+/i, '').charAt(0).toUpperCase()}</span>
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-ink text-[15px] font-semibold text-white">{initial}</span>
               <div className="min-w-0">
                 <div className="truncate text-[15px] font-semibold tracking-[-0.02em]">{shopName}</div>
                 <div className="truncate text-[12px] text-soft">{tenant}.date.pe</div>
               </div>
             </div>
-            <nav className="mt-8 flex-1 space-y-0.5" aria-label="Secciones del panel">
-              {SECTIONS.map(({ id, label, icon: Icon }) => (
-                <a
-                  key={id}
-                  href={`#${id}`}
-                  onClick={(e) => { e.preventDefault(); go(id); }}
-                  aria-current={section === id ? 'page' : undefined}
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2 text-[15px] transition-colors ${section === id ? 'bg-field font-medium text-ink' : 'text-mute hover:bg-field hover:text-ink'}`}
-                >
-                  <Icon size={18} strokeWidth={1.75} /> {label}
-                </a>
-              ))}
+            <nav className="no-scrollbar -mx-1 mt-6 flex-1 space-y-5 overflow-y-auto px-1 pb-4" aria-label="Secciones del panel">
+              {GROUPS.map(([g, title]) => {
+                const items = visible.filter((s) => s.group === g);
+                if (!items.length) return null;
+                return (
+                  <div key={g}>
+                    <p className="px-3 pb-1 text-[12px] font-medium text-soft">{title}</p>
+                    <div className="space-y-0.5">
+                      {items.map(({ id, label, icon: Icon }) => (
+                        <a
+                          key={id}
+                          href={`#${id}`}
+                          onClick={(e) => { e.preventDefault(); go(id); }}
+                          aria-current={current === id ? 'page' : undefined}
+                          className={`flex items-center gap-3 rounded-lg px-3 py-2 text-[15px] transition-colors ${current === id ? 'bg-field font-medium text-ink' : 'text-mute hover:bg-field hover:text-ink'}`}
+                        >
+                          <Icon size={18} strokeWidth={1.75} /> {label}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </nav>
             <div className="space-y-0.5 border-t border-line pt-4">
+              {info.me && (
+                <div className="flex items-center gap-2.5 px-3 pb-2">
+                  <span className="min-w-0 flex-1 truncate text-[14px] font-medium">{info.me.name || info.me.email}</span>
+                  <span className="shrink-0 rounded-full bg-field px-2.5 py-0.5 text-[12px] font-medium text-mute">{ROLE_LABEL[role]}</span>
+                </div>
+              )}
               <a href={tenantUrl(tenant)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 rounded-lg px-3 py-2 text-[15px] text-mute hover:bg-field hover:text-ink">
                 <ExternalLink size={18} strokeWidth={1.75} /> Ver mi página
               </a>
@@ -139,7 +277,7 @@ export default function AdminPage() {
           </div>
         </aside>
 
-        {/* Móvil: barra superior con el título de la sección */}
+        {/* Móvil: barra superior con el nombre de la barbería */}
         <div className="pt-safe sticky top-0 z-30 border-b border-line bg-white/95 backdrop-blur-md lg:hidden">
           <div className="flex h-14 items-center justify-between px-4">
             <div className="flex min-w-0 items-center gap-2.5">
@@ -152,18 +290,22 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Móvil: barra inferior de pestañas */}
+        {/* Móvil: barra inferior de pestañas, según el rol */}
         <nav aria-label="Secciones del panel" className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/95 backdrop-blur-md lg:hidden">
-          <ul className="grid grid-cols-4">
-            {([['resumen', 'Hoy', House], ['agenda', 'Agenda', CalendarDays], ['clientes', 'Clientes', Contact]] as const).map(([id, label, Icon]) => (
-              <li key={id}>
-                <button type="button" onClick={() => { haptic.tap(); go(id); }} aria-current={section === id ? 'page' : undefined} className={`flex w-full flex-col items-center gap-1 pb-1 pt-2.5 text-[11px] font-medium ${section === id ? 'text-ink' : 'text-soft'}`}>
-                  <Icon size={23} strokeWidth={section === id ? 2.1 : 1.7} /> {label}
-                </button>
-              </li>
-            ))}
+          <ul className="grid" style={{ gridTemplateColumns: `repeat(${tabs.length + 1}, minmax(0, 1fr))` }}>
+            {tabs.map((id) => {
+              const s = SECTIONS.find((x) => x.id === id)!;
+              const Icon = tabIcon(s);
+              return (
+                <li key={id}>
+                  <button type="button" onClick={() => { haptic.tap(); go(id); }} aria-current={current === id ? 'page' : undefined} className={`flex w-full flex-col items-center gap-1 pb-1 pt-2.5 text-[11px] font-medium ${current === id ? 'text-ink' : 'text-soft'}`}>
+                    <Icon size={23} strokeWidth={current === id ? 2.1 : 1.7} /> {tabLabel(s)}
+                  </button>
+                </li>
+              );
+            })}
             <li>
-              <button type="button" onClick={() => { haptic.tap(); setMoreOpen(true); }} className={`flex w-full flex-col items-center gap-1 pb-1 pt-2.5 text-[11px] font-medium ${['resumen', 'agenda', 'clientes'].includes(section) ? 'text-soft' : 'text-ink'}`}>
+              <button type="button" onClick={() => { haptic.tap(); setMoreOpen(true); }} className={`flex w-full flex-col items-center gap-1 pb-1 pt-2.5 text-[11px] font-medium ${tabs.includes(current) ? 'text-soft' : 'text-ink'}`}>
                 <Menu size={23} strokeWidth={1.7} /> Más
               </button>
             </li>
@@ -171,37 +313,126 @@ export default function AdminPage() {
         </nav>
 
         <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} title="Más opciones">
-          <ul className="-mx-2">
-            {SECTIONS.filter((x) => !['resumen', 'agenda', 'clientes'].includes(x.id)).map(({ id, label, icon: Icon }) => (
-              <li key={id}>
-                <button
-                  type="button"
-                  onClick={() => { setMoreOpen(false); setTimeout(() => go(id), 50); }}
-                  className="flex w-full items-center gap-4 rounded-xl px-3 py-3.5 text-left text-[16px] active:bg-field"
-                >
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-field"><Icon size={19} strokeWidth={1.75} /></span>
-                  <span className="flex-1">{label}</span>
-                  <ChevronRight size={18} strokeWidth={1.75} className="text-soft" />
-                </button>
-              </li>
-            ))}
-            <li className="mt-2 border-t border-line pt-2">
+          <div className="-mx-2 space-y-4">
+            {GROUPS.map(([g, title]) => {
+              const items = rest.filter((s) => s.group === g);
+              if (!items.length) return null;
+              return (
+                <div key={g}>
+                  <p className="px-3 pb-1 text-[13px] font-medium text-soft">{title}</p>
+                  <ul>
+                    {items.map(({ id, label, icon: Icon }) => (
+                      <li key={id}>
+                        <button
+                          type="button"
+                          onClick={() => { setMoreOpen(false); setTimeout(() => go(id), 50); }}
+                          aria-current={current === id ? 'page' : undefined}
+                          className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left text-[16px] active:bg-field"
+                        >
+                          <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${current === id ? 'bg-ink text-white' : 'bg-field'}`}><Icon size={19} strokeWidth={1.75} /></span>
+                          <span className="flex-1">{label}</span>
+                          <ChevronRight size={18} strokeWidth={1.75} className="text-soft" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+            <div className="border-t border-line pt-2">
+              {info.me && (
+                <p className="px-3 py-2 text-[14px] text-mute">
+                  {info.me.name || info.me.email}, <span className="text-ink">{ROLE_LABEL[role].toLowerCase()}</span>
+                </p>
+              )}
               <button type="button" onClick={logout} className="flex w-full items-center gap-4 rounded-xl px-3 py-3.5 text-left text-[16px] text-red active:bg-field">
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-tint"><LogOut size={19} strokeWidth={1.75} /></span>
                 Cerrar sesión
               </button>
-            </li>
-          </ul>
+            </div>
+          </div>
         </Sheet>
 
         <main className="min-w-0 px-4 pb-[calc(96px+env(safe-area-inset-bottom))] pt-6 md:px-10 lg:py-10">
-          <BillingBanner go={go} section={section} />
-          <div key={section} className="rise-in mx-auto max-w-[1100px]">
+          {/* El plan solo lo ve (y lo paga) el dueño */}
+          {role === 'owner' && <BillingBanner go={go} section={current} />}
+          <div key={current} className="rise-in mx-auto max-w-[1100px]">
             {View ? <View /> : <Resumen go={go} />}
           </div>
         </main>
       </div>
-    </AdminContext.Provider>
+      {info.pushPublicKey && featureOn(features, 'push') && <PushPrompt publicKey={info.pushPublicKey} />}
+    </PanelContext.Provider>
+  );
+}
+
+/** Invitación discreta a recibir una notificación con cada reserva. */
+function PushPrompt({ publicKey }: { publicKey: string }) {
+  const { tenant } = useAdmin();
+  const api = useApi();
+  const dismissKey = `datepe_push_prompt_${tenant}`;
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!pushSupported()) return;
+    if (Notification.permission === 'granted') {
+      // Ya dio permiso: renovamos la suscripción en silencio una vez por sesión
+      if (sessionStorage.getItem(dismissKey)) return;
+      sessionStorage.setItem(dismissKey, '1');
+      subscribePush(publicKey).then((sub) => sub && api('/admin/push/subscribe', { method: 'POST', body: sub })).catch(() => {});
+      return;
+    }
+    if (Notification.permission === 'denied' || localStorage.getItem(dismissKey)) return;
+    const t = setTimeout(() => setShow(true), 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publicKey, dismissKey]);
+
+  function dismiss() {
+    localStorage.setItem(dismissKey, '1');
+    setShow(false);
+  }
+
+  async function accept() {
+    haptic.tap();
+    setBusy(true);
+    try {
+      const sub = await subscribePush(publicKey);
+      if (!sub) {
+        toast.info('No activaste las notificaciones. Puedes hacerlo desde los ajustes del navegador.');
+      } else {
+        await api('/admin/push/subscribe', { method: 'POST', body: sub });
+        toast.success('Listo. Te avisaremos con cada reserva.');
+      }
+      dismiss();
+    } catch {
+      toast.error('No se pudieron activar las notificaciones.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!show) return null;
+  return (
+    <div role="dialog" aria-label="Notificaciones" className="rise-in fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-40 rounded-xl border border-line bg-white p-4 shadow-pop md:inset-x-auto md:right-6 md:w-[380px] lg:bottom-6">
+      <div className="flex items-start gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-field"><BellRing size={19} strokeWidth={1.75} /></span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-medium">Recibe una notificación con cada reserva</p>
+          <p className="mt-0.5 text-[14px] text-mute">También cuando alguien cancela o entra a la fila.</p>
+          <div className="mt-3 flex gap-2">
+            <button type="button" onClick={accept} disabled={busy} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-ink px-4 text-[14px] font-medium text-white hover:bg-ink-2 disabled:opacity-50">
+              {busy && <Loader2 size={16} className="animate-spin" />} Activar
+            </button>
+            <button type="button" onClick={dismiss} className="min-h-11 rounded-full px-4 text-[14px] font-medium text-mute hover:bg-field">Ahora no</button>
+          </div>
+        </div>
+        <button type="button" onClick={dismiss} className="-mr-1 -mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-mute hover:bg-field" aria-label="Cerrar">
+          <X size={18} strokeWidth={1.75} />
+        </button>
+      </div>
+    </div>
   );
 }
 

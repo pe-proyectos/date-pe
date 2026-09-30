@@ -1,6 +1,7 @@
 import { admin } from '../db.js';
 import { env } from '../env.js';
 import { sendEmail, layout } from './email.js';
+import { pushToUsers } from './push.js';
 
 // Avisos por correo de la operación diaria. Corre con el pool admin (cross-tenant)
 // porque se dispara desde webhooks, el planificador y rutas públicas.
@@ -122,6 +123,13 @@ export async function sendBookingConfirmation(id: string) {
 export async function notifyOwnerNewBooking(id: string) {
   const a = await apptInfo(id);
   if (!a) return;
+  const staff = await admin<{ staff_id: string | null }>('SELECT staff_id FROM appointments WHERE id = $1', [id]);
+  void pushToUsers(a.tenant_id, { staffId: staff.rows[0]?.staff_id ?? null }, {
+    title: `Nueva reserva: ${(a.client_name ?? 'Cliente').split(' ')[0]}`,
+    body: `${a.service_name ?? 'Servicio'}, ${whenText(a.starts_at)}${a.staff_name ? `, con ${a.staff_name}` : ''}`,
+    url: '/admin#agenda',
+    tag: `cita-${id}`,
+  });
   const to = await ownerEmails(a.tenant_id);
   if (to.length === 0) return;
   await sendEmail({

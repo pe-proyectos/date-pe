@@ -165,6 +165,7 @@ async function seed() {
   // Próximas citas para que la agenda del demo tenga movimiento (hora de Lima)
   const upcoming: Array<[number, number, number, number, number]> = [
     // [días desde hoy, hora, minuto, barbero, servicio]
+    [0, 11, 0, 0, 0], [0, 13, 30, 1, 1], [0, 16, 0, 2, 2], [0, 18, 0, 0, 3],
     [1, 10, 0, 0, 1], [1, 11, 30, 1, 0], [1, 16, 0, 2, 3],
     [2, 10, 30, 1, 2], [2, 15, 0, 0, 1],
     [3, 12, 0, 2, 4], [3, 17, 0, 0, 0],
@@ -185,6 +186,100 @@ async function seed() {
       [a.id, tenantId, serviceIds[svcIdx], price, dur],
     );
   }
+  // ---------------- Caja, productos, paquetes, premios, gastos y fila (demo) ----------------
+  await q(`UPDATE tenant_settings SET features = features || '{"music": true}'::jsonb, tv_config = tv_config || $2::jsonb WHERE tenant_id = $1`, [
+    tenantId,
+    JSON.stringify({ message: 'Martes y miércoles: corte + barba a S/ 35', promos: [{ title: 'Paquete 5 cortes', text: 'Paga 4 y el quinto va por la casa' }, { title: 'Invita a un amigo', text: 'Él tiene 10% y tú sumas puntos' }] }),
+  ]);
+  await q(`UPDATE tenant_branding SET gallery = $2::jsonb WHERE tenant_id = $1`, [
+    tenantId,
+    JSON.stringify([
+      { url: '/img/svc-fade.webp', caption: 'Fade bajo con diseño' },
+      { url: '/img/svc-barba.webp', caption: 'Perfilado de barba' },
+      { url: '/img/svc-corte.webp', caption: 'Corte clásico a tijera' },
+      { url: '/img/svc-navaja.webp', caption: 'Afeitado con navaja' },
+    ]),
+  ]);
+  const productDefs: Array<[string, string, number, number, number, number]> = [
+    ['Cera mate', 'Styling', 3500, 1800, 14, 4],
+    ['Aceite para barba', 'Barba', 4500, 2200, 9, 3],
+    ['Shampoo anticaspa', 'Cuidado', 3000, 1500, 2, 3],
+    ['Pomada brillo', 'Styling', 3200, 1600, 11, 4],
+  ];
+  const productIds: string[] = [];
+  for (const [name, cat, price, cost, stock, min] of productDefs) {
+    const pr = await one(
+      `INSERT INTO products (tenant_id, name, category, price_cents, cost_cents, stock, min_stock, commission_percent) VALUES ($1, $2, $3, $4, $5, $6, $7, 10) RETURNING id`,
+      [tenantId, name, cat, price, cost, stock, min],
+    );
+    productIds.push(pr.id);
+  }
+  await q(`INSERT INTO packages (tenant_id, name, description, price_cents, uses, service_ids, valid_days) VALUES ($1, '5 cortes', 'Paga 4 y el quinto va por la casa', 10000, 5, $2, 180)`, [tenantId, [serviceIds[0], serviceIds[1]]]);
+  await q(`INSERT INTO rewards (tenant_id, name, points_cost, kind, value, ref_id) VALUES ($1, 'Corte gratis', 100, 'free_service', 0, $2), ($1, 'S/ 10 de descuento', 50, 'discount_fixed', 1000, NULL)`, [tenantId, serviceIds[0]]);
+  await q(`UPDATE membership_plans SET discount_percent = 10, included_uses = 2 WHERE tenant_id = $1`, [tenantId]);
+  await q(`UPDATE clients SET birthday = make_date(1995, 3, 14), tags = ARRAY['fade'] WHERE tenant_id = $1 AND name = 'Luis Ramírez'`, [tenantId]);
+  await q(`UPDATE clients SET preferences = 'Fade medio, deja volumen arriba. No toca la barba.' WHERE tenant_id = $1 AND name = 'Andrés Quispe'`, [tenantId]);
+
+  // Ventas de los últimos días con caja cerrada, para que reportes y liquidación tengan datos
+  const ownerRow = await one(`SELECT id FROM users WHERE email = 'juana@date.pe'`);
+  for (let d = 6; d >= 1; d--) {
+    const sess = await one(
+      `INSERT INTO cash_sessions (tenant_id, status, opened_by, opened_at, opening_cents, closed_by, closed_at, expected_cents, counted_cents, difference_cents)
+       VALUES ($1, 'closed', $2, now() - make_interval(days => $3, hours => 10), 5000, $2, now() - make_interval(days => $3, hours => 1), 0, 0, 0) RETURNING id`,
+      [tenantId, ownerRow.id, d],
+    );
+    let cash = 5000;
+    const perDay = 3 + (d % 3);
+    for (let k = 0; k < perDay; k++) {
+      const staffIdx = (d + k) % staffIds.length;
+      const svcIdx = (d * 3 + k) % services.length;
+      const price = services[svcIdx][3];
+      const tip = k % 2 === 0 ? 300 : 0;
+      const withProduct = k === 1;
+      const productPrice = withProduct ? productDefs[d % productDefs.length][2] : 0;
+      const total = price + productPrice + tip;
+      const method = ['cash', 'yape', 'plin', 'card'][(d + k) % 4];
+      if (method === 'cash') cash += total;
+      const num = await one<{ n: number }>(`SELECT COALESCE(max(number), 0) + 1 AS n FROM sales WHERE tenant_id = $1`, [tenantId]);
+      const sale = await one(
+        `INSERT INTO sales (tenant_id, session_id, number, client_id, staff_id, subtotal_cents, tip_cents, total_cents, created_by, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now() - make_interval(days => $10, hours => $11)) RETURNING id`,
+        [tenantId, sess.id, num.n, clientIds[k % clientIds.length], staffIds[staffIdx], price + productPrice, tip, total, ownerRow.id, d, 9 - k],
+      );
+      await q(
+        `INSERT INTO sale_items (tenant_id, sale_id, kind, ref_id, name, qty, unit_cents, total_cents, staff_id, commission_cents) VALUES ($1, $2, 'service', $3, $4, 1, $5, $5, $6, $7)`,
+        [tenantId, sale.id, serviceIds[svcIdx], services[svcIdx][0], price, staffIds[staffIdx], Math.round(price * 0.4)],
+      );
+      if (withProduct) {
+        const pd = productDefs[d % productDefs.length];
+        await q(
+          `INSERT INTO sale_items (tenant_id, sale_id, kind, ref_id, name, qty, unit_cents, total_cents, staff_id, commission_cents) VALUES ($1, $2, 'product', $3, $4, 1, $5, $5, $6, $7)`,
+          [tenantId, sale.id, productIds[d % productIds.length], pd[0], pd[2], staffIds[staffIdx], Math.round(pd[2] * 0.1)],
+        );
+      }
+      await q(`INSERT INTO sale_payments (tenant_id, sale_id, method, amount_cents) VALUES ($1, $2, $3, $4)`, [tenantId, sale.id, method, total]);
+    }
+    await q(`UPDATE cash_sessions SET expected_cents = $2, counted_cents = $2 WHERE id = $1`, [sess.id, cash]);
+  }
+  await q(
+    `INSERT INTO expenses (tenant_id, spent_on, category, amount_cents, method, note, created_by) VALUES
+       ($1, (now() AT TIME ZONE 'America/Lima')::date - 20, 'Alquiler', 90000, 'transfer', 'Local Av. Larco (mitad del mes)', $2),
+       ($1, (now() AT TIME ZONE 'America/Lima')::date - 9, 'Insumos', 24000, 'yape', 'Navajas, talco y toallas', $2),
+       ($1, (now() AT TIME ZONE 'America/Lima')::date - 4, 'Luz, agua e internet', 21000, 'transfer', NULL, $2)`,
+    [tenantId, ownerRow.id],
+  );
+  await q(`INSERT INTO staff_advances (tenant_id, staff_id, amount_cents, note) VALUES ($1, $2, 5000, 'Pasajes de la semana')`, [tenantId, staffIds[2]]);
+
+  // Fila de hoy: uno atendiéndose y dos esperando
+  const qNames: Array<[string, string, number | null]> = [['Marco', 'serving', 0], ['Piero', 'waiting', null], ['Renzo', 'waiting', 1]];
+  for (const [i, [name, status, staffIdx]] of qNames.entries()) {
+    await q(
+      `INSERT INTO queue_tickets (tenant_id, day, number, name, service_id, staff_id, status, served_by, called_at, started_at, sort_at, created_at)
+       VALUES ($1, (now() AT TIME ZONE 'America/Lima')::date, $2, $3, $4, $5, $6, $7, $8, $8, now() - make_interval(mins => $9), now() - make_interval(mins => $9))`,
+      [tenantId, i + 1, name, serviceIds[i % 2], staffIdx === null ? null : staffIds[staffIdx], status, status === 'serving' ? staffIds[0] : null, status === 'serving' ? new Date(Date.now() - 12 * 60000) : null, 30 - i * 8],
+    );
+  }
+
   for (const sid of staffIds) {
     await q(
       `UPDATE staff SET rating_count = (SELECT count(*) FROM reviews WHERE staff_id = $1),

@@ -1,7 +1,73 @@
 'use client';
 
+import { createContext, useContext } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Sheet } from '@/components/Sheet';
+
+/* ------------------------------ Sesión del panel: rol y funciones ------------------------------ */
+
+export type Role = 'owner' | 'manager' | 'cashier' | 'staff';
+export type Features = Record<string, boolean>;
+export interface PanelMe { id: string; name: string; email: string; role: Role; staffId: string | null }
+export interface PanelInfo {
+  me: PanelMe | null;
+  features: Features;
+  pushPublicKey: string | null;
+  /** Actualiza las funciones activas (el menú se ajusta al instante). */
+  setFeatures: (f: Features) => void;
+}
+
+export const PanelContext = createContext<PanelInfo | null>(null);
+
+/** Rol y funciones del usuario del panel. Sin proveedor se comporta como dueño con todo activo. */
+export function usePanel(): PanelInfo {
+  return useContext(PanelContext) ?? { me: null, features: {}, pushPublicKey: null, setFeatures: () => {} };
+}
+
+/** Una función está activa salvo que la barbería la haya apagado. */
+export const featureOn = (f: Features, key: string) => f[key] !== false;
+
+/** Dueño o encargado: pueden configurar la barbería. */
+export const canManage = (role: Role | null | undefined) => !role || role === 'owner' || role === 'manager';
+
+export const ROLE_LABEL: Record<Role, string> = { owner: 'Dueño', manager: 'Encargado', cashier: 'Caja', staff: 'Barbero' };
+
+/**
+ * Cierra una hoja y luego navega a otra sección por hash (ej. "caja?cita=...").
+ * Espera a que la hoja retire su entrada del historial para no deshacer la navegación.
+ */
+export function goHashAfterClose(close: () => void, hash: string) {
+  let done = false;
+  const fire = () => {
+    if (done) return;
+    done = true;
+    window.removeEventListener('popstate', fire);
+    setTimeout(() => { window.location.hash = hash; }, 0);
+  };
+  window.addEventListener('popstate', fire);
+  close();
+  setTimeout(fire, 400);
+}
+
+/** Selector segmentado en píldoras (una opción activa). */
+export function Segmented<T extends string>({ value, onChange, options, label, className = '' }: { value: T; onChange: (v: T) => void; options: readonly (readonly [T, string])[]; label: string; className?: string }) {
+  return (
+    <div className={`flex flex-wrap gap-2 ${className}`} role="radiogroup" aria-label={label}>
+      {options.map(([v, text]) => (
+        <button
+          key={v}
+          type="button"
+          role="radio"
+          aria-checked={value === v}
+          onClick={() => onChange(v)}
+          className={`min-h-11 rounded-full px-4 text-[15px] transition-colors ${value === v ? 'bg-ink text-white' : 'bg-field text-ink hover:bg-line'}`}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function PageHead({ title, sub, actions }: { title: string; sub?: string; actions?: React.ReactNode }) {
   return (

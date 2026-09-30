@@ -8,9 +8,9 @@ import luxonPlugin from '@fullcalendar/luxon3';
 import listPlugin from '@fullcalendar/list';
 import type { EventDropArg, EventClickArg, DateSelectArg, EventInput } from '@fullcalendar/core';
 import type { EventResizeDoneArg } from '@fullcalendar/interaction';
-import { Check, UserX, XCircle, Link2, Phone, MessageCircle, Plus, CalendarClock, Receipt, FileText } from 'lucide-react';
+import { Check, UserX, XCircle, Link2, Phone, MessageCircle, Plus, CalendarClock, FileText, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAdmin, useApi, soles } from './api';
-import { PageHead, Btn, Drawer, Field, inputCls, StatusPill } from './ui';
+import { PageHead, Btn, Drawer, Field, inputCls, StatusPill, usePanel, featureOn, canManage, goHashAfterClose } from './ui';
 import { staffColor } from '@/components/charts';
 import { API_BASE_CLIENT, tenantUrl } from '@/lib/config';
 import { toast } from '@/lib/toast';
@@ -42,7 +42,7 @@ interface Appt {
 interface ReceiptInfo { id?: string; serie: string; numero: number | string; status: string; pdf_url: string | null }
 interface TimeOff { id: string; staff_id: string; staff_name: string; starts_at: string; ends_at: string; reason: string | null }
 
-/** "Boleta B001-12", o "de prueba" si se emitió sin Nubefact. */
+/** Comprobantes emitidos antes (solo lectura): "Boleta B001-12", o "de prueba". */
 function receiptLabel(r: ReceiptInfo) {
   const serie = r.serie.replace(/^PRUEBA-/, '');
   const kind = serie.startsWith('F') ? 'Factura' : 'Boleta';
@@ -55,23 +55,37 @@ const OFF_CSS = `
 .fc .dp-off .fc-event-title { font-style: normal; font-size: 12px; font-weight: 500; color: #5f5f66; margin: 6px; }
 `;
 
+type ViewName = 'timeGridDay' | 'timeGridWeek' | 'listWeek';
+
 export function Agenda() {
   const { tenant } = useAdmin();
   const api = useApi();
+  const { me, features } = usePanel();
+  const manager = canManage(me?.role);
+  const canCharge = featureOn(features, 'pos');
   const calRef = useRef<FullCalendar>(null);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [appts, setAppts] = useState<Appt[]>([]);
   const [timeOff, setTimeOff] = useState<TimeOff[]>([]);
   const [viewType, setViewType] = useState('');
-  const [receiptFor, setReceiptFor] = useState<Appt | null>(null);
+  // Vista propia "Por barbero": una columna por barbero para el día elegido
+  const [mode, setMode] = useState<'calendar' | 'barbers'>('calendar');
+  const [barberDay, setBarberDay] = useState(() => limaDate(new Date()));
+  const [refresh, setRefresh] = useState(0);
   const [open, setOpen] = useState<Appt | null>(null);
   const [walkIn, setWalkIn] = useState<ApptDraft | null>(null);
   const [isMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches);
   const swipe = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
-    api<{ staff: Staff[] }>('/admin/staff').then((d) => setStaff(d.staff)).catch(() => {});
+    api<{ staff: Staff[] }>('/admin/staff')
+      .then((d) => {
+        setStaff(d.staff);
+        // El barbero ve primero su propia agenda; puede mostrar a los demás tocando su nombre
+        if (me?.role === 'staff' && me.staffId) setHidden(new Set(d.staff.filter((s) => s.id !== me.staffId).map((s) => s.id)));
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -87,8 +101,26 @@ export function Agenda() {
     ]);
     if (a.status === 'fulfilled') setAppts(a.value.appointments);
     if (off.status === 'fulfilled') setTimeOff(off.value.timeOff);
+    setRefresh((n) => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function openBarbers() {
+    const d = calRef.current?.getApi().getDate();
+    if (d) setBarberDay(limaDate(d));
+    setMode('barbers');
+  }
+
+  function backToCalendar(view: ViewName) {
+    setMode('calendar');
+    // Al volver, el calendario muestra el mismo día que se veía por barbero
+    setTimeout(() => {
+      const cal = calRef.current?.getApi();
+      if (!cal) return;
+      cal.changeView(view, barberDay);
+      cal.updateSize();
+    }, 0);
+  }
 
   // Tiempo real: otras reservas o cambios desde otro dispositivo
   useEffect(() => {
@@ -187,8 +219,21 @@ export function Agenda() {
         })}
       </div>
 
+      {mode === 'barbers' && (
+        <BarberDay
+          date={barberDay}
+          setDate={setBarberDay}
+          staff={staff.filter((s) => !hidden.has(s.id))}
+          allStaff={staff}
+          refresh={refresh}
+          onOpen={(a) => setOpen(a)}
+          onSlot={(staffId, start) => setWalkIn({ start, end: new Date(start.getTime() + 30 * 60000), staffId })}
+          onView={backToCalendar}
+        />
+      )}
+
       <div
-        className="rounded-xl border border-line p-2 md:p-3"
+        className={`rounded-xl border border-line p-2 md:p-3 ${mode === 'barbers' ? 'hidden' : ''}`}
         onTouchStart={(e) => { const t = e.touches[0]; swipe.current = { x: t.clientX, y: t.clientY }; }}
         onTouchEnd={(e) => {
           const s0 = swipe.current;
@@ -210,7 +255,8 @@ export function Agenda() {
           timeZone="America/Lima"
           titleFormat={calendarTitle}
           initialView={isMobile ? 'listWeek' : 'timeGridDay'}
-          headerToolbar={isMobile ? { left: 'prev', center: 'title', right: 'next' } : { left: 'prev,next today', center: 'title', right: 'timeGridDay,timeGridWeek,listWeek' }}
+          headerToolbar={isMobile ? { left: 'prev', center: 'title', right: 'next' } : { left: 'prev,next today', center: 'title', right: 'timeGridDay,timeGridWeek,listWeek porBarbero' }}
+          customButtons={{ porBarbero: { text: 'Por barbero', hint: 'Una columna por barbero', click: openBarbers } }}
           footerToolbar={isMobile ? { center: 'today listWeek,timeGridDay' } : undefined}
           buttonText={{ today: 'Hoy', day: 'Día', week: 'Semana', list: 'Lista' }}
           noEventsContent="No hay citas en estos días"
@@ -310,17 +356,19 @@ export function Agenda() {
                   <ActionRow icon={XCircle} label="Cancelar cita" danger onClick={() => setStatus(open, 'cancelled')} />
                 </>
               )}
-              {['confirmed', 'completed'].includes(open.status) && !open.receipt && (
-                <ActionRow
-                  icon={Receipt}
-                  label="Emitir comprobante"
-                  onClick={() => {
-                    const a = open;
+              {canCharge && ['confirmed', 'completed'].includes(open.status) && (
+                <a
+                  href={`#caja?cita=${open.id}`}
+                  onClick={(e) => {
+                    e.preventDefault();
                     haptic.tap();
-                    setOpen(null);
-                    setTimeout(() => setReceiptFor(a), 60);
+                    const id = open.id;
+                    goHashAfterClose(() => setOpen(null), `caja?cita=${id}`);
                   }}
-                />
+                  className="flex w-full items-center gap-3 rounded-xl bg-ink px-4 py-3 text-left text-[15px] font-medium text-white transition-colors hover:bg-ink-2"
+                >
+                  <Wallet size={18} strokeWidth={1.75} /> Cobrar
+                </a>
               )}
               {open.status === 'completed' && open.client_phone && (
                 <ActionRow
@@ -337,16 +385,7 @@ export function Agenda() {
         )}
       </Drawer>
 
-      <WalkInDrawer range={walkIn} staff={staff} onClose={() => setWalkIn(null)} onDone={() => { setWalkIn(null); load(); }} />
-      <ReceiptDrawer
-        appt={receiptFor}
-        onClose={() => setReceiptFor(null)}
-        onDone={(id, r) => {
-          setReceiptFor(null);
-          setAppts((p) => p.map((x) => (x.id === id ? { ...x, receipt: r } : x)));
-          load();
-        }}
-      />
+      <WalkInDrawer range={walkIn} staff={staff} canSchedules={manager} onClose={() => setWalkIn(null)} onDone={() => { setWalkIn(null); load(); }} />
     </>
   );
 }
@@ -360,10 +399,10 @@ function ActionRow({ icon: Icon, label, onClick, danger }: { icon: React.Compone
 }
 
 /** Borrador de cita: un rango elegido, "auto" (próximo horario abierto) o una cita existente a reprogramar. */
-type ApptDraft = { start?: Date; end?: Date; auto?: boolean; edit?: Appt };
+type ApptDraft = { start?: Date; end?: Date; auto?: boolean; edit?: Appt; staffId?: string };
 interface Schedule { day_of_week: number; start_time: string; end_time: string }
 
-function WalkInDrawer({ range, staff, onClose, onDone }: { range: ApptDraft | null; staff: Staff[]; onClose: () => void; onDone: () => void }) {
+function WalkInDrawer({ range, staff, canSchedules, onClose, onDone }: { range: ApptDraft | null; staff: Staff[]; canSchedules: boolean; onClose: () => void; onDone: () => void }) {
   const api = useApi();
   const [staffId, setStaffId] = useState('');
   const [name, setName] = useState('');
@@ -382,7 +421,8 @@ function WalkInDrawer({ range, staff, onClose, onDone }: { range: ApptDraft | nu
 
   // Próximo horario dentro del turno del barbero (hora de Lima), redondeado a 15 minutos
   async function nextOpen(sid: string) {
-    try {
+    // Los horarios del barbero solo los lee el dueño o el encargado
+    if (canSchedules) try {
       const { schedules } = await api<{ schedules: Schedule[] }>(`/admin/staff/${sid}/schedules`);
       const now = Date.now();
       for (let d = 0; d < 8; d++) {
@@ -402,7 +442,7 @@ function WalkInDrawer({ range, staff, onClose, onDone }: { range: ApptDraft | nu
 
   useEffect(() => {
     if (!range) return;
-    const sid = range.edit?.staff_id ?? staff[0]?.id ?? '';
+    const sid = range.edit?.staff_id ?? range.staffId ?? staff[0]?.id ?? '';
     setStaffId(sid);
     setName('');
     const apply = (start: Date, end: Date) => {
@@ -489,159 +529,176 @@ function WalkInDrawer({ range, staff, onClose, onDone }: { range: ApptDraft | nu
   );
 }
 
-/* ------------------------------ Comprobante electrónico ------------------------------ */
+/* ------------------------------ Vista por barbero ------------------------------ */
 
-const RECEIPT_ERRORS: Record<string, string> = {
-  factura_requiere_ruc: 'Para emitir una factura necesitas un RUC de 11 dígitos.',
-  dni_invalido: 'El DNI debe tener 8 dígitos.',
-  ya_emitido: 'Esta cita ya tiene un comprobante emitido.',
-  cita_no_atendida: 'Solo puedes emitir comprobantes de citas confirmadas o completadas.',
-  sin_configuracion: 'Primero configura los comprobantes electrónicos en Ajustes.',
-  monto_cero: 'La cita no tiene monto para emitir un comprobante.',
-};
+const DAY_START = 8;
+const DAY_END = 22;
+const HOUR_PX = 64;
 
-type DocType = '-' | '1' | '6';
+/** Fecha "YYYY-MM-DD" en hora de Lima. */
+function limaDate(d: Date) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+}
+function addDays(date: string, n: number) {
+  return limaDate(new Date(new Date(`${date}T12:00:00-05:00`).getTime() + n * 864e5));
+}
+/** Minutos desde la medianoche de Lima del día indicado. */
+function minuteOfDay(iso: string | Date, date: string) {
+  return (new Date(iso).getTime() - new Date(`${date}T00:00:00-05:00`).getTime()) / 60000;
+}
+const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Lima' });
 
-function ReceiptDrawer({ appt, onClose, onDone }: { appt: Appt | null; onClose: () => void; onDone: (id: string, r: ReceiptInfo) => void }) {
+function BarberDay({ date, setDate, staff, allStaff, refresh, onOpen, onSlot, onView }: {
+  date: string; setDate: (d: string) => void; staff: Staff[]; allStaff: Staff[]; refresh: number;
+  onOpen: (a: Appt) => void; onSlot: (staffId: string, start: Date) => void; onView: (v: ViewName) => void;
+}) {
   const api = useApi();
-  const [kind, setKind] = useState<'boleta' | 'factura'>('boleta');
-  const [docType, setDocType] = useState<DocType>('-');
-  const [doc, setDoc] = useState('');
-  const [name, setName] = useState('');
-  const [address, setAddress] = useState('');
-  const [email, setEmail] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [appts, setAppts] = useState<Appt[] | null>(null);
+  const [off, setOff] = useState<TimeOff[]>([]);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (!appt) return;
-    setKind('boleta');
-    setDocType('-');
-    setDoc('');
-    setName(appt.client_name ?? '');
-    setAddress('');
-    setEmail(appt.client_email ?? '');
-  }, [appt]);
+    let alive = true;
+    const from = new Date(`${date}T00:00:00-05:00`).toISOString();
+    const to = new Date(`${date}T23:59:59-05:00`).toISOString();
+    Promise.allSettled([
+      api<{ appointments: Appt[] }>(`/admin/appointments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+      api<{ timeOff: TimeOff[] }>(`/admin/time-off?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+    ]).then(([a, o]) => {
+      if (!alive) return;
+      setAppts(a.status === 'fulfilled' ? a.value.appointments : []);
+      setOff(o.status === 'fulfilled' ? o.value.timeOff : []);
+    });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, refresh]);
 
-  const docLen = docType === '1' ? 8 : docType === '6' ? 11 : 0;
-  const docOk = docType === '-' || doc.length === docLen;
-  const emailOk = !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const valid = docOk && emailOk && (kind === 'boleta' || name.trim().length > 1);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(t);
+  }, []);
 
-  function pickKind(k: 'boleta' | 'factura') {
-    haptic.select();
-    setKind(k);
-    // La factura siempre va a un RUC
-    if (k === 'factura') setDocType('6');
-    else if (docType === '6') setDocType('-');
+  const visible = (appts ?? []).filter((a) => a.status !== 'cancelled');
+  const unassigned = visible.filter((a) => !a.staff_id);
+  const columns: { id: string | null; name: string; color: string }[] = [
+    ...staff.map((s) => ({ id: s.id, name: s.name, color: staffColor(allStaff.findIndex((x) => x.id === s.id)) })),
+    ...(unassigned.length ? [{ id: null, name: 'Sin asignar', color: '#8a8a93' }] : []),
+  ];
+  const today = limaDate(new Date(now)) === date;
+  const nowMin = minuteOfDay(new Date(now), date);
+  const bodyH = (DAY_END - DAY_START) * HOUR_PX;
+  const y = (min: number) => ((min - DAY_START * 60) * HOUR_PX) / 60;
+  const title = (() => {
+    const t = new Intl.DateTimeFormat('es-PE', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`)).replace(',', '');
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  })();
+  const pill = 'inline-flex min-h-9 items-center justify-center rounded-full border px-3.5 text-[13px] font-medium transition-colors';
+  const idle = `${pill} border-line bg-white hover:bg-field`;
+
+  function slotClick(e: React.MouseEvent<HTMLDivElement>, staffId: string | null) {
+    if (!staffId) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const min = DAY_START * 60 + Math.floor((((e.clientY - rect.top) / HOUR_PX) * 60) / 15) * 15;
+    onSlot(staffId, new Date(new Date(`${date}T00:00:00-05:00`).getTime() + min * 60000));
   }
-
-  async function save() {
-    if (!appt || !valid) return;
-    setBusy(true);
-    try {
-      const d = await api<{ ok: boolean; receipt: ReceiptInfo & { sunat_message?: string | null } }>(`/admin/appointments/${appt.id}/receipt`, {
-        method: 'POST',
-        body: {
-          kind,
-          docType,
-          doc: docType === '-' ? undefined : doc,
-          name: name.trim() || undefined,
-          address: kind === 'factura' && address.trim() ? address.trim() : undefined,
-          email: email.trim() || undefined,
-        },
-      });
-      toast.success(`${receiptLabel(d.receipt)} emitida${email.trim() && d.receipt.status === 'issued' ? '. Le llegará al correo del cliente.' : ''}`);
-      onDone(appt.id, d.receipt);
-    } catch (e) {
-      toast.error(RECEIPT_ERRORS[(e as Error).message] ?? 'No se pudo emitir el comprobante. Revisa los datos.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const seg = (on: boolean, disabled = false) =>
-    `min-h-11 rounded-full px-4 text-[15px] transition-colors ${on ? 'bg-ink text-white' : 'bg-field hover:bg-line'} ${disabled ? 'cursor-not-allowed opacity-40' : ''}`;
 
   return (
-    <Drawer
-      open={!!appt}
-      onClose={onClose}
-      title="Emitir comprobante"
-      footer={<><Btn variant="ghost" onClick={onClose}>Cancelar</Btn><Btn onClick={save} busy={busy} disabled={!valid}>Emitir {kind}</Btn></>}
-    >
-      {appt && (
-        <div className="space-y-5">
-          <p className="flex items-center justify-between gap-4 rounded-xl bg-field px-4 py-3 text-[15px]">
-            <span className="min-w-0">
-              <span className="block font-medium">{appt.service_name ?? 'Servicio'}</span>
-              <span className="block text-mute">{appt.client_name ?? 'Cliente sin cita'}</span>
-            </span>
-            <span className="tnum shrink-0 font-medium">{soles(appt.price_cents)}</span>
-          </p>
+    <div className="rounded-xl border border-line p-2 md:p-3">
+      {/* Barra igual a la del calendario */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <button type="button" onClick={() => setDate(addDays(date, -1))} className={`${idle} w-9 px-0`} aria-label="Día anterior"><ChevronLeft size={16} strokeWidth={1.75} /></button>
+          <button type="button" onClick={() => setDate(addDays(date, 1))} className={`${idle} w-9 px-0`} aria-label="Día siguiente"><ChevronRight size={16} strokeWidth={1.75} /></button>
+          <button type="button" onClick={() => setDate(limaDate(new Date()))} disabled={today} className={`${idle} disabled:bg-field disabled:text-soft`}>Hoy</button>
+        </div>
+        <h2 className="text-[17px] font-semibold tracking-[-0.02em]">{title}</h2>
+        <div className="flex items-center gap-1.5">
+          {([['timeGridDay', 'Día'], ['timeGridWeek', 'Semana'], ['listWeek', 'Lista']] as const).map(([v, label]) => (
+            <button key={v} type="button" onClick={() => onView(v)} className={idle}>{label}</button>
+          ))}
+          <button type="button" aria-pressed className={`${pill} border-ink bg-ink text-white`}>Por barbero</button>
+        </div>
+      </div>
 
-          <div>
-            <span className="mb-2 block text-[14px] font-medium">Tipo</span>
-            <div className="flex gap-2" role="radiogroup" aria-label="Tipo de comprobante">
-              {(['boleta', 'factura'] as const).map((k) => (
-                <button key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => pickKind(k)} className={seg(kind === k)}>
-                  {k === 'boleta' ? 'Boleta' : 'Factura'}
-                </button>
-              ))}
+      {!appts ? (
+        <div className="h-[420px] animate-pulse rounded-xl bg-field" />
+      ) : columns.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-line-2 p-6 text-[15px] text-mute">Elige al menos un barbero arriba para ver su día.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-line">
+          <div className="flex min-w-max">
+            {/* Horas */}
+            <div className="sticky left-0 z-[2] w-14 shrink-0 border-r border-line bg-white">
+              <div className="h-12 border-b border-line" />
+              <div className="relative" style={{ height: bodyH }}>
+                {Array.from({ length: DAY_END - DAY_START }, (_, i) => (
+                  <span key={i} className="tnum absolute right-2 -translate-y-1/2 text-[11px] text-soft" style={{ top: i * HOUR_PX }}>
+                    {i === 0 ? '' : `${String(DAY_START + i).padStart(2, '0')}:00`}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div>
-            <span className="mb-2 block text-[14px] font-medium">Documento del cliente</span>
-            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Tipo de documento">
-              {([['-', 'Sin documento'], ['1', 'DNI'], ['6', 'RUC']] as const).map(([v, label]) => {
-                const disabled = kind === 'factura' && v !== '6';
-                return (
-                  <button
-                    key={v}
-                    type="button"
-                    role="radio"
-                    aria-checked={docType === v}
-                    disabled={disabled}
-                    onClick={() => { haptic.select(); setDocType(v); setDoc(''); }}
-                    className={seg(docType === v, disabled)}
+            {columns.map((col) => {
+              const items = visible.filter((a) => (col.id ? a.staff_id === col.id : !a.staff_id));
+              const blocks = col.id ? off.filter((o) => o.staff_id === col.id) : [];
+              return (
+                <div key={col.id ?? 'none'} className="min-w-[168px] flex-1 border-r border-line last:border-r-0">
+                  <div className="sticky top-0 flex h-12 items-center gap-2 border-b border-line bg-white px-3">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: col.color }} />
+                    <span className="truncate text-[14px] font-medium">{col.name}</span>
+                    <span className="tnum ml-auto shrink-0 text-[12px] text-soft">{items.length}</span>
+                  </div>
+                  <div
+                    className={`relative ${col.id ? 'cursor-cell' : ''}`}
+                    style={{ height: bodyH, backgroundImage: `repeating-linear-gradient(to bottom, #e6e6e9 0 1px, transparent 1px ${HOUR_PX / 2}px)` }}
+                    onClick={(e) => slotClick(e, col.id)}
                   >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-            {kind === 'factura' && <span className="mt-1.5 block text-[13px] text-soft">La factura siempre lleva el RUC de la empresa.</span>}
+                    {blocks.map((o) => {
+                      const top = Math.max(0, y(minuteOfDay(o.starts_at, date)));
+                      const bottom = Math.min(bodyH, y(minuteOfDay(o.ends_at, date)));
+                      if (bottom <= 0 || top >= bodyH) return null;
+                      return (
+                        <div
+                          key={o.id}
+                          onClick={(e) => { e.stopPropagation(); toast.info('Bloqueo de horario. Puedes quitarlo en Horarios.'); }}
+                          className="absolute inset-x-0 overflow-hidden px-2 py-1 text-[12px] font-medium text-mute"
+                          style={{ top, height: bottom - top, backgroundColor: '#f4f4f5', backgroundImage: 'repeating-linear-gradient(135deg, rgb(10 10 10 / 0.07) 0 6px, transparent 6px 12px)' }}
+                        >
+                          {o.reason || 'No atiende'}
+                        </div>
+                      );
+                    })}
+                    {items.map((a) => {
+                      const top = y(minuteOfDay(a.starts_at, date));
+                      const h = Math.max(22, y(minuteOfDay(a.ends_at, date)) - top);
+                      if (top + h <= 0 || top >= bodyH) return null;
+                      const bg = a.status === 'no_show' ? '#a1a1aa' : col.color;
+                      return (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); haptic.tap(); onOpen(a); }}
+                          className={`absolute inset-x-1 z-[1] overflow-hidden rounded-lg px-2 py-1 text-left text-[12px] leading-tight text-white shadow-sm transition-transform hover:scale-[1.01] ${a.status === 'pending' ? 'opacity-70' : ''}`}
+                          style={{ top: Math.max(0, top), height: h, background: bg }}
+                        >
+                          <span className="tnum block font-medium opacity-90">{hhmm(a.starts_at)} a {hhmm(a.ends_at)}</span>
+                          <span className="block truncate font-semibold">{a.client_name ?? 'Cliente sin cita'}</span>
+                          {h > 44 && a.service_name && <span className="block truncate opacity-90">{a.service_name}</span>}
+                        </button>
+                      );
+                    })}
+                    {today && nowMin > DAY_START * 60 && nowMin < DAY_END * 60 && (
+                      <div className="pointer-events-none absolute inset-x-0 z-[2] h-0.5 bg-red" style={{ top: y(nowMin) }} aria-hidden />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-
-          {docType !== '-' && (
-            <Field label={docType === '1' ? 'Número de DNI' : 'Número de RUC'} hint={doc && !docOk ? `Debe tener ${docLen} dígitos.` : undefined}>
-              <input
-                inputMode="numeric"
-                autoComplete="off"
-                value={doc}
-                maxLength={docLen}
-                onChange={(e) => setDoc(e.target.value.replace(/\D/g, '').slice(0, docLen))}
-                className={`tnum ${inputCls}`}
-                placeholder={docType === '1' ? '12345678' : '20123456789'}
-              />
-            </Field>
-          )}
-
-          <Field label={kind === 'factura' ? 'Razón social' : 'Nombre'}>
-            <input value={name} onChange={(e) => setName(e.target.value)} autoCapitalize="words" className={inputCls} />
-          </Field>
-
-          {kind === 'factura' && (
-            <Field label="Dirección fiscal (opcional)">
-              <input value={address} onChange={(e) => setAddress(e.target.value)} className={inputCls} />
-            </Field>
-          )}
-
-          <Field label="Correo (opcional)" hint={emailOk ? 'Con Nubefact configurado, el comprobante le llega a este correo.' : 'Revisa el correo.'}>
-            <input type="email" inputMode="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} />
-          </Field>
         </div>
       )}
-    </Drawer>
+      <p className="mt-2 px-1 text-[13px] text-soft">Toca un espacio libre en la columna de un barbero para anotar a un cliente a esa hora.</p>
+    </div>
   );
 }

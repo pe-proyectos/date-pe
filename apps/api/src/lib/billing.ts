@@ -3,7 +3,7 @@ import { env } from '../env.js';
 import { sendEmail, layout } from './email.js';
 import { ownerEmails, tenantUrl } from './notify.js';
 
-// Suscripción de cada barbería a date.pe: 14 días de prueba y luego S/50 al mes.
+// Suscripción de cada barbería a date.pe: prueba acordada y luego el precio mensual acordado con cada una.
 export const TRIAL_DAYS = 14;
 export const GRACE_DAYS = 3;
 
@@ -39,7 +39,7 @@ export async function billingState(tenantId: string): Promise<BillingState | nul
     activeUntil: activeUntil?.toISOString() ?? null,
     daysLeft,
     monthlyPriceCents: t.monthly_price_cents,
-    needsPayment: !t.is_demo && (t.status === 'suspended' || (daysLeft !== null && daysLeft <= 5)),
+    needsPayment: !t.is_demo && t.monthly_price_cents > 0 && (t.status === 'suspended' || (daysLeft !== null && daysLeft <= 5)),
     suspended: t.status === 'suspended',
   };
 }
@@ -132,8 +132,8 @@ export async function emailBillingNotice(tenantId: string, kind: 'ending' | 'sus
         : `Tu plan vence en ${daysLeft} ${daysLeft === 1 ? 'día' : 'días'}`;
   const intro =
     kind === 'suspended'
-      ? `No recibimos el pago de ${tenant.name}, así que tus clientes no pueden reservar por ahora. Tus datos están guardados: paga S/ 50 y todo vuelve a funcionar al instante.`
-      : `Para que tus clientes sigan reservando en ${tenant.name}, paga tu plan de S/ 50 al mes desde el panel. Toma un minuto.`;
+      ? `No recibimos el pago de ${tenant.name}, así que tus clientes no pueden reservar por ahora. Tus datos están guardados: paga tu plan desde el panel y todo vuelve a funcionar al instante.`
+      : `Para que tus clientes sigan reservando en ${tenant.name}, paga tu plan desde el panel. Toma un minuto.`;
   await sendEmail({
     to: to.join(','),
     subject: kind === 'suspended' ? `Reservas en pausa: ${tenant.name}` : `${title}: ${tenant.name}`,

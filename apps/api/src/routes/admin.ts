@@ -175,6 +175,39 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
+  // Precio y duración por barbero (el maestro cobra distinto que el aprendiz)
+  app.get('/admin/services/:id/staff', async (request) => {
+    const id = (request.params as { id: string }).id;
+    return withTenant(tid(request), async (sql) => ({
+      overrides: (
+        await sql(
+          `SELECT st.id AS staff_id, st.name, ss.price_cents, ss.duration_min, (ss.staff_id IS NOT NULL) AS custom
+             FROM staff st LEFT JOIN service_staff ss ON ss.staff_id = st.id AND ss.service_id = $1 ORDER BY st.sort_order, st.name`,
+          [id],
+        )
+      ).rows,
+    }));
+  });
+  app.put('/admin/services/:id/staff', async (request) => {
+    const id = (request.params as { id: string }).id;
+    const b = z.object({ overrides: z.array(z.object({ staffId: z.string().uuid(), priceCents: z.number().int().min(0).nullable(), durationMin: z.number().int().min(5).max(480).nullable() })) }).parse(request.body);
+    await withTenant(tid(request), async (sql) => {
+      for (const o of b.overrides) {
+        if (o.priceCents === null && o.durationMin === null) {
+          await sql('DELETE FROM service_staff WHERE service_id = $1 AND staff_id = $2', [id, o.staffId]);
+        } else {
+          await sql(
+            `INSERT INTO service_staff (tenant_id, service_id, staff_id, price_cents, duration_min) VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4)
+             ON CONFLICT (service_id, staff_id) DO UPDATE SET price_cents = EXCLUDED.price_cents, duration_min = EXCLUDED.duration_min`,
+            [id, o.staffId, o.priceCents, o.durationMin],
+          );
+        }
+      }
+    });
+    await emitAvailabilityChange(tid(request));
+    return { ok: true };
+  });
+
   app.delete('/admin/services/:id', async (request) => {
     const id = (request.params as { id: string }).id;
     await withTenant(tid(request), async (sql) => {
@@ -218,6 +251,11 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     const id = (request.params as { id: string }).id;
     const b = updateAppt.parse(request.body);
     const out = await withTenant(tid(request), async (sql) => {
+      // Un barbero solo cambia sus propias citas
+      if (request.user.role === 'staff') {
+        const own = await sql<{ staff_id: string | null }>('SELECT staff_id FROM appointments WHERE id = $1', [id]);
+        if (own.rows[0]?.staff_id !== request.user.staffId) return { error: 'sin_permiso' as const };
+      }
       // valida solape si se cambia horario/barbero
       if (b.startsAt || b.endsAt || b.staffId) {
         const cur = await sql<{ staff_id: string; starts_at: string; ends_at: string }>(
@@ -264,7 +302,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       const freed = p0 && ((b.status === 'cancelled' && p0.status !== 'cancelled') || (b.startsAt && new Date(b.startsAt).getTime() !== new Date(p0.starts_at).getTime()));
       return { location_id: rows[0]?.location_id ?? null, freedAt: freed ? p0.starts_at : null };
     });
-    if ('error' in out) return reply.code(out.error === 'no_encontrado' ? 404 : 409).send({ error: out.error });
+    if ('error' in out) return reply.code(out.error === 'no_encontrado' ? 404 : out.error === 'sin_permiso' ? 403 : 409).send({ error: out.error });
     await emitAvailabilityChange(tid(request), out.location_id);
     if (out.freedAt) void processWaitlist(tid(request), out.freedAt);
     return { ok: true };
@@ -310,7 +348,19 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     about: z.string().nullable().optional(),
     instagram: z.string().nullable().optional(),
     whatsapp: z.string().nullable().optional(),
+      showPoweredBy: z.boolean().optional(),
+    gallery: z.array(z.object({ url: z.string().max(500), caption: z.string().max(120).optional(), staffId: z.string().uuid().nullable().optional() })).max(60).optional(),
+});
+  // Solo galería o mención de date.pe: no reescribe la marca
+  app.patch('/admin/branding', async (request) => {
+    const b = brandingBody.pick({ gallery: true, showPoweredBy: true }).parse(request.body);
+    return withTenant(tid(request), async (sql) => {
+      if (b.gallery !== undefined) await sql('UPDATE tenant_branding SET gallery = $1::jsonb', [JSON.stringify(b.gallery)]);
+      if (b.showPoweredBy !== undefined) await sql('UPDATE tenant_branding SET show_powered_by = $1', [b.showPoweredBy]);
+      return (await sql('SELECT * FROM tenant_branding')).rows[0];
+    });
   });
+
   app.put('/admin/branding', async (request) => {
     const b = brandingBody.parse(request.body);
     return withTenant(tid(request), async (sql) => {
@@ -327,7 +377,10 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
          RETURNING *`,
         [b.logoUrl ?? null, b.coverUrl ?? null, b.colorPrimary ?? null, b.colorSecondary ?? null, b.tagline ?? null, b.about ?? null, b.instagram ?? null, b.whatsapp ?? null],
       );
-      return rows[0];
+      // Galería y mención de date.pe: solo si llegan (no se tocan al guardar la marca)
+      if (b.gallery !== undefined) await sql('UPDATE tenant_branding SET gallery = $1::jsonb', [JSON.stringify(b.gallery)]);
+      if (b.showPoweredBy !== undefined) await sql('UPDATE tenant_branding SET show_powered_by = $1', [b.showPoweredBy]);
+      return (await sql('SELECT * FROM tenant_branding')).rows[0] ?? rows[0];
     });
   });
 

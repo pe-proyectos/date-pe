@@ -127,7 +127,7 @@ export default async function DistrictPage({ params }: { params: Promise<{ provi
               <div>
                 <p className="text-[18px] font-medium tracking-[-0.02em]">Aún no hay barberías de {d.name} en date.pe.</p>
                 <p className="mt-1 text-[16px] text-mute">Si tienes una, créala en minutos y aparece aquí.</p>
-                <Link href="/join" className="mt-5 inline-block rounded-full bg-ink px-5 py-3 text-[15px] font-medium text-white">Registra tu barbería</Link>
+                <Link href="/join" className="mt-5 inline-block rounded-full bg-ink px-5 py-3 text-[15px] font-medium text-white">Solicitar acceso</Link>
               </div>
             </div>
           )}

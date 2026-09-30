@@ -4,6 +4,7 @@ import { withTenant, admin } from '../db.js';
 import { computeSlots } from '../lib/availability.js';
 import { quote } from '../lib/pricing.js';
 import { tenantSlugByDomain } from '../lib/domains.js';
+import { tenantConfig } from '../lib/features.js';
 
 // Datos públicos de un tenant para su sitio, su flujo de reserva y reseñas.
 export const publicRoutes: FastifyPluginAsync = async (app) => {
@@ -13,7 +14,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     const demo = await admin<{ is_demo: boolean }>('SELECT is_demo FROM tenants WHERE id = $1', [tenantId]);
     return withTenant(tenantId, async (sql) => {
       const [branding, settings, locations, staff, services, reviews, ratingAgg, plans, hours] = await Promise.all([
-        sql('SELECT logo_url, cover_url, color_primary, color_secondary, tagline, about, instagram, whatsapp FROM tenant_branding'),
+        sql('SELECT logo_url, cover_url, color_primary, color_secondary, tagline, about, instagram, whatsapp, gallery, show_powered_by FROM tenant_branding'),
         sql(`SELECT timezone, slot_interval_min, deposit_percent, require_deposit, cancel_window_hours, allow_client_reschedule,
                     require_verification, referral_enabled, referral_discount_percent FROM tenant_settings`),
         sql('SELECT id, name, address, district, province, lat, lng, phone FROM locations WHERE is_active ORDER BY name'),
@@ -34,7 +35,11 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                FROM staff_schedules ss JOIN staff s ON s.id = ss.staff_id WHERE s.is_bookable
               GROUP BY day_of_week ORDER BY day_of_week`),
       ]);
+      const cfg = await tenantConfig(sql);
+      const review = await sql<{ google_review_url: string | null }>('SELECT google_review_url FROM tenant_settings');
       return {
+        features: cfg.features,
+        googleReviewUrl: review.rows[0]?.google_review_url ?? null,
         tenant: {
           slug: request.tenant!.slug,
           name: request.tenant!.name,
@@ -101,6 +106,11 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         staffId: staffId ?? null,
         date,
         durationMin: svc.rows[0].duration_min + extra + (svc.rows[0].buffer_min ?? 0),
+        durationByStaff: Object.fromEntries(
+          (await sql<{ staff_id: string; duration_min: number }>('SELECT staff_id, duration_min FROM service_staff WHERE service_id = $1 AND duration_min IS NOT NULL', [serviceId])).rows.map(
+            (r) => [r.staff_id, r.duration_min + extra + (svc.rows[0].buffer_min ?? 0)],
+          ),
+        ),
         timezone: tz,
         slotIntervalMin: interval,
       });

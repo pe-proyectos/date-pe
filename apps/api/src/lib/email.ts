@@ -80,7 +80,7 @@ export function layout(p: { brand: string; title: string; intro: string; rows?: 
     <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;padding:32px">
       <p style="margin:0 0 4px;font-size:14px;color:#5f5f66">${esc(p.brand)}</p>
       <h1 style="margin:0 0 16px;font-size:24px;letter-spacing:-0.02em;color:#0a0a0a">${esc(p.title)}</h1>
-      <p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#27272a">${esc(p.intro)}</p>
+      <p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#27272a">${esc(p.intro).replace(/\n/g, '<br>')}</p>
       ${rows ? `<table style="width:100%;border-collapse:collapse">${rows}</table>` : ''}
       ${cta}${secondary}
       <p style="margin:28px 0 0;font-size:13px;color:#71717a">${esc(p.foot ?? 'Reserva hecha con date.pe')}</p>

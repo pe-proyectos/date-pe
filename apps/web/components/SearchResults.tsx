@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { List, Map as MapIcon, Navigation, Star } from 'lucide-react';
+import { CalendarX2, List, Map as MapIcon, Navigation, Star } from 'lucide-react';
 import { ShopCard } from './ShopCard';
 import type { MapPoint } from './SearchMap';
 import { soles, type SearchResult } from '@/lib/api';
@@ -19,7 +19,12 @@ export type GeoResult = SearchResult & {
   lat?: number | string | null;
   lng?: number | string | null;
   distance_km?: number | string | null;
+  /** Con ?date=: próximos horarios libres ese día (ISO). */
+  next_slots?: string[];
 };
+
+const hhmm = (iso: string) =>
+  new Intl.DateTimeFormat('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Lima' }).format(new Date(iso));
 
 /** "a 350 m" o "a 1,2 km". */
 export function distanceLabel(km: number | string | null | undefined): string | null {
@@ -37,7 +42,7 @@ function pinPrice(cents: number | null): string {
   return `S/ ${Number.isInteger(s) ? s : s.toFixed(2)}`;
 }
 
-export function SearchResults({ results, user }: { results: GeoResult[]; user: { lat: number; lng: number } | null }) {
+export function SearchResults({ results, user, date = null }: { results: GeoResult[]; user: { lat: number; lng: number } | null; date?: string | null }) {
   const [mode, setMode] = useState<'list' | 'map'>('list');
   const [selected, setSelected] = useState<string | null>(null);
   const cards = useRef(new Map<string, HTMLDivElement>());
@@ -75,6 +80,8 @@ export function SearchResults({ results, user }: { results: GeoResult[]; user: {
             {results.map((r) => {
               const on = selected === r.location_id;
               const dist = distanceLabel(r.distance_km);
+              const slots = date ? r.next_slots ?? [] : null;
+              const full = slots !== null && slots.length === 0;
               return (
                 <div
                   key={r.location_id}
@@ -87,10 +94,31 @@ export function SearchResults({ results, user }: { results: GeoResult[]; user: {
                   onMouseLeave={() => setSelected((s) => (s === r.location_id ? null : s))}
                   className={`rounded-xl transition-shadow duration-300 ${on ? 'ring-2 ring-ink ring-offset-4 ring-offset-white' : ''}`}
                 >
-                  <ShopCard r={r} />
-                  {dist && (
-                    <p className="tnum mt-1 flex items-center gap-1.5 text-[14px] text-mute">
-                      <Navigation size={13} strokeWidth={1.75} /> {dist}
+                  <div className={full ? 'opacity-50 grayscale transition-opacity hover:opacity-80' : ''}>
+                    <ShopCard r={r} />
+                    {dist && (
+                      <p className="tnum mt-1 flex items-center gap-1.5 text-[14px] text-mute">
+                        <Navigation size={13} strokeWidth={1.75} /> {dist}
+                      </p>
+                    )}
+                  </div>
+                  {slots && slots.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2" aria-label={`Horarios libres en ${r.name}`}>
+                      {slots.map((iso) => (
+                        <a
+                          key={iso}
+                          href={tenantUrl(r.slug, `/reservar?fecha=${date}`)}
+                          onClick={() => haptic.tap()}
+                          className="tnum inline-flex min-h-[44px] items-center rounded-xl border border-line px-3.5 text-[15px] font-medium transition-colors hover:border-ink active:bg-field"
+                        >
+                          {hhmm(iso)}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  {full && (
+                    <p className="mt-2 flex items-center gap-1.5 text-[14px] text-mute">
+                      <CalendarX2 size={14} strokeWidth={1.75} /> Sin horarios ese día
                     </p>
                   )}
                 </div>

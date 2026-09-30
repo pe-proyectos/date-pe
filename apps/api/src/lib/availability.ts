@@ -15,6 +15,8 @@ interface AvailabilityParams {
   durationMin: number;
   timezone: string;
   slotIntervalMin: number;
+  /** Duración distinta por barbero (minutos totales), si el servicio la tiene */
+  durationByStaff?: Record<string, number>;
   /** Al reprogramar, la cita que se mueve no se bloquea a sí misma */
   excludeAppointmentId?: string | null;
 }
@@ -81,7 +83,6 @@ export async function computeSlots(sql: Sql, p: AvailabilityParams): Promise<Slo
 
   const now = DateTime.now();
   const step = Math.max(5, p.slotIntervalMin);
-  const durationMs = p.durationMin * 60 * 1000;
   const slots: Slot[] = [];
   const seenStart = new Set<string>();
 
@@ -96,9 +97,10 @@ export async function computeSlots(sql: Sql, p: AvailabilityParams): Promise<Slo
     let cursor = day.set({ hour: sh, minute: sm, second: 0, millisecond: 0 });
     const blockEnd = day.set({ hour: eh, minute: em, second: 0, millisecond: 0 });
     const busy = busyByStaff.get(sch.staff_id) ?? [];
+    const durMs = (p.durationByStaff?.[sch.staff_id] ?? p.durationMin) * 60 * 1000;
 
-    while (cursor.plus({ milliseconds: durationMs }) <= blockEnd) {
-      const slotEnd = cursor.plus({ milliseconds: durationMs });
+    while (cursor.plus({ milliseconds: durMs }) <= blockEnd) {
+      const slotEnd = cursor.plus({ milliseconds: durMs });
       const candidate = Interval.fromDateTimes(cursor, slotEnd);
       const overlaps = busy.some((b) => b.overlaps(candidate));
       if (!overlaps && cursor > now) {

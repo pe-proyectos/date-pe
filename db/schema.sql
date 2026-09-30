@@ -445,6 +445,431 @@ CREATE TABLE IF NOT EXISTS receipts (
 );
 CREATE INDEX IF NOT EXISTS idx_receipts_tenant ON receipts (tenant_id, created_at DESC);
 
+
+-- ===========================================================================
+-- Funciones activables por barbería y su configuración
+-- ===========================================================================
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS features jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS tv_config jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS queue_config jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS music_config jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS pos_config jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS marketing_config jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS google_review_url text;
+ALTER TABLE tenant_branding ADD COLUMN IF NOT EXISTS show_powered_by boolean NOT NULL DEFAULT true;
+ALTER TABLE tenant_branding ADD COLUMN IF NOT EXISTS gallery jsonb NOT NULL DEFAULT '[]';
+
+-- ===========================================================================
+-- Equipo: cuentas con rol (dueño, encargado, caja, barbero)
+-- ===========================================================================
+ALTER TABLE memberships ADD COLUMN IF NOT EXISTS staff_id uuid REFERENCES staff(id) ON DELETE SET NULL;
+ALTER TABLE memberships DROP CONSTRAINT IF EXISTS memberships_role_check;
+ALTER TABLE memberships ADD CONSTRAINT memberships_role_check CHECK (role IN ('owner','manager','cashier','staff'));
+CREATE TABLE IF NOT EXISTS team_invites (
+  token_hash  text PRIMARY KEY,
+  tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  email       text NOT NULL,
+  role        text NOT NULL CHECK (role IN ('manager','cashier','staff')),
+  staff_id    uuid REFERENCES staff(id) ON DELETE SET NULL,
+  invited_by  uuid REFERENCES users(id) ON DELETE SET NULL,
+  expires_at  timestamptz NOT NULL,
+  accepted_at timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- ===========================================================================
+-- Caja: turnos de caja, ventas, pagos mixtos, propinas, movimientos
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS cash_sessions (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id       uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id     uuid REFERENCES locations(id) ON DELETE SET NULL,
+  status          text NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+  opened_by       uuid REFERENCES users(id) ON DELETE SET NULL,
+  opened_at       timestamptz NOT NULL DEFAULT now(),
+  opening_cents   int NOT NULL DEFAULT 0,
+  closed_by       uuid REFERENCES users(id) ON DELETE SET NULL,
+  closed_at       timestamptz,
+  expected_cents  int,
+  counted_cents   int,
+  difference_cents int,
+  notes           text
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cash_open ON cash_sessions (tenant_id, COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid)) WHERE status = 'open';
+
+CREATE TABLE IF NOT EXISTS cash_movements (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  session_id   uuid NOT NULL REFERENCES cash_sessions(id) ON DELETE CASCADE,
+  kind         text NOT NULL CHECK (kind IN ('in','out')),
+  amount_cents int NOT NULL CHECK (amount_cents > 0),
+  reason       text NOT NULL,
+  created_by   uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS sales (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id       uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id     uuid REFERENCES locations(id) ON DELETE SET NULL,
+  session_id      uuid REFERENCES cash_sessions(id) ON DELETE SET NULL,
+  number          int NOT NULL,
+  appointment_id  uuid REFERENCES appointments(id) ON DELETE SET NULL,
+  ticket_id       uuid,
+  client_id       uuid REFERENCES clients(id) ON DELETE SET NULL,
+  staff_id        uuid REFERENCES staff(id) ON DELETE SET NULL,
+  subtotal_cents  int NOT NULL DEFAULT 0,
+  discount_cents  int NOT NULL DEFAULT 0,
+  tip_cents       int NOT NULL DEFAULT 0,
+  total_cents     int NOT NULL DEFAULT 0,
+  status          text NOT NULL DEFAULT 'paid' CHECK (status IN ('paid','void')),
+  receipt_url     text,            -- boleta o factura que la barbería sube (opcional)
+  receipt_number  text,
+  note            text,
+  void_reason     text,
+  created_by      uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sales_tenant_time ON sales (tenant_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS sale_items (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id        uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  sale_id          uuid NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+  kind             text NOT NULL CHECK (kind IN ('service','product','package','gift_card','membership','other')),
+  ref_id           uuid,
+  name             text NOT NULL,
+  qty              int NOT NULL DEFAULT 1 CHECK (qty > 0),
+  unit_cents       int NOT NULL,
+  total_cents      int NOT NULL,
+  staff_id         uuid REFERENCES staff(id) ON DELETE SET NULL,
+  commission_cents int NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS sale_payments (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  sale_id      uuid NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+  method       text NOT NULL CHECK (method IN ('cash','yape','plin','card','transfer','gift_card','deposit','package','points')),
+  amount_cents int NOT NULL,
+  reference    text
+);
+
+-- ===========================================================================
+-- Productos e inventario
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS products (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id          uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name               text NOT NULL,
+  sku                text,
+  category           text,
+  price_cents        int NOT NULL DEFAULT 0,
+  cost_cents         int NOT NULL DEFAULT 0,
+  stock              int NOT NULL DEFAULT 0,
+  min_stock          int NOT NULL DEFAULT 0,
+  commission_percent int NOT NULL DEFAULT 0 CHECK (commission_percent BETWEEN 0 AND 100),
+  photo_url          text,
+  is_active          boolean NOT NULL DEFAULT true,
+  created_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS stock_movements (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  product_id  uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  delta       int NOT NULL,
+  reason      text NOT NULL CHECK (reason IN ('sale','purchase','adjust','void')),
+  sale_id     uuid REFERENCES sales(id) ON DELETE SET NULL,
+  note        text,
+  created_by  uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- ===========================================================================
+-- Gastos, adelantos y liquidación del equipo
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS expenses (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id  uuid REFERENCES locations(id) ON DELETE SET NULL,
+  spent_on     date NOT NULL DEFAULT CURRENT_DATE,
+  category     text NOT NULL,
+  amount_cents int NOT NULL CHECK (amount_cents > 0),
+  method       text,
+  note         text,
+  receipt_url  text,
+  session_id   uuid REFERENCES cash_sessions(id) ON DELETE SET NULL,
+  created_by   uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS staff_payouts (
+  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id                uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  staff_id                 uuid NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  period_start             date NOT NULL,
+  period_end               date NOT NULL,
+  services_cents           int NOT NULL DEFAULT 0,
+  commission_cents         int NOT NULL DEFAULT 0,
+  product_commission_cents int NOT NULL DEFAULT 0,
+  tips_cents               int NOT NULL DEFAULT 0,
+  advances_cents           int NOT NULL DEFAULT 0,
+  total_cents              int NOT NULL DEFAULT 0,
+  method                   text,
+  note                     text,
+  paid_at                  timestamptz NOT NULL DEFAULT now(),
+  created_by               uuid REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS staff_advances (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  staff_id     uuid NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  amount_cents int NOT NULL CHECK (amount_cents > 0),
+  note         text,
+  given_on     date NOT NULL DEFAULT CURRENT_DATE,
+  payout_id    uuid REFERENCES staff_payouts(id) ON DELETE SET NULL,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- ===========================================================================
+-- Fila virtual, pantalla de TV y música a pedido
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS queue_tickets (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id  uuid REFERENCES locations(id) ON DELETE SET NULL,
+  day          date NOT NULL,
+  number       int NOT NULL,
+  name         text NOT NULL,
+  phone        text,
+  email        text,
+  service_id   uuid REFERENCES services(id) ON DELETE SET NULL,
+  staff_id     uuid REFERENCES staff(id) ON DELETE SET NULL,       -- barbero preferido (null = el primero libre)
+  status       text NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting','called','serving','done','cancelled','no_show')),
+  token        text NOT NULL DEFAULT replace(gen_random_uuid()::text, '-', ''),
+  source       text NOT NULL DEFAULT 'qr' CHECK (source IN ('qr','front','booking')),
+  appointment_id uuid REFERENCES appointments(id) ON DELETE SET NULL,
+  served_by    uuid REFERENCES staff(id) ON DELETE SET NULL,
+  called_at    timestamptz,
+  started_at   timestamptz,
+  finished_at  timestamptz,
+  sale_id      uuid,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_queue_token ON queue_tickets (token);
+ALTER TABLE queue_tickets ADD COLUMN IF NOT EXISTS sort_at timestamptz NOT NULL DEFAULT now();   -- orden en la fila ("me demoro" lo mueve)
+ALTER TABLE queue_tickets ADD COLUMN IF NOT EXISTS delays int NOT NULL DEFAULT 0;
+ALTER TABLE queue_tickets ADD COLUMN IF NOT EXISTS near_notified_at timestamptz;
+ALTER TABLE queue_tickets ADD COLUMN IF NOT EXISTS client_id uuid REFERENCES clients(id) ON DELETE SET NULL;
+-- Llave de la pantalla: la URL de la TV la lleva para controlar la música
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS tv_key text NOT NULL DEFAULT replace(gen_random_uuid()::text, '-', '');
+CREATE INDEX IF NOT EXISTS idx_queue_day ON queue_tickets (tenant_id, day, status);
+
+CREATE TABLE IF NOT EXISTS song_requests (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  ticket_id    uuid REFERENCES queue_tickets(id) ON DELETE SET NULL,
+  requested_by text NOT NULL,
+  video_id     text NOT NULL,
+  title        text NOT NULL,
+  channel      text,
+  thumbnail    text,
+  duration_s   int,
+  status       text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','playing','played','skipped','rejected')),
+  votes        int NOT NULL DEFAULT 0,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  started_at   timestamptz,
+  played_at    timestamptz
+);
+CREATE INDEX IF NOT EXISTS idx_songs_queue ON song_requests (tenant_id, status, votes DESC, created_at);
+CREATE TABLE IF NOT EXISTS song_votes (
+  song_id  uuid NOT NULL REFERENCES song_requests(id) ON DELETE CASCADE,
+  tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  voter    text NOT NULL,
+  PRIMARY KEY (song_id, voter)
+);
+
+-- ===========================================================================
+-- Ficha del cliente
+-- ===========================================================================
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS birthday date;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS tags text[] NOT NULL DEFAULT '{}';
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS preferences text;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS allergies text;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS marketing_opt_in boolean NOT NULL DEFAULT true;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS blocked boolean NOT NULL DEFAULT false;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS unsubscribe_token text NOT NULL DEFAULT replace(gen_random_uuid()::text, '-', '');
+CREATE TABLE IF NOT EXISTS client_photos (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id      uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  client_id      uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  url            text NOT NULL,
+  caption        text,
+  staff_id       uuid REFERENCES staff(id) ON DELETE SET NULL,
+  appointment_id uuid REFERENCES appointments(id) ON DELETE SET NULL,
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+
+-- ===========================================================================
+-- Paquetes, premios por puntos, membresías vendidas, gift cards en línea
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS packages (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name         text NOT NULL,
+  description  text,
+  price_cents  int NOT NULL,
+  uses         int NOT NULL CHECK (uses > 0),
+  service_ids  uuid[] NOT NULL DEFAULT '{}',   -- vacío = cualquier servicio
+  valid_days   int NOT NULL DEFAULT 180,
+  sell_online  boolean NOT NULL DEFAULT true,
+  active       boolean NOT NULL DEFAULT true,
+  sort_order   int NOT NULL DEFAULT 0,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS client_packages (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  client_id   uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  package_id  uuid REFERENCES packages(id) ON DELETE SET NULL,
+  name        text NOT NULL,
+  service_ids uuid[] NOT NULL DEFAULT '{}',
+  uses_total  int NOT NULL,
+  uses_left   int NOT NULL,
+  expires_at  timestamptz,
+  sale_id     uuid REFERENCES sales(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS rewards (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name         text NOT NULL,
+  points_cost  int NOT NULL CHECK (points_cost > 0),
+  kind         text NOT NULL CHECK (kind IN ('free_service','discount_fixed','discount_percent','product')),
+  value        int NOT NULL DEFAULT 0,
+  ref_id       uuid,
+  active       boolean NOT NULL DEFAULT true,
+  sort_order   int NOT NULL DEFAULT 0,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS reward_redemptions (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  client_id   uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  reward_id   uuid REFERENCES rewards(id) ON DELETE SET NULL,
+  name        text NOT NULL,
+  points      int NOT NULL,
+  sale_id     uuid REFERENCES sales(id) ON DELETE SET NULL,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS client_memberships (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  client_id   uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  plan_id     uuid REFERENCES membership_plans(id) ON DELETE SET NULL,
+  name        text NOT NULL,
+  starts_at   timestamptz NOT NULL DEFAULT now(),
+  ends_at     timestamptz NOT NULL,
+  sale_id     uuid REFERENCES sales(id) ON DELETE SET NULL,
+  renew_reminded_at timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE membership_plans ADD COLUMN IF NOT EXISTS discount_percent int NOT NULL DEFAULT 0;
+ALTER TABLE membership_plans ADD COLUMN IF NOT EXISTS included_uses int NOT NULL DEFAULT 0;
+ALTER TABLE gift_cards ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'admin';
+ALTER TABLE gift_cards ADD COLUMN IF NOT EXISTS buyer_name text;
+ALTER TABLE gift_cards ADD COLUMN IF NOT EXISTS buyer_email text;
+ALTER TABLE gift_cards ADD COLUMN IF NOT EXISTS recipient_name text;
+ALTER TABLE gift_cards ADD COLUMN IF NOT EXISTS recipient_email text;
+ALTER TABLE gift_cards ADD COLUMN IF NOT EXISTS message text;
+ALTER TABLE gift_cards ADD COLUMN IF NOT EXISTS paid boolean NOT NULL DEFAULT true;
+ALTER TABLE gift_cards ADD COLUMN IF NOT EXISTS deliver_at timestamptz;
+ALTER TABLE gift_cards ADD COLUMN IF NOT EXISTS delivered_at timestamptz;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS purpose text NOT NULL DEFAULT 'deposit';   -- deposit | gift_card | package
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS purpose_ref uuid;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS client_id uuid REFERENCES clients(id) ON DELETE SET NULL;
+ALTER TABLE payments ALTER COLUMN appointment_id DROP NOT NULL;
+
+-- ===========================================================================
+-- Marketing
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS campaigns (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name         text NOT NULL,
+  segment      jsonb NOT NULL DEFAULT '{}',
+  subject      text NOT NULL,
+  body         text NOT NULL,
+  promo_code   text,
+  status       text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','sending','sent')),
+  sent_count   int NOT NULL DEFAULT 0,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  sent_at      timestamptz
+);
+CREATE TABLE IF NOT EXISTS campaign_sends (
+  campaign_id uuid NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  client_id   uuid NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  sent_at     timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (campaign_id, client_id)
+);
+
+-- ===========================================================================
+-- Notificaciones push (dueños, barberos y clientes en la fila)
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id  uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id    uuid REFERENCES users(id) ON DELETE CASCADE,
+  ticket_id  uuid REFERENCES queue_tickets(id) ON DELETE CASCADE,
+  endpoint   text NOT NULL UNIQUE,
+  p256dh     text NOT NULL,
+  auth       text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+
+-- ===========================================================================
+-- Solicitudes de registro de barberías (date.pe las revisa y contacta)
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS shop_applications (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  status           text NOT NULL DEFAULT 'new' CHECK (status IN ('new','contacted','negotiating','approved','rejected')),
+  shop_name        text NOT NULL,
+  desired_slug     text,
+  owner_name       text NOT NULL,
+  email            text NOT NULL,
+  phone            text NOT NULL,
+  role             text,                 -- dueño, socio, administrador
+  district         text,
+  city             text NOT NULL DEFAULT 'Lima',
+  address          text,
+  locations_count  text NOT NULL,        -- 1 | 2-3 | 4-10 | 10+
+  staff_size       text NOT NULL,        -- 0-5 | 5-15 | 15-30 | 30+
+  daily_clients    text NOT NULL,        -- 1-10 | 10-30 | 30-60 | 60-100 | 100+
+  years_open       text,
+  services         text[] NOT NULL DEFAULT '{}',
+  current_booking  text[] NOT NULL DEFAULT '{}',   -- whatsapp, llamadas, cuaderno, otra app, sin reservas
+  current_software text,
+  interests        text[] NOT NULL DEFAULT '{}',   -- reservas, fila, caja, tv, marketing, ...
+  payment_methods  text[] NOT NULL DEFAULT '{}',
+  instagram        text,
+  website          text,
+  heard_from       text,
+  contact_pref     text,                 -- whatsapp | llamada | correo
+  contact_time     text,                 -- mañana | tarde | noche
+  comments         text,
+  -- Seguimiento del equipo de date.pe
+  internal_notes   text,
+  agreed_price_cents int,
+  contacted_at     timestamptz,
+  decided_at       timestamptz,
+  tenant_id        uuid REFERENCES tenants(id) ON DELETE SET NULL,
+  source_ip        text,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_shop_apps_status ON shop_applications (status, created_at DESC);
+
 -- ---------------------------------------------------------------------------
 -- Índices (tenant_id como primera columna en tablas de negocio)
 -- ---------------------------------------------------------------------------
@@ -472,7 +897,11 @@ DECLARE
     'tenant_branding','tenant_settings','locations','staff','staff_schedules',
     'schedule_exceptions','services','service_staff','clients','appointments',
     'appointment_services','payments','reviews','promotions','gift_cards','membership_plans',
-    'waitlist','receipts'
+    'waitlist','receipts',
+    'cash_sessions','cash_movements','sales','sale_items','sale_payments','products','stock_movements',
+    'expenses','staff_payouts','staff_advances','queue_tickets','song_requests','song_votes',
+    'client_photos','packages','client_packages','rewards','reward_redemptions','client_memberships',
+    'campaigns','campaign_sends','push_subscriptions'
   ];
   public_tables text[] := ARRAY['locations','staff','services','service_staff','reviews','tenant_branding','tenant_settings','membership_plans'];
 BEGIN
@@ -496,6 +925,7 @@ $$;
 
 -- El rol app puede leer el registro de tenants y geo (cross-tenant, solo lectura)
 GRANT SELECT ON tenants, geo_districts, blog_posts TO datepe_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON team_invites TO datepe_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON users, memberships TO datepe_app;
 
 -- Privilegios por defecto para futuras tablas creadas por el owner

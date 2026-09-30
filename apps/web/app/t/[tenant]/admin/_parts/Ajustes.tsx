@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ImagePlus, Loader2, ExternalLink, Palette, CalendarCheck, BellRing, Gift, MapPin, FileText, Wallet, Globe, Plus, Trash2, Copy, RefreshCw, Eye, EyeOff,
+  ImagePlus, Loader2, ExternalLink, Palette, CalendarCheck, BellRing, Gift, MapPin, Wallet, Globe, Plus, Trash2, Copy, RefreshCw, Eye, EyeOff, ArrowUp, ArrowDown, GripVertical, Images,
 } from 'lucide-react';
 import { useAdmin, useApi } from './api';
 import { PageHead, Btn, Switch, Field, inputCls, Skeleton, Drawer, Empty } from './ui';
@@ -13,14 +13,16 @@ import { toast } from '@/lib/toast';
 import { haptic } from '@/lib/haptics';
 import { DISTRICTS } from '@/lib/districts';
 
-interface Branding { logo_url: string | null; cover_url: string | null; color_primary: string; tagline: string | null; about: string | null; instagram: string | null; whatsapp: string | null }
+interface GalleryItem { url: string; caption?: string; staffId?: string }
+interface Branding {
+  logo_url: string | null; cover_url: string | null; color_primary: string; tagline: string | null; about: string | null; instagram: string | null; whatsapp: string | null;
+  gallery?: GalleryItem[] | null; show_powered_by?: boolean;
+}
 interface Settings {
   deposit_percent: number; require_deposit: boolean; cancel_window_hours: number; slot_interval_min: number; loyalty_points_per_visit: number;
   reminders_enabled: boolean; review_requests_enabled: boolean; rebook_days: number; notify_owner_email: string | null;
   require_verification: boolean; allow_client_reschedule: boolean;
   referral_enabled: boolean; referral_discount_percent: number; referral_reward_points: number;
-  sunat_enabled: boolean; sunat_ruc: string | null; sunat_razon_social: string | null; sunat_direccion: string | null;
-  sunat_serie_boleta: string | null; sunat_serie_factura: string | null; nubefact_url: string | null; nubefact_token_set: boolean;
   mp_public_key: string | null; mp_access_token_set: boolean;
 }
 interface Location { id: string; name: string; address: string | null; district: string | null; province: string | null; phone: string | null; is_active: boolean; barberos: number }
@@ -35,7 +37,6 @@ const INDEX = [
   { id: 'avisos', label: 'Avisos automáticos', icon: BellRing },
   { id: 'referidos', label: 'Referidos', icon: Gift },
   { id: 'sedes', label: 'Sedes', icon: MapPin },
-  { id: 'comprobantes', label: 'Comprobantes', icon: FileText },
   { id: 'adelanto', label: 'Cobro del adelanto', icon: Wallet },
   { id: 'dominio', label: 'Dominio propio', icon: Globe },
 ] as const;
@@ -51,7 +52,6 @@ export function Ajustes() {
   const [s, setS] = useState<Settings | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [uploading, setUploading] = useState<'logo' | 'cover' | null>(null);
-  const [nubefactToken, setNubefactToken] = useState('');
   const [mpToken, setMpToken] = useState('');
   const [active, setActive] = useState<IndexId>('marca');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -154,25 +154,6 @@ export function Ajustes() {
     save('referral', { referralEnabled: s.referral_enabled, referralDiscountPercent: s.referral_discount_percent, referralRewardPoints: s.referral_reward_points }, 'Referidos guardados');
   }
 
-  async function saveSunat() {
-    if (!s) return;
-    const ruc = (s.sunat_ruc ?? '').trim();
-    if (ruc && !/^\d{11}$/.test(ruc)) return toast.error('El RUC tiene 11 dígitos.');
-    if (!/^B[A-Z0-9]{3}$/.test(s.sunat_serie_boleta ?? '')) return toast.error('La serie de boleta empieza con B y tiene 4 caracteres, por ejemplo B001.');
-    if (!/^F[A-Z0-9]{3}$/.test(s.sunat_serie_factura ?? '')) return toast.error('La serie de factura empieza con F y tiene 4 caracteres, por ejemplo F001.');
-    const url = (s.nubefact_url ?? '').trim();
-    if (url && !/^https?:\/\/\S+$/.test(url)) return toast.error('Revisa la URL de Nubefact.');
-    const body: Record<string, unknown> = {
-      sunatEnabled: s.sunat_enabled, sunatRuc: ruc, sunatRazonSocial: s.sunat_razon_social ?? '', sunatDireccion: s.sunat_direccion ?? '',
-      sunatSerieBoleta: s.sunat_serie_boleta, sunatSerieFactura: s.sunat_serie_factura, nubefactUrl: url,
-    };
-    if (nubefactToken.trim()) body.nubefactToken = nubefactToken.trim();
-    if (await save('sunat', body, 'Comprobantes guardados')) {
-      if (nubefactToken.trim()) setS({ ...s, nubefact_token_set: true });
-      setNubefactToken('');
-    }
-  }
-
   async function saveMp() {
     if (!s) return;
     const body: Record<string, unknown> = { mpPublicKey: (s.mp_public_key ?? '').trim() };
@@ -183,10 +164,22 @@ export function Ajustes() {
     }
   }
 
-  async function clearSecret(kind: 'nubefact' | 'mp') {
-    if (!s || !confirm(kind === 'nubefact' ? '¿Quitar el token de Nubefact? Los comprobantes volverán a ser de prueba.' : '¿Quitar el token de MercadoPago? Los adelantos dejarán de llegar a tu cuenta.')) return;
-    if (await save(kind, kind === 'nubefact' ? { nubefactToken: '' } : { mpAccessToken: '' }, 'Token quitado')) {
-      setS(kind === 'nubefact' ? { ...s, nubefact_token_set: false } : { ...s, mp_access_token_set: false });
+  async function clearSecret() {
+    if (!s || !confirm('¿Quitar el token de MercadoPago? Los adelantos dejarán de llegar a tu cuenta.')) return;
+    if (await save('mp', { mpAccessToken: '' }, 'Token quitado')) setS({ ...s, mp_access_token_set: false });
+  }
+
+  /** Mostrar u ocultar "Reservas con date.pe" en la página: se guarda al instante. */
+  async function togglePowered(v: boolean) {
+    if (!b) return;
+    haptic.select();
+    setB({ ...b, show_powered_by: v });
+    try {
+      await api('/admin/branding', { method: 'PATCH', body: { showPoweredBy: v } });
+      toast.success(v ? 'Se muestra "Reservas con date.pe"' : 'Ocultamos "Reservas con date.pe"');
+    } catch {
+      setB((p) => (p ? { ...p, show_powered_by: !v } : p));
+      toast.error('No se pudo guardar.');
     }
   }
 
@@ -274,6 +267,14 @@ export function Ajustes() {
                   <Field label="Instagram"><input value={b.instagram ?? ''} onChange={(e) => setB({ ...b, instagram: e.target.value })} className={inputCls} placeholder="@tubarberia" /></Field>
                 </div>
                 <Btn onClick={saveBrand} busy={busy === 'brand'}>Guardar marca</Btn>
+
+                <div className="border-t border-line pt-6">
+                  <Gallery initial={b.gallery ?? []} />
+                </div>
+
+                <div className="divide-y divide-line border-y border-line">
+                  <ToggleRow title={'Mostrar "Reservas con date.pe" en tu página'} body="Un enlace discreto al pie de tu página. Puedes ocultarlo si prefieres una página solo con tu marca." checked={b.show_powered_by !== false} onChange={togglePowered} />
+                </div>
               </div>
             )}
           </Section>
@@ -373,45 +374,6 @@ export function Ajustes() {
             <Sedes />
           </Section>
 
-          {/* ---------------------------- Comprobantes ---------------------------- */}
-          <Section id="comprobantes" title="Comprobantes electrónicos (SUNAT)" sub="Boletas y facturas desde la agenda, al marcar una cita como atendida.">
-            {!s ? <Skeleton rows={4} /> : (
-              <div className="space-y-6">
-                <div className="rounded-xl bg-field p-4 text-[14px] text-mute">
-                  Se emiten a través de Nubefact, un proveedor autorizado por SUNAT. Sin tu cuenta de Nubefact los comprobantes salen de prueba (serie PRUEBA-B001) y no tienen validez tributaria.{' '}
-                  <a href="https://www.nubefact.com" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium text-ink underline underline-offset-4">Crear cuenta en Nubefact <ExternalLink size={13} strokeWidth={1.75} /></a>
-                </div>
-                <div className="divide-y divide-line border-y border-line">
-                  <ToggleRow title="Emitir comprobantes" body="Muestra el botón de boleta o factura en cada cita atendida." checked={s.sunat_enabled} onChange={(v) => setS({ ...s, sunat_enabled: v })} />
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="RUC">
-                    <input inputMode="numeric" maxLength={11} value={s.sunat_ruc ?? ''} onChange={(e) => setS({ ...s, sunat_ruc: e.target.value.replace(/\D/g, '').slice(0, 11) })} className={`tnum ${inputCls}`} placeholder="20123456789" />
-                  </Field>
-                  <Field label="Razón social">
-                    <input value={s.sunat_razon_social ?? ''} onChange={(e) => setS({ ...s, sunat_razon_social: e.target.value })} maxLength={200} className={inputCls} />
-                  </Field>
-                </div>
-                <Field label="Dirección fiscal">
-                  <input value={s.sunat_direccion ?? ''} onChange={(e) => setS({ ...s, sunat_direccion: e.target.value })} maxLength={300} className={inputCls} />
-                </Field>
-                <div className="grid grid-cols-2 gap-4">
-                  <Field label="Serie de boleta">
-                    <input value={s.sunat_serie_boleta ?? ''} onChange={(e) => setS({ ...s, sunat_serie_boleta: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) })} className={`font-mono uppercase ${inputCls}`} placeholder="B001" />
-                  </Field>
-                  <Field label="Serie de factura">
-                    <input value={s.sunat_serie_factura ?? ''} onChange={(e) => setS({ ...s, sunat_serie_factura: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) })} className={`font-mono uppercase ${inputCls}`} placeholder="F001" />
-                  </Field>
-                </div>
-                <Field label="URL de Nubefact" hint="La ruta de tu cuenta, la encuentras en Nubefact en la sección API.">
-                  <input type="url" inputMode="url" value={s.nubefact_url ?? ''} onChange={(e) => setS({ ...s, nubefact_url: e.target.value })} className={inputCls} placeholder="https://api.nubefact.com/api/v1/..." />
-                </Field>
-                <SecretField label="Token de Nubefact" isSet={s.nubefact_token_set} value={nubefactToken} onChange={setNubefactToken} onClear={() => clearSecret('nubefact')} />
-                <Btn onClick={saveSunat} busy={busy === 'sunat'}>Guardar comprobantes</Btn>
-              </div>
-            )}
-          </Section>
-
           {/* ------------------------- Cobro del adelanto ------------------------- */}
           <Section id="adelanto" title="Cobro directo del adelanto" sub="Conecta tu cuenta de MercadoPago.">
             {!s ? <Skeleton rows={2} /> : (
@@ -420,7 +382,7 @@ export function Ajustes() {
                   <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-medium ${s.mp_access_token_set ? 'bg-ok-tint text-ok' : 'bg-white text-mute'}`}>{s.mp_access_token_set ? 'Conectado' : 'Sin conectar'}</span>
                   <span>Con tus credenciales, los adelantos que pagan tus clientes con MercadoPago llegan directo a tu cuenta. Las encuentras en MercadoPago, en Tus integraciones, Credenciales de producción.</span>
                 </div>
-                <SecretField label="Access token" isSet={s.mp_access_token_set} value={mpToken} onChange={setMpToken} onClear={() => clearSecret('mp')} placeholder="APP_USR-..." />
+                <SecretField label="Access token" isSet={s.mp_access_token_set} value={mpToken} onChange={setMpToken} onClear={clearSecret} placeholder="APP_USR-..." />
                 <Field label="Public key">
                   <input value={s.mp_public_key ?? ''} onChange={(e) => setS({ ...s, mp_public_key: e.target.value })} maxLength={200} autoComplete="off" spellCheck={false} className={`font-mono ${inputCls}`} placeholder="APP_USR-..." />
                 </Field>
@@ -485,6 +447,120 @@ function SecretField({ label, isSet, value, onChange, onClear, placeholder }: { 
         {isSet && <Btn variant="danger" onClick={onClear}>Quitar</Btn>}
       </div>
     </Field>
+  );
+}
+
+// ----------------------------------- Galería -----------------------------------
+
+/** Fotos de trabajos en tu página: subir, poner texto, ordenar y quitar. */
+function Gallery({ initial }: { initial: GalleryItem[] }) {
+  const { tenant, token } = useAdmin();
+  const api = useApi();
+  const [items, setItems] = useState<GalleryItem[]>(initial);
+  const [saved, setSaved] = useState(JSON.stringify(initial));
+  const [uploading, setUploading] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const dirty = JSON.stringify(items) !== saved;
+
+  async function onFiles(files: FileList) {
+    const list = [...files].slice(0, 24 - items.length);
+    if (!list.length) return toast.info('Tu galería ya tiene 24 fotos.');
+    setUploading(list.length);
+    const headers = { 'Content-Type': 'application/json', 'X-Tenant-Slug': tenant, Authorization: `Bearer ${token}` };
+    for (const f of list) {
+      try {
+        const url = await uploadImage(f, 'gallery', headers);
+        setItems((p) => [...p, { url, caption: '' }]);
+      } catch {
+        toast.error('No se pudo subir una de las fotos.');
+      } finally {
+        setUploading((n) => n - 1);
+      }
+    }
+  }
+
+  function move(from: number, to: number) {
+    if (to < 0 || to >= items.length || from === to) return;
+    haptic.select();
+    setItems((p) => {
+      const arr = [...p];
+      const [it] = arr.splice(from, 1);
+      arr.splice(to, 0, it);
+      return arr;
+    });
+  }
+
+  async function save() {
+    setBusy(true);
+    const gallery = items.map((g) => ({ url: g.url, ...(g.caption?.trim() ? { caption: g.caption.trim() } : {}), ...(g.staffId ? { staffId: g.staffId } : {}) }));
+    try {
+      await api('/admin/branding', { method: 'PATCH', body: { gallery } });
+      setSaved(JSON.stringify(items));
+      toast.success('Galería actualizada');
+    } catch {
+      toast.error('No se pudo guardar la galería.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="flex items-center gap-2 text-[15px] font-medium"><Images size={17} strokeWidth={1.75} /> Galería de trabajos</p>
+          <p className="text-[14px] text-mute">Tus mejores cortes. La primera foto es la que más se ve. Arrastra o usa las flechas para ordenar.</p>
+        </div>
+        <Btn variant="secondary" onClick={() => fileRef.current?.click()} busy={uploading > 0}><ImagePlus size={16} strokeWidth={1.75} /> Agregar fotos</Btn>
+      </div>
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={(e) => { if (e.target.files?.length) onFiles(e.target.files); e.target.value = ''; }} />
+
+      {items.length === 0 && !uploading ? (
+        <button type="button" onClick={() => fileRef.current?.click()} className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-line-2 bg-field px-6 py-10 text-[15px] text-mute hover:border-ink">
+          <ImagePlus size={22} strokeWidth={1.5} /> Sube fotos de tus cortes
+        </button>
+      ) : (
+        <ul className="divide-y divide-line border-y border-line">
+          {items.map((g, i) => (
+            <li
+              key={g.url + i}
+              draggable
+              onDragStart={(e) => { setDragFrom(i); e.dataTransfer.effectAllowed = 'move'; }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+              onDrop={(e) => { e.preventDefault(); if (dragFrom !== null) move(dragFrom, i); setDragFrom(null); }}
+              onDragEnd={() => setDragFrom(null)}
+              className={`flex items-center gap-3 py-3 ${dragFrom === i ? 'opacity-40' : ''}`}
+            >
+              <GripVertical size={18} strokeWidth={1.75} className="hidden shrink-0 cursor-grab text-soft md:block" aria-hidden />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={g.url} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover" />
+              <input
+                value={g.caption ?? ''}
+                onChange={(e) => setItems((p) => p.map((x, j) => (j === i ? { ...x, caption: e.target.value } : x)))}
+                maxLength={80}
+                placeholder="Describe el corte (opcional)"
+                aria-label={`Texto de la foto ${i + 1}`}
+                className={`min-w-0 flex-1 ${inputCls}`}
+              />
+              <div className="flex shrink-0 items-center">
+                <button type="button" onClick={() => move(i, i - 1)} disabled={i === 0} className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-field disabled:opacity-30" aria-label="Subir"><ArrowUp size={16} strokeWidth={1.75} /></button>
+                <button type="button" onClick={() => move(i, i + 1)} disabled={i === items.length - 1} className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-field disabled:opacity-30" aria-label="Bajar"><ArrowDown size={16} strokeWidth={1.75} /></button>
+                <button type="button" onClick={() => setItems((p) => p.filter((_, j) => j !== i))} className="flex h-11 w-11 items-center justify-center rounded-full text-mute hover:bg-red-tint hover:text-red" aria-label="Quitar foto"><Trash2 size={16} strokeWidth={1.75} /></button>
+              </div>
+            </li>
+          ))}
+          {uploading > 0 && (
+            <li className="flex items-center gap-3 py-3 text-[14px] text-mute"><Loader2 size={16} className="animate-spin" /> Subiendo {uploading === 1 ? '1 foto' : `${uploading} fotos`}</li>
+          )}
+        </ul>
+      )}
+      <div className="mt-4 flex items-center gap-2">
+        <Btn onClick={save} busy={busy} disabled={!dirty || uploading > 0}>Guardar galería</Btn>
+        {dirty && <Btn variant="ghost" onClick={() => setItems(JSON.parse(saved))}>Descartar</Btn>}
+      </div>
+    </div>
   );
 }
 

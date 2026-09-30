@@ -22,12 +22,12 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     }
     // Si el login viene del panel de una barbería, la sesión es para esa barbería.
     const mem = request.tenant
-      ? await admin<{ tenant_id: string; role: string }>(
-          'SELECT tenant_id, role FROM memberships WHERE user_id = $1 AND tenant_id = $2',
+      ? await admin<{ tenant_id: string; role: string; staff_id: string | null }>(
+          'SELECT tenant_id, role, staff_id FROM memberships WHERE user_id = $1 AND tenant_id = $2',
           [user.id, request.tenant.id],
         )
-      : await admin<{ tenant_id: string; role: string }>(
-          'SELECT tenant_id, role FROM memberships WHERE user_id = $1 ORDER BY created_at LIMIT 1',
+      : await admin<{ tenant_id: string; role: string; staff_id: string | null }>(
+          'SELECT tenant_id, role, staff_id FROM memberships WHERE user_id = $1 ORDER BY created_at LIMIT 1',
           [user.id],
         );
     if (request.tenant && mem.rows.length === 0 && !user.is_platform_admin) {
@@ -37,6 +37,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       sub: user.id,
       tenantId: mem.rows[0]?.tenant_id ?? null,
       role: mem.rows[0]?.role ?? null,
+      staffId: mem.rows[0]?.staff_id ?? null,
       isPlatformAdmin: user.is_platform_admin,
     };
     const token = app.jwt.sign(payload, { expiresIn: '30d' });

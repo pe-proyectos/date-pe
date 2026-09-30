@@ -1,7 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { withPublicRead } from '../db.js';
-import { admin } from '../db.js';
+import { admin, withTenant } from '../db.js';
+import { computeSlots } from '../lib/availability.js';
 
 // Buscador estilo vuelos/buses: pocos parámetros (dónde / qué / cuándo).
 export const searchRoutes: FastifyPluginAsync = async (app) => {
@@ -12,6 +13,9 @@ export const searchRoutes: FastifyPluginAsync = async (app) => {
     // "Cerca de mí": ordena por distancia (km, fórmula del haversine)
     lat: z.coerce.number().min(-90).max(90).optional(),
     lng: z.coerce.number().min(-180).max(180).optional(),
+    // "¿Cuándo?": día (YYYY-MM-DD) y hora mínima opcional (HH:MM) en hora de Lima
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    from: z.string().regex(/^\d{2}:\d{2}$/).optional(),
     limit: z.coerce.number().int().min(1).max(50).default(20),
   });
 
@@ -20,7 +24,7 @@ export const searchRoutes: FastifyPluginAsync = async (app) => {
     return withPublicRead(async (sql) => {
       const { rows } = await sql(
         `SELECT
-            t.slug, t.name, t.is_demo,
+            t.id AS tenant_id, t.slug, t.name, t.is_demo,
             l.id AS location_id, l.name AS location_name, l.district, l.province, l.lat, l.lng,
             b.logo_url, b.cover_url, b.tagline,
             (SELECT min(price_cents) FROM services s WHERE s.tenant_id = t.id AND s.is_active AND NOT s.is_addon) AS desde_cents,
@@ -41,7 +45,37 @@ export const searchRoutes: FastifyPluginAsync = async (app) => {
         LIMIT $4`,
         [p.district ?? null, p.service ?? null, p.q ?? null, p.limit, p.lat ?? null, p.lng ?? null],
       );
-      return { results: rows };
+      if (!p.date) return { results: rows.map(({ tenant_id, ...r }: Record<string, unknown>) => (void tenant_id, r)) };
+      // Disponibilidad real: próximos horarios libres de cada barbería ese día
+      const withSlots = await Promise.all(
+        rows.map(async (r: Record<string, unknown>) => {
+          const slots = await withTenant(r.tenant_id as string, async (tsql) => {
+            const svc = await tsql<{ id: string; duration_min: number; buffer_min: number }>(
+              `SELECT id, duration_min, buffer_min FROM services WHERE is_active AND NOT is_addon
+                 AND ($1::text IS NULL OR name ILIKE '%' || $1 || '%' OR $1 ILIKE '%' || name || '%')
+                ORDER BY sort_order, price_cents LIMIT 1`,
+              [p.service ?? null],
+            );
+            if (!svc.rows[0]) return [];
+            const all = await computeSlots(tsql, {
+              tenantId: r.tenant_id as string,
+              locationId: r.location_id as string,
+              date: p.date!,
+              durationMin: svc.rows[0].duration_min + (svc.rows[0].buffer_min ?? 0),
+              timezone: 'America/Lima',
+              slotIntervalMin: 15,
+            });
+            const minTime = p.from ? new Date(`${p.date}T${p.from}:00-05:00`).getTime() : 0;
+            return all.filter((s) => new Date(s.start).getTime() >= minTime).slice(0, 4).map((s) => s.start);
+          });
+          const { tenant_id, ...rest } = r;
+          void tenant_id;
+          return { ...rest, next_slots: slots };
+        }),
+      );
+      // Primero las que tienen horario, luego las llenas
+      withSlots.sort((a, b) => Number(b.next_slots.length > 0) - Number(a.next_slots.length > 0));
+      return { results: withSlots, date: p.date };
     });
   });
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { Solicitudes } from './Solicitudes';
 import { Sheet } from '@/components/Sheet';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Search, ExternalLink, LogOut, Loader2, Store, LayoutDashboard, Settings2, Globe, Receipt } from 'lucide-react';
@@ -231,6 +232,8 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
             </div>
           </>
         )}
+
+        <Solicitudes headers={headers} onApproved={load} />
 
         <div className="mt-12 flex flex-wrap items-end justify-between gap-4">
           <h2 className="text-[22px] font-semibold tracking-[-0.03em]">Barberías</h2>
@@ -554,7 +557,7 @@ function ManageTenant({ tenant, headers, onClose, onChanged }: { tenant: Tenant 
   async function savePrice() {
     if (!priceValid) return;
     const r = await call('price', '/price', 'PATCH', { monthlyPriceCents: priceCents });
-    if (r.ok) toast.success(priceCents === BASE_PRICE_CENTS ? 'Precio normal de S/ 50.00' : `Precio especial: ${soles(priceCents)} al mes`);
+    if (r.ok) toast.success(`Precio acordado: ${soles(priceCents)} al mes`);
     else toast.error('No se pudo guardar el precio');
   }
 
@@ -618,7 +621,7 @@ function ManageTenant({ tenant, headers, onClose, onChanged }: { tenant: Tenant 
         </div>
       </Section>
 
-      <Section title="Precio mensual" hint="El precio normal es S/ 50.00. Usa 0 para dejarla gratis.">
+      <Section title="Precio mensual acordado" hint="Lo que paga esta barbería cada mes. Usa 0 si no paga.">
         <div className="flex items-center gap-2">
           <div className="flex flex-1 items-center rounded-xl border border-line-2 pl-3.5 focus-within:border-ink">
             <span className="text-[16px] text-mute">S/</span>

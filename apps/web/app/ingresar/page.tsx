@@ -57,7 +57,7 @@ export default function IngresarPage() {
           ¿Olvidaste tu contraseña?
         </button>
         <p className="mt-6 text-[15px] text-mute">
-          ¿Aún no tienes cuenta? <Link href="/join" className="font-medium text-ink underline">Registra tu barbería</Link>
+          ¿Tu barbería aún no trabaja con date.pe? <Link href="/join" className="font-medium text-ink underline">Solicita acceso</Link>
         </p>
       </form>
       <ForgotSheet open={forgot} onClose={() => setForgot(false)} />

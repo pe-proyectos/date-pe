@@ -1,13 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Scissors, Trash2, Clock, PlusCircle } from 'lucide-react';
+import { Plus, Scissors, Trash2, Clock, PlusCircle, Users } from 'lucide-react';
 import { useApi, soles } from './api';
 import { PageHead, Btn, Switch, Drawer, Field, inputCls, Empty, Skeleton } from './ui';
 import { toast } from '@/lib/toast';
 
 interface Service { id: string; name: string; description: string | null; duration_min: number; buffer_min: number; price_cents: number; is_active: boolean; is_addon?: boolean }
 interface Draft { id?: string; name: string; description: string; duration: string; buffer: string; price: string; isAddon: boolean }
+interface Override { staff_id: string; name: string; price_cents: number | null; duration_min: number | null; custom: boolean }
+/** Fila editable de precio y duración por barbero (vacío = usa el del servicio). */
+interface OverrideDraft { staffId: string; name: string; price: string; duration: string }
 
 const toDraft = (s?: Service, isAddon = false): Draft => ({
   id: s?.id,
@@ -24,6 +27,8 @@ export function Servicios() {
   const [list, setList] = useState<Service[] | null>(null);
   const [edit, setEdit] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
+  const [overrides, setOverrides] = useState<OverrideDraft[] | null>(null);
+  const [initialOv, setInitialOv] = useState('');
 
   const load = useCallback(() => api<{ services: Service[] }>('/admin/services').then((d) => setList(d.services)).catch(() => {}), []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
@@ -31,16 +36,50 @@ export function Servicios() {
   const services = (list ?? []).filter((s) => !s.is_addon);
   const addons = (list ?? []).filter((s) => s.is_addon);
 
+  // Precio y duración por barbero del servicio abierto
+  const editId = edit?.id;
+  useEffect(() => {
+    setOverrides(null);
+    if (!editId) return;
+    api<{ overrides: Override[] }>(`/admin/services/${editId}/staff`)
+      .then((d) => {
+        const rows = d.overrides.map((o) => ({
+          staffId: o.staff_id, name: o.name,
+          price: o.price_cents != null ? (o.price_cents / 100).toFixed(2) : '',
+          duration: o.duration_min != null ? String(o.duration_min) : '',
+        }));
+        setOverrides(rows);
+        setInitialOv(JSON.stringify(rows));
+      })
+      .catch(() => setOverrides([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId]);
+
+  const ovInvalid = (overrides ?? []).some((o) => (o.price.trim() && Number.isNaN(Number(o.price.replace(',', '.')))) || (o.duration.trim() && Number(o.duration) < 5));
+
   const priceCents = edit ? Math.round(Number(edit.price.replace(',', '.')) * 100) : 0;
-  const valid = !!edit && edit.name.trim().length > 1 && Number(edit.duration) >= 5 && priceCents >= 0 && !Number.isNaN(priceCents);
+  const valid = !!edit && edit.name.trim().length > 1 && Number(edit.duration) >= 5 && priceCents >= 0 && !Number.isNaN(priceCents) && !ovInvalid;
 
   async function save() {
     if (!edit || !valid) return;
     setBusy(true);
     const body = { name: edit.name.trim(), description: edit.description.trim() || null, durationMin: Number(edit.duration), bufferMin: Number(edit.buffer) || 0, priceCents, isAddon: edit.isAddon };
     try {
-      if (edit.id) await api(`/admin/services/${edit.id}`, { method: 'PATCH', body });
-      else await api('/admin/services', { method: 'POST', body });
+      if (edit.id) {
+        await api(`/admin/services/${edit.id}`, { method: 'PATCH', body });
+        if (overrides && JSON.stringify(overrides) !== initialOv) {
+          await api(`/admin/services/${edit.id}/staff`, {
+            method: 'PUT',
+            body: {
+              overrides: overrides.map((o) => ({
+                staffId: o.staffId,
+                priceCents: o.price.trim() ? Math.round(Number(o.price.replace(',', '.')) * 100) : null,
+                durationMin: o.duration.trim() ? Math.min(480, Number(o.duration)) : null,
+              })),
+            },
+          });
+        }
+      } else await api('/admin/services', { method: 'POST', body });
       toast.success(edit.isAddon ? 'Extra guardado' : 'Servicio guardado');
       setEdit(null);
       load();
@@ -144,6 +183,37 @@ export function Servicios() {
                 <span className="mt-0.5 block text-[13px] text-soft">Los extras se suman a un servicio (lavado, diseño, cejas) y no se reservan solos.</span>
               </div>
               <Switch checked={edit.isAddon} onChange={(v) => setEdit({ ...edit, isAddon: v })} label="Es un extra" states={['Sí', 'No']} />
+            </div>
+
+            <div className="border-t border-line pt-4">
+              <span className="flex items-center gap-2 text-[15px] font-medium"><Users size={16} strokeWidth={1.75} /> Precio y duración por barbero</span>
+              <span className="mt-0.5 block text-[13px] text-soft">Ej. el maestro cobra más que el aprendiz. Déjalo vacío para usar el precio y la duración de arriba.</span>
+              {!edit.id ? (
+                <p className="mt-3 rounded-xl bg-field px-4 py-3 text-[14px] text-mute">Guarda el servicio primero y luego ajusta el precio de cada barbero.</p>
+              ) : !overrides ? (
+                <div className="mt-3 h-24 animate-pulse rounded-xl bg-field" />
+              ) : overrides.length === 0 ? (
+                <p className="mt-3 text-[14px] text-mute">Agrega barberos en Equipo para darles un precio propio.</p>
+              ) : (
+                <ul className="mt-3 divide-y divide-line border-y border-line">
+                  {overrides.map((o, i) => {
+                    const set = (patch: Partial<OverrideDraft>) => setOverrides((p) => p?.map((x, j) => (j === i ? { ...x, ...patch } : x)) ?? null);
+                    return (
+                      <li key={o.staffId} className="flex items-center gap-2 py-2.5">
+                        <span className="min-w-0 flex-1 truncate text-[15px]">{o.name}</span>
+                        <label className="flex w-[104px] items-center rounded-xl border border-line-2 bg-white pl-3 focus-within:border-ink">
+                          <span className="text-[13px] text-mute">S/</span>
+                          <input inputMode="decimal" value={o.price} onChange={(e) => set({ price: e.target.value.replace(/[^\d.,]/g, '') })} placeholder={edit.price || '0.00'} aria-label={`Precio de ${o.name}`} className="tnum w-full min-w-0 bg-transparent px-2 py-2.5 text-[16px] outline-none md:text-[15px]" />
+                        </label>
+                        <label className="flex w-[96px] items-center rounded-xl border border-line-2 bg-white pr-3 focus-within:border-ink">
+                          <input inputMode="numeric" value={o.duration} onChange={(e) => set({ duration: e.target.value.replace(/\D/g, '').slice(0, 3) })} placeholder={edit.duration || '30'} aria-label={`Duración de ${o.name}`} className="tnum w-full min-w-0 bg-transparent px-3 py-2.5 text-[16px] outline-none md:text-[15px]" />
+                          <span className="text-[13px] text-mute">min</span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
           </div>
         )}
