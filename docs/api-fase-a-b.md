@@ -33,6 +33,8 @@ Público:
 Panel:
 - `GET /admin/queue` -> `{ tickets: [...con phone, status, served_by_name, price_cents, sale_id], tvKey, features, stats: { atendidos, no_vinieron, espera_promedio_min }, estimatedWaitMin }`
 - `POST /admin/queue { name, phone?, serviceId?, staffId? }` (recepción) · `POST /admin/queue/next { staffId? }` (404 `nadie_esperando`) · `POST /admin/queue/:id/recall` · `PATCH /admin/queue/:id { status?, staffId?, servedBy? }`
+- `POST /admin/queue/finish { staffId?, callNext = true }` -> `{ finished, charge, next }` cierra el turno o la cita en curso del barbero, devuelve el cobro exprés y llama al siguiente (404 `nada_que_cerrar`; el rol staff solo para sí mismo)
+- queue: `autoNoShow` (segundo llamado a la mitad de `noShowMinutes`, luego "no vino" y se llama al siguiente)
 - URL de la TV: `https://{slug}.date.pe/tv?k=<tvKey>`. QR de la fila: `https://{slug}.date.pe/fila`. Ticket: `/turno?t=<token>`.
 
 ## Caja
@@ -43,6 +45,8 @@ Panel:
   - Total = suma de items - descuento + propina. Los pagos deben sumar exacto (el adelanto ya pagado de la cita se agrega solo como `deposit`). Errores: `pagos_no_cuadran {total, paid}`, `gift_card_sin_saldo`, `paquete_sin_usos`, `puntos_insuficientes`, `cita_ya_cobrada`.
   - gift_card: reference = código · package: reference = client_package_id (vale el precio del servicio) · points: reference = reward_id.
   - Responde `{ saleId, number, total, pointsAwarded, lowStock: [...] }`. Si no había caja abierta, se abre sola.
+- Cobro exprés: `GET /admin/pos/express?ticketId|appointmentId` -> `{ items, discountCents, totalCents, depositCents, dueCents, needsService? }` · `POST /admin/pos/checkout { ticketId|appointmentId, payWith, tipCents? }` sin items arma las líneas solo (errores `elige_el_servicio`, `falta_medio_de_pago`)
+- Cierre del día: `GET /admin/day/report?date=YYYY-MM-DD` -> `{ totals, byMethod, byStaff (a_entregar_cents = comisión + propinas), cash, appointments, queue, expenses_cents, topServices, uncharged }`. Feature `daily_summary` manda el resumen por correo al dueño a las 9 pm.
 - `GET /admin/sales?from&to&staffId&sessionId` · `GET /admin/sales/summary?from&to` · `PATCH /admin/sales/:id { receiptUrl?, receiptNumber?, note? }` (adjuntar boleta/factura propia) · `POST /admin/sales/:id/void { reason }`
 - Productos: `GET /admin/products` (con vendidos_30d) · `POST /admin/products { name, sku?, category?, priceCents, costCents?, stock?, minStock?, commissionPercent?, photoUrl? }` · `PATCH /admin/products/:id` · `POST /admin/products/:id/stock { delta, reason: purchase|adjust, note?, costCents? }` · `DELETE /admin/products/:id`
 
