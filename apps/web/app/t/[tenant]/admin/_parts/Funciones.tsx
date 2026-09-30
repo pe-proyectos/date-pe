@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CalendarCheck, ListOrdered, Tv, BellRing, MessageCircle, Wallet, HandCoins, Package, Layers, Gift, BadgeCheck, Award, Megaphone, Camera,
-  Receipt, Users, Star, ChevronDown, ImagePlus, Trash2, Plus, X, ExternalLink, Copy, RefreshCw, Loader2, ArrowUp, ArrowDown, Info,
+  Receipt, Users, Star, Mail, ChevronDown, ImagePlus, Trash2, Plus, X, ExternalLink, Copy, RefreshCw, Loader2, ArrowUp, ArrowDown, Info,
 } from 'lucide-react';
 import { useAdmin, useApi } from './api';
 import { PageHead, Btn, Switch, Field, inputCls, Skeleton, Segmented, usePanel, type Features } from './ui';
@@ -20,7 +20,7 @@ interface TvCfg {
   showQueue: boolean; showAppointments: boolean; showQr: boolean; showClock: boolean; showPromos: boolean;
   announceVoice: boolean; chime: boolean; message: string; promos: Promo[]; backgroundUrl: string; scale: number;
 }
-interface QueueCfg { maxWaiting: number; askPhone: boolean; allowStaffChoice: boolean; noShowMinutes: number; fallbackMinutes: number; earlyMinutes: number; welcome: string; closedMessage: string }
+interface QueueCfg { maxWaiting: number; askPhone: boolean; allowStaffChoice: boolean; noShowMinutes: number; autoNoShow?: boolean; fallbackMinutes: number; earlyMinutes: number; welcome: string; closedMessage: string }
 interface PosCfg { tipPresets: number[]; methods: string[]; requireSession: boolean; askReceipt: boolean }
 interface MktCfg { birthdayEnabled: boolean; birthdayDiscountPercent: number; winbackEnabled: boolean; winbackDays: number; winbackDiscountPercent: number; membershipRenewReminder: boolean }
 interface Cfg {
@@ -66,6 +66,7 @@ const CATALOG: { title: string; items: Item[] }[] = [
     items: [
       { key: 'expenses', title: 'Gastos', benefit: 'Registra gastos y mira tu utilidad real.', icon: Receipt },
       { key: 'payroll', title: 'Pagos al equipo', benefit: 'Comisiones, propinas y adelantos de cada barbero.', icon: Users },
+      { key: 'daily_summary', title: 'Resumen del día por correo', benefit: 'A las 9 pm te llega cuánto entró, por medio de pago y lo que le toca a cada barbero.', icon: Mail },
     ],
   },
 ];
@@ -496,6 +497,15 @@ function QueueEditor({ value, onSave }: { value: QueueCfg; onSave: (v: QueueCfg)
       <div className="divide-y divide-line border-y border-line">
         <ToggleLine title="Pedir celular" body="Para avisarle cuando le toque, aunque no tenga la página abierta." checked={d.askPhone} onChange={(v) => setD({ ...d, askPhone: v })} />
         <ToggleLine title="Elegir barbero" body="El cliente puede esperar a un barbero en especial." checked={d.allowStaffChoice} onChange={(v) => setD({ ...d, allowStaffChoice: v })} />
+        <ToggleLine
+          title="Si no se presenta, volver a llamarlo y luego pasar al siguiente"
+          body={`A los ${Math.max(1, Math.round(d.noShowMinutes / 2))} min se le llama otra vez. A los ${d.noShowMinutes} min pasa a no vino y se llama al siguiente.`}
+          checked={d.autoNoShow !== false}
+          onChange={(v) => setD({ ...d, autoNoShow: v })}
+        />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <NumberInput label="Minutos para dar por no presentado" hint="Desde que se le llama." value={d.noShowMinutes} min={1} max={60} onChange={(v) => setD({ ...d, noShowMinutes: v })} suffix="min" />
       </div>
       <Field label="Mensaje de bienvenida" hint="Aparece al anotarse en la fila.">
         <input value={d.welcome} onChange={(e) => setD({ ...d, welcome: e.target.value })} maxLength={160} className={inputCls} placeholder="Hay café y wifi mientras esperas." />
@@ -508,7 +518,7 @@ function QueueEditor({ value, onSave }: { value: QueueCfg; onSave: (v: QueueCfg)
   );
 }
 
-/* ----------------------------------- Música ----------------------------------- */
+/* ------------------------------------ Caja ------------------------------------ */
 
 const TIP_OPTIONS = [0, 5, 10, 15, 20, 25];
 const METHODS: [string, string][] = [['cash', 'Efectivo'], ['yape', 'Yape'], ['plin', 'Plin'], ['card', 'Tarjeta'], ['transfer', 'Transferencia']];

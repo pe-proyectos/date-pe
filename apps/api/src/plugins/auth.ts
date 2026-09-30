@@ -32,12 +32,12 @@ const ROLE_RULES: Record<string, Rule[]> = {
   manager: [[ANY, /^\/api\/admin\/(?!billing|domain)/]],
   cashier: [
     ...COMMON,
-    [ANY, /^\/api\/admin\/(pos|sales|cash)(\/|\?|$)/],
+    [ANY, /^\/api\/admin\/(pos|sales|cash|day)(\/|\?|$)/],
     ['GET', /^\/api\/admin\/(overview|packages|rewards|gift-cards|memberships|promotions)(\?|$)/],
     [ANY, /^\/api\/admin\/clients(\/|$)/],
     ['POST', /^\/api\/admin\/expenses$/],
   ],
-  staff: [...COMMON, ['POST', /^\/api\/admin\/(pos\/checkout|sales)$/], ['GET', /^\/api\/admin\/pos\/(state|catalog)(\?|$)/]],
+  staff: [...COMMON, ['POST', /^\/api\/admin\/(pos\/checkout|sales)$/], ['GET', /^\/api\/admin\/pos\/(state|catalog|express)(\?|$)/]],
 };
 
 export function roleAllows(role: string | null | undefined, method: string, url: string): boolean {

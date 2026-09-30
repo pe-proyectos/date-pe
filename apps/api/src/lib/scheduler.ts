@@ -1,10 +1,14 @@
 import { admin, adminPool } from '../db.js';
+import { dayReport, METHOD_LABEL, type DayReport } from './day-report.js';
 import { apptInfo, sendReminder, sendReviewRequest, sendRebookReminder, once } from './notify.js';
 import { emailBillingNotice, GRACE_DAYS } from './billing.js';
 import { refreshPendingDomains } from './domains.js';
 import { deliverGiftCard } from './gifts.js';
 import { sendEmail, layout } from './email.js';
-import { tenantUrl } from './notify.js';
+import { tenantUrl, ownerEmails } from './notify.js';
+import { callNext } from '../routes/queue.js';
+import { emitTenantEvent } from './realtime.js';
+import { pushToTicket } from './push.js';
 
 // Planificador en proceso: cada 5 minutos envía recordatorios, pide reseñas,
 // invita a volver y administra la suscripción. Un advisory lock evita que dos
@@ -211,6 +215,41 @@ async function giftsAndQueuePass() {
   await admin(`UPDATE queue_tickets SET status = 'no_show' WHERE status IN ('waiting','called') AND day < (now() AT TIME ZONE 'America/Lima')::date`);
 }
 
+// Resumen del día al dueño por correo (una vez, al cerrar)
+async function dailySummaryPass() {
+  const hourLima = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Lima', hour: '2-digit', hour12: false }));
+  if (hourLima < 21) return;
+  const day = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+  const { rows } = await admin<{ id: string; name: string; slug: string; features: Record<string, unknown> }>(
+    `SELECT t.id, t.name, t.slug, ts.features FROM tenants t JOIN tenant_settings ts ON ts.tenant_id = t.id WHERE t.status IN ('trial','active')`,
+  );
+  for (const t of rows) {
+    if (t.features.daily_summary === false) continue;
+    const r = (await dayReport(t.id, day)) as DayReport;
+    if (r.totals.ventas === 0 && r.appointments.total === 0 && r.queue.atendidos === 0) continue;
+    if (!(await once(`daily:${t.id}:${day}`, t.id))) continue;
+    const to = await ownerEmails(t.id);
+    if (!to.length) continue;
+    const money = (c: number) => `S/ ${(c / 100).toFixed(2)}`;
+    await sendEmail({
+      to: to.join(','),
+      subject: `Tu día en ${t.name}: ${money(r.totals.total_cents)}`,
+      html: layout({
+        brand: 'date.pe',
+        title: `Cierre del día: ${money(r.totals.total_cents)}`,
+        intro: `${r.totals.ventas} ${r.totals.ventas === 1 ? 'venta' : 'ventas'}, ${r.queue.atendidos} atendidos sin cita y ${r.appointments.completed} citas completadas.${r.uncharged.length ? ` Quedaron ${r.uncharged.length} atenciones sin cobrar.` : ''}`,
+        rows: [
+          ...r.byMethod.map((m) => [METHOD_LABEL[m.method] ?? m.method, money(m.cents)] as [string, string]),
+          ['Propinas', money(r.totals.tips_cents)],
+          ...r.byStaff.filter((st) => st.servicios_cents > 0 || st.tips_cents > 0).map((st) => [`Para ${st.name}`, money(st.a_entregar_cents)] as [string, string]),
+        ],
+        cta: { label: 'Ver el cierre completo', href: tenantUrl(t.slug, '/admin#caja') },
+        foot: 'Resumen automático de date.pe. Puedes apagarlo en Funciones.',
+      }),
+    });
+  }
+}
+
 async function housekeeping() {
   await admin(`DELETE FROM otp_codes WHERE expires_at < now() - interval '1 day'`);
   await admin(`DELETE FROM password_resets WHERE expires_at < now() - interval '7 days'`);
@@ -231,6 +270,7 @@ export async function runSchedulerOnce(log: (msg: string, err?: unknown) => void
         ['dominios', refreshPendingDomains],
         ['marketing', marketingPass],
         ['regalos y fila', giftsAndQueuePass],
+        ['resumen del día', dailySummaryPass],
       ] as const) {
         try {
           await fn();
@@ -249,4 +289,38 @@ export async function runSchedulerOnce(log: (msg: string, err?: unknown) => void
 export function startScheduler(log: (msg: string, err?: unknown) => void) {
   setTimeout(() => void runSchedulerOnce(log), 20_000);
   setInterval(() => void runSchedulerOnce(log), EVERY_MS);
+  // La fila necesita reaccionar rápido: cada minuto
+  setInterval(() => void queuePass().catch((err) => log('[planificador] fallo en la fila', err)), 60_000);
+}
+
+/**
+ * "No vino" automático. A la mitad del tiempo se vuelve a llamar (TV y celular);
+ * al cumplirse, el turno pasa a "no vino" y se llama al siguiente para ese barbero.
+ */
+async function queuePass() {
+  const { rows: recall } = await admin<{ id: string; tenant_id: string; number: number; name: string; staff: string | null }>(
+    `UPDATE queue_tickets q SET recalled_at = now()
+       FROM tenant_settings ts
+      WHERE ts.tenant_id = q.tenant_id AND COALESCE((ts.queue_config->>'autoNoShow')::boolean, true)
+        AND q.status = 'called' AND q.recalled_at IS NULL
+        AND q.called_at < now() - make_interval(secs => COALESCE((ts.queue_config->>'noShowMinutes')::int, 10) * 30)
+      RETURNING q.id, q.tenant_id, q.number, q.name, (SELECT name FROM staff WHERE id = q.served_by) AS staff`,
+  );
+  for (const r of recall) {
+    const first = (r.name ?? '').split(' ')[0];
+    await emitTenantEvent(r.tenant_id, 'queue_changed', { announce: { number: r.number, name: first, staff: r.staff ?? '' } });
+    void pushToTicket(r.id, { title: `Te estamos llamando, ${first}`, body: `Turno ${r.number}. ${r.staff ?? 'Tu barbero'} te espera. Si no llegas, pasamos al siguiente.`, urgent: true, tag: 'turno', url: '/turno' });
+  }
+  const { rows: gone } = await admin<{ tenant_id: string; served_by: string | null }>(
+    `UPDATE queue_tickets q SET status = 'no_show', finished_at = now()
+       FROM tenant_settings ts
+      WHERE ts.tenant_id = q.tenant_id AND COALESCE((ts.queue_config->>'autoNoShow')::boolean, true)
+        AND q.status = 'called'
+        AND q.called_at < now() - make_interval(mins => COALESCE((ts.queue_config->>'noShowMinutes')::int, 10))
+      RETURNING q.tenant_id, q.served_by`,
+  );
+  for (const g of gone) {
+    const next = g.served_by ? await callNext(g.tenant_id, g.served_by) : null;
+    if (!next) await emitTenantEvent(g.tenant_id, 'queue_changed');
+  }
 }

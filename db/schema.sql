@@ -660,6 +660,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_queue_token ON queue_tickets (token);
 ALTER TABLE queue_tickets ADD COLUMN IF NOT EXISTS sort_at timestamptz NOT NULL DEFAULT now();   -- orden en la fila ("me demoro" lo mueve)
 ALTER TABLE queue_tickets ADD COLUMN IF NOT EXISTS delays int NOT NULL DEFAULT 0;
 ALTER TABLE queue_tickets ADD COLUMN IF NOT EXISTS near_notified_at timestamptz;
+ALTER TABLE queue_tickets ADD COLUMN IF NOT EXISTS recalled_at timestamptz;   -- segundo llamado automático
 ALTER TABLE queue_tickets ADD COLUMN IF NOT EXISTS client_id uuid REFERENCES clients(id) ON DELETE SET NULL;
 -- Llave de la pantalla: la URL de la TV la lleva para controlar la música
 ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS tv_key text NOT NULL DEFAULT replace(gen_random_uuid()::text, '-', '');

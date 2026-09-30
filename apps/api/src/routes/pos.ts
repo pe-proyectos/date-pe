@@ -4,7 +4,8 @@ import { randomBytes } from 'node:crypto';
 import { withTenant, type Sql } from '../db.js';
 import { tenantConfig } from '../lib/features.js';
 import { emitTenantEvent, emitAvailabilityChange } from '../lib/realtime.js';
-import { notifyNearTickets } from './queue.js';
+import { notifyNearTickets, expressCharge } from './queue.js';
+import { dayReport } from '../lib/day-report.js';
 
 // Caja del local: cobrar servicios y productos con pago mixto y propinas,
 // abrir y cerrar caja, movimientos de efectivo y recibo opcional adjunto.
@@ -98,10 +99,13 @@ const checkoutSchema = z.object({
   clientId: z.string().uuid().optional(),
   client: z.object({ name: z.string().min(1).max(80), phone: z.string().min(6).max(20), email: z.string().email().optional() }).optional(),
   staffId: z.string().uuid().nullable().optional(),
-  items: z.array(itemSchema).min(1).max(40),
+  // Sin items en un cobro express: se arman solos desde la cita o el turno
+  items: z.array(itemSchema).max(40).default([]),
   discountCents: z.number().int().min(0).default(0),
   tipCents: z.number().int().min(0).default(0),
-  payments: z.array(paymentSchema).min(1).max(6),
+  payments: z.array(paymentSchema).max(6).default([]),
+  // Cobro express: todo lo pendiente con un solo medio de pago
+  payWith: z.enum(['cash', 'yape', 'plin', 'card', 'transfer']).optional(),
   receiptUrl: z.string().max(500).optional(),
   receiptNumber: z.string().max(40).optional(),
   note: z.string().max(300).optional(),
@@ -134,9 +138,11 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
             ORDER BY a.starts_at`,
         ),
         sql(
-          `SELECT q.id, q.number, q.name, q.status, q.served_by, sb.name AS served_by_name, q.service_id, sv.name AS service_name, sv.price_cents, q.client_id
+          `SELECT q.id, q.number, q.name, q.status, q.served_by, sb.name AS served_by_name, q.service_id, sv.name AS service_name, sv.price_cents, q.client_id, q.finished_at
              FROM queue_tickets q LEFT JOIN staff sb ON sb.id = q.served_by LEFT JOIN services sv ON sv.id = q.service_id
-            WHERE q.day = ${TODAY} AND q.status IN ('called','serving') AND q.sale_id IS NULL ORDER BY q.called_at`,
+            WHERE q.day = ${TODAY} AND q.sale_id IS NULL
+              AND (q.status IN ('called','serving') OR (q.status = 'done' AND q.finished_at > now() - interval '4 hours'))
+            ORDER BY (q.status = 'done') DESC, q.called_at`,
         ),
       ]);
       return { services: services.rows, products: products.rows, packages: packages.rows, plans: plans.rows, rewards: rewards.rows, staff: staff.rows, pendingAppointments: pendingAppts.rows, tickets: tickets.rows };
@@ -259,13 +265,23 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
           );
           clientId = c.rows[0].id;
         }
-        const mainStaff = b.staffId ?? appt?.staff_id ?? null;
+        let mainStaff = b.staffId ?? appt?.staff_id ?? null;
+        if (!mainStaff && b.ticketId) mainStaff = (await sql<{ served_by: string | null }>('SELECT served_by FROM queue_tickets WHERE id = $1', [b.ticketId])).rows[0]?.served_by ?? null;
 
         // Precios siempre desde la base de datos
         const staffRows = (await sql<{ id: string; commission_percent: number }>('SELECT id, commission_percent FROM staff')).rows;
         const commissionOf = (id: string | null | undefined) => staffRows.find((s) => s.id === id)?.commission_percent ?? 0;
         interface Line { kind: string; refId: string | null; name: string; qty: number; unit: number; total: number; staffId: string | null; productCommission: number; meta?: Record<string, unknown> }
         const lines: Line[] = [];
+        let expressDiscount = 0;
+        if (b.items.length === 0) {
+          if (!b.appointmentId && !b.ticketId) throw new PosError('carrito_vacio');
+          const ch = await expressCharge(sql, { appointmentId: b.appointmentId, ticketId: b.ticketId });
+          if (!ch) throw new PosError('cita_ya_cobrada', 409);
+          if ('needsService' in ch && ch.needsService) throw new PosError('elige_el_servicio');
+          for (const it of ch.items) lines.push({ kind: 'service', refId: it.serviceId, name: it.name, qty: 1, unit: it.priceCents, total: it.priceCents, staffId: mainStaff ?? ch.staffId, productCommission: 0 });
+          expressDiscount = ch.discountCents;
+        }
         for (const it of b.items) {
           const staffId = it.staffId === undefined ? mainStaff : it.staffId;
           if (it.kind === 'service') {
@@ -299,7 +315,7 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
           }
         }
         const subtotal = lines.reduce((s, l) => s + l.total, 0);
-        const discount = Math.min(b.discountCents, subtotal);
+        const discount = Math.min(b.discountCents || expressDiscount, subtotal);
         const total = subtotal - discount + b.tipCents;
 
         // Pagos especiales: adelanto ya cobrado, paquete, puntos, gift card
@@ -307,6 +323,12 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
         if (appt && appt.deposit_cents > 0 && !payments.some((p) => p.method === 'deposit')) {
           payments.unshift({ method: 'deposit', amountCents: Math.min(appt.deposit_cents, total), reference: undefined });
         }
+        // Cobro express: el resto con el medio elegido
+        if (b.payWith && b.payments.length === 0) {
+          const covered = payments.reduce((s2, p) => s2 + p.amountCents, 0);
+          payments.push({ method: b.payWith, amountCents: Math.max(0, total - covered), reference: undefined });
+        }
+        if (payments.length === 0) throw new PosError('falta_medio_de_pago');
         const paid = payments.reduce((s, p) => s + p.amountCents, 0);
         if (paid !== total) throw new PosError('pagos_no_cuadran', 400, { total, paid });
 
@@ -523,6 +545,21 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
     if (!ok) return reply.code(409).send({ error: 'no_se_puede_anular' });
     await emitTenantEvent(tid(request), 'sale_voided');
     return { ok: true };
+  });
+
+  // Cierre del día en una pantalla (y lo que falta cobrar)
+  app.get('/admin/day/report', async (request) => {
+    const q = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).parse(request.query);
+    const day = q.date ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+    return dayReport(tid(request), day);
+  });
+
+  // Lo pendiente de cobrar de un turno o una cita (para el cobro express)
+  app.get('/admin/pos/express', async (request, reply) => {
+    const q = z.object({ ticketId: z.string().uuid().optional(), appointmentId: z.string().uuid().optional() }).parse(request.query);
+    const ch = await withTenant(tid(request), (sql) => expressCharge(sql, q));
+    if (!ch) return reply.code(404).send({ error: 'nada_por_cobrar' });
+    return ch;
   });
 
   // ------------------------------ Productos e inventario ------------------------------

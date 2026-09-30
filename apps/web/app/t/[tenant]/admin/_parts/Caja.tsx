@@ -5,12 +5,12 @@ import {
   Wallet, Search, Plus, Minus, X, Scissors, ShoppingBag, Package, BadgeCheck, Gift, PenLine, User, UserPlus, UserX,
   Banknote, Smartphone, CreditCard, Landmark, Award, CalendarCheck, Camera, FileText, Paperclip, ChevronLeft, ChevronRight,
   Lock, LockOpen, ArrowDownLeft, ArrowUpRight, Receipt, Clock, TriangleAlert, Ban, Percent, History, Loader2, Ticket as TicketIcon,
-  Coins, Check, SplitSquareHorizontal,
+  Coins, Check, SplitSquareHorizontal, Printer, MessageCircle, CalendarDays,
 } from 'lucide-react';
 import { useAdmin, soles } from './api';
 import { PageHead, Btn, Field, inputCls, Empty, Skeleton } from './ui';
 import { Sheet } from '@/components/Sheet';
-import { StatTile } from '@/components/charts';
+import { StatTile, staffColor } from '@/components/charts';
 import { toast } from '@/lib/toast';
 import { haptic } from '@/lib/haptics';
 import { uploadImage } from '@/lib/upload';
@@ -26,9 +26,9 @@ interface Reward { id: string; name: string; points_cost: number; kind: 'free_se
 interface StaffM { id: string; name: string; photo_url: string | null; commission_percent: number }
 interface PendingAppt {
   id: string; starts_at: string; staff_id: string | null; staff_name: string | null; client_id: string | null; client_name: string | null;
-  services: { service_id: string; name: string; price_cents: number }[]; deposit_cents: number;
+  services: { service_id: string; name: string; price_cents: number }[]; deposit_cents: number; status?: string; discount_cents?: number;
 }
-interface QTicket { id: string; number: number; name: string; status?: string; served_by: string | null; served_by_name?: string | null; service_id: string | null; service_name: string | null; price_cents: number | null; client_id: string | null }
+interface QTicket { id: string; number: number; name: string; status?: string; served_by: string | null; served_by_name?: string | null; service_id: string | null; service_name: string | null; price_cents: number | null; client_id: string | null; finished_at?: string | null }
 interface Catalog { services: Svc[]; products: Prod[]; packages: Pkg[]; plans: Plan[]; rewards: Reward[]; staff: StaffM[]; pendingAppointments: PendingAppt[]; tickets: QTicket[] }
 
 interface CashInfo { opening: number; cash_sales: number; ins: number; outs: number; expenses: number; expected: number }
@@ -68,6 +68,26 @@ interface Origin { type: 'cita' | 'turno'; id: string; label: string; deposit: n
 interface PayRow { id: number; method: string; amount: string }
 interface ReceiptFile { url: string; pdf: boolean }
 interface CheckoutResult { saleId: string; number: number; total: number; pointsAwarded: number; lowStock: { id: string; name: string; stock: number; min_stock: number }[] }
+
+/** Lo pendiente de un turno o una cita, armado por el servidor para el cobro express. */
+interface ExpressInfo {
+  appointmentId: string | null; ticketId: string | null; staffId: string | null; clientId: string | null; clientName: string | null;
+  items: { serviceId: string; name: string; priceCents: number }[]; discountCents: number; totalCents: number; depositCents: number; dueCents: number; needsService?: boolean;
+}
+interface ExpressTarget { kind: 'ticket' | 'appointment'; id: string; method: string; name: string | null }
+
+interface DayReport {
+  date: string;
+  totals: { ventas: number; total_cents: number; tips_cents: number; discount_cents: number; ticket_promedio_cents: number; servicios_cents: number; productos_cents: number };
+  byMethod: { method: string; cents: number; ventas: number }[];
+  byStaff: { staff_id: string; name: string; clientes: number; servicios_cents: number; productos_cents: number; comision_cents: number; tips_cents: number; a_entregar_cents: number }[];
+  cash: { sessions: number; opening_cents: number; cash_sales_cents: number; ins_cents: number; outs_cents: number; expected_cents: number; counted_cents: number | null; difference_cents: number | null; open: boolean };
+  appointments: { total: number; completed: number; no_show: number; cancelled: number; pending: number };
+  queue: { atendidos: number; no_vinieron: number; espera_promedio_min: number; max_en_fila: number };
+  expenses_cents: number;
+  topServices: { name: string; n: number; cents: number }[];
+  uncharged: { kind: 'ticket' | 'appointment'; id: string; name: string | null; staff: string | null; at: string }[];
+}
 
 /* ------------------------------ Utilidades ------------------------------ */
 
@@ -133,6 +153,44 @@ const METHOD: Record<string, { label: string; icon: React.ComponentType<{ size?:
 };
 const methodLabel = (m: string) => METHOD[m]?.label ?? m;
 
+/** Nombres de los medios en el cierre del día (en plural donde se suman varios). */
+const REPORT_METHOD: Record<string, string> = {
+  cash: 'Efectivo', yape: 'Yape', plin: 'Plin', card: 'Tarjeta', transfer: 'Transferencia',
+  deposit: 'Adelantos en línea', gift_card: 'Gift cards', package: 'Paquetes', points: 'Puntos',
+};
+const reportMethod = (m: string) => REPORT_METHOD[m] ?? methodLabel(m);
+
+/** Medios con los que se puede cobrar de un toque (el servidor cobra el resto con uno solo). */
+const EXPRESS_METHODS = ['cash', 'yape', 'plin', 'card', 'transfer'];
+function quickMethods(cfg: PosConfig): string[] {
+  const list = cfg.methods.filter((m) => EXPRESS_METHODS.includes(m));
+  return (list.length ? list : ['cash', 'yape', 'plin', 'card']).slice(0, 4);
+}
+const tipOf = (base: number, pct: number) => Math.round((base * pct) / 100 / 10) * 10;
+
+/** "hace 12 min", "hace 1 h 5 min". */
+function agoLabel(iso: string, now: number): string {
+  const min = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60000));
+  if (min < 1) return 'hace un momento';
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.floor(min / 60);
+  return `hace ${h} h${min % 60 ? ` ${min % 60} min` : ''}`;
+}
+
+/** Día "YYYY-MM-DD" de Lima desplazado n días. */
+function shiftDay(day: string, n: number): string {
+  const d = new Date(`${day}T12:00:00-05:00`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima' }).format(d);
+}
+/** "miércoles 30 de setiembre" (en Perú se escribe setiembre). */
+function longDay(day: string): string {
+  const d = new Date(`${day}T12:00:00-05:00`);
+  const wd = d.toLocaleDateString('es-PE', { weekday: 'long', timeZone: 'America/Lima' });
+  const dm = d.toLocaleDateString('es-PE', { day: 'numeric', month: 'long', timeZone: 'America/Lima' });
+  return `${wd} ${dm}`.replace(/septiembre/i, 'setiembre');
+}
+
 const ERRORS: Record<string, string> = {
   pagos_no_cuadran: 'Los pagos no suman el total. Revisa los montos.',
   gift_card_sin_saldo: 'Esa gift card no existe o no tiene saldo suficiente.',
@@ -155,6 +213,10 @@ const ERRORS: Record<string, string> = {
   caja_cerrada: 'La caja está cerrada. Ábrela primero.',
   no_se_puede_anular: 'Esta venta ya estaba anulada.',
   sin_permiso: 'Tu cuenta no tiene permiso para esto.',
+  nada_por_cobrar: 'Esto ya fue cobrado.',
+  elige_el_servicio: 'Elige el servicio que se hizo.',
+  falta_medio_de_pago: 'Elige cómo paga.',
+  sin_stock: 'Uno de los productos ya no tiene stock.',
 };
 function errMsg(e: unknown, fallback = 'No se pudo completar. Intenta de nuevo.') {
   if (e instanceof ApiError) {
@@ -215,7 +277,7 @@ function Row({ label, value, strong, muted }: { label: React.ReactNode; value: R
 
 /* ------------------------------ Sección ------------------------------ */
 
-type View = 'cobrar' | 'hoy' | 'caja';
+type View = 'cobrar' | 'hoy' | 'caja' | 'cierre';
 
 export function Caja() {
   const { api, tenant, uploadHeaders } = usePanel();
@@ -331,7 +393,7 @@ export function Caja() {
   }
 
   const views = canCash
-    ? ([['cobrar', 'Cobrar'], ['hoy', 'Hoy'], ['caja', 'Efectivo']] as const)
+    ? ([['cobrar', 'Cobrar'], ['hoy', 'Hoy'], ['caja', 'Efectivo'], ['cierre', 'Cierre']] as const)
     : ([['cobrar', 'Cobrar'], ['hoy', 'Hoy']] as const);
 
   return (
@@ -374,6 +436,18 @@ export function Caja() {
       {view === 'hoy' && <Today api={api} uploadHeaders={uploadHeaders} state={state} me={me} tick={salesTick} onChanged={refreshAll} />}
       {view === 'caja' && canCash && (
         <CashPanel api={api} session={session} tick={salesTick} onOpen={() => setOpenSheet(true)} onMove={(k) => setMoveSheet(k)} onClose={() => setCloseSheet(true)} />
+      )}
+      {view === 'cierre' && canCash && (
+        <Cierre
+          api={api}
+          tenant={tenant}
+          state={state}
+          catalog={catalog}
+          overrides={overrides}
+          tick={salesTick}
+          onChanged={refreshAll}
+          onCloseCash={() => { setView('caja'); if (session) setCloseSheet(true); }}
+        />
       )}
 
       <OpenCashSheet api={api} open={openSheet} onClose={() => setOpenSheet(false)} onDone={refreshAll} />
@@ -700,9 +774,113 @@ function Register({
     setSheet(true);
   }
 
+  /* ---------- Cobro de un toque ---------- */
+  const [express, setExpress] = useState<ExpressTarget | null>(null);
+  const [charged, setCharged] = useState<Set<string>>(() => new Set());
+  const [showAll, setShowAll] = useState(false);
+  const [finishedAt, setFinishedAt] = useState<Record<string, string>>({});
+  const [now, setNow] = useState(() => Date.now());
+  const methods = quickMethods(cfg);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Hora en que terminó cada turno sin cobrar (el cierre del día la trae)
+  const doneKey = catalog.tickets.filter((t) => t.status === 'done' && !t.finished_at).map((t) => t.id).join(',');
+  useEffect(() => {
+    if (!doneKey || me.role === 'staff') return;
+    let alive = true;
+    api<DayReport>('/admin/day/report')
+      .then((r) => {
+        if (!alive) return;
+        const map: Record<string, string> = {};
+        for (const u of r.uncharged) if (u.kind === 'ticket') map[u.id] = u.at;
+        setFinishedAt(map);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [doneKey, api, me.role]);
+
+  // Lo que ya se cobró sale de la lista al instante; al recargar el catálogo ya no viene
+  useEffect(() => {
+    setCharged((prev) => {
+      if (!prev.size) return prev;
+      const ids = new Set([...catalog.tickets.map((t) => t.id), ...catalog.pendingAppointments.map((a) => a.id)]);
+      const next = new Set([...prev].filter((id) => ids.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [catalog]);
+
+  type PendingCard =
+    | { kind: 'ticket'; id: string; finished: boolean; t: QTicket }
+    | { kind: 'appointment'; id: string; finished: boolean; a: PendingAppt };
+  const cards: PendingCard[] = [
+    ...catalog.tickets.map((t) => ({ kind: 'ticket' as const, id: t.id, finished: t.status === 'done', t })),
+    ...catalog.pendingAppointments.map((a) => ({ kind: 'appointment' as const, id: a.id, finished: a.status === 'completed', a })),
+  ]
+    .filter((c) => !charged.has(c.id))
+    // Primero lo ya atendido y sin cobrar, luego lo que está en atención, luego las citas por venir
+    .sort((x, y) => Number(y.finished) - Number(x.finished) || Number(y.kind === 'ticket') - Number(x.kind === 'ticket'));
+  const finishedCount = cards.filter((c) => c.finished).length;
+  const visible = showAll ? cards : cards.slice(0, Math.max(4, finishedCount));
+
+  function onExpressDone(id: string) {
+    setCharged((prev) => new Set(prev).add(id));
+    if (origin?.id === id) reset();
+    onDone();
+  }
+
   /* ---------- Render ---------- */
-  const pending = catalog.pendingAppointments.length + catalog.tickets.length;
+  const pending = cards.length;
   const count = lines.reduce((s, l) => s + l.qty, 0);
+
+  const pendingCard = (c: PendingCard) => {
+    const on = origin?.id === c.id;
+    const isT = c.kind === 'ticket';
+    const t = isT ? c.t : null;
+    const a = !isT ? c.a : null;
+    const name = t ? t.name : a!.client_name ?? 'Cliente';
+    const staff = t ? t.served_by_name ?? staffName(t.served_by) : a!.staff_name;
+    const detail = t ? [t.service_name, staff].filter(Boolean).join(', ') || 'Sin servicio' : [a!.services.map((s) => s.name).join(', '), staff].filter(Boolean).join(', ');
+    const amount = t ? t.price_cents : Math.max(0, a!.services.reduce((s, x) => s + x.price_cents, 0) - Number(a!.discount_cents ?? 0));
+    const deposit = a ? Number(a.deposit_cents) || 0 : 0;
+    const fin = t ? t.finished_at ?? finishedAt[t.id] : null;
+    const head = c.finished
+      ? isT
+        ? fin ? `Terminado ${agoLabel(fin, now)}` : 'Terminado, falta cobrar'
+        : `Atendido, cita de las ${hhmm(a!.starts_at)}`
+      : isT
+        ? `Turno ${t!.number}, en atención`
+        : `Cita ${hhmm(a!.starts_at)}`;
+    const HeadIcon = c.finished ? Check : isT ? TicketIcon : Clock;
+    return (
+      <li key={c.id} className={`flex flex-col rounded-xl border p-4 transition-colors ${on ? 'border-ink shadow-lift' : c.finished ? 'border-ink' : 'border-line'}`}>
+        <div className="flex items-start justify-between gap-3">
+          <span className={`tnum inline-flex min-h-7 items-center gap-1.5 rounded-full text-[13px] font-medium ${c.finished ? 'bg-ok-tint px-2.5 text-ok' : 'text-mute'}`}>
+            <HeadIcon size={14} strokeWidth={1.75} /> {head}
+          </span>
+          <button
+            type="button"
+            onClick={() => pick(isT ? 'turno' : 'cita', c.id)}
+            className="-mr-2 -mt-2 inline-flex min-h-11 shrink-0 items-center gap-0.5 rounded-full px-3 text-[13px] font-medium text-mute hover:bg-field hover:text-ink"
+          >
+            Más opciones <ChevronRight size={15} strokeWidth={1.75} />
+          </button>
+        </div>
+        <div className="mt-1 flex items-baseline justify-between gap-3">
+          <span className="min-w-0 truncate text-[17px] font-semibold tracking-[-0.02em]">{name}</span>
+          {amount ? <span className="tnum shrink-0 text-[17px] font-semibold">{soles(Math.max(0, amount - deposit))}</span> : null}
+        </div>
+        <span className="mt-0.5 flex items-baseline justify-between gap-3 text-[14px] text-mute">
+          <span className="min-w-0 truncate">{detail}</span>
+          {deposit > 0 && <span className="tnum shrink-0 text-[13px] text-ok">adelanto {soles(deposit)}</span>}
+        </span>
+        <MethodButtons methods={methods} onPick={(m) => setExpress({ kind: c.kind, id: c.id, method: m, name })} className="mt-3" />
+      </li>
+    );
+  };
 
   const cart = (
     <CartPanel
@@ -722,35 +900,23 @@ function Register({
         <section className="mb-8">
           <div className="mb-3 flex items-baseline justify-between">
             <h2 className="text-[17px] font-semibold tracking-[-0.02em]">Por cobrar</h2>
-            <span className="text-[13px] text-soft">{pending} {pending === 1 ? 'pendiente' : 'pendientes'} hoy</span>
+            <span className="text-[13px] text-soft">
+              {finishedCount > 0 ? `${finishedCount} ${finishedCount === 1 ? 'terminado' : 'terminados'} sin cobrar, ` : ''}{pending} {pending === 1 ? 'pendiente' : 'pendientes'} hoy
+            </span>
           </div>
-          <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:px-0">
-            {catalog.tickets.map((t) => (
-              <button key={t.id} type="button" onClick={() => pick('turno', t.id)} className={`min-w-[220px] snap-start rounded-xl border p-4 text-left transition-colors active:scale-[0.98] ${origin?.id === t.id ? 'border-ink bg-ink text-white shadow-lift' : 'border-line hover:border-ink'}`}>
-                <span className={`flex items-center gap-1.5 text-[13px] ${origin?.id === t.id ? 'text-white/70' : 'text-mute'}`}><TicketIcon size={14} strokeWidth={1.75} /> Turno {t.number}, en atención</span>
-                <span className="mt-1 block truncate text-[16px] font-medium">{t.name}</span>
-                <span className={`mt-0.5 block truncate text-[14px] ${origin?.id === t.id ? 'text-white/70' : 'text-mute'}`}>{[t.service_name, t.served_by_name ?? staffName(t.served_by)].filter(Boolean).join(', ') || 'Sin servicio'}</span>
-                {t.price_cents ? <span className="tnum mt-2 block text-[15px] font-semibold">{soles(t.price_cents)}</span> : null}
-              </button>
-            ))}
-            {catalog.pendingAppointments.map((a) => {
-              const sum = a.services.reduce((s, x) => s + x.price_cents, 0);
-              const on = origin?.id === a.id;
-              return (
-                <button key={a.id} type="button" onClick={() => pick('cita', a.id)} className={`min-w-[220px] snap-start rounded-xl border p-4 text-left transition-colors active:scale-[0.98] ${on ? 'border-ink bg-ink text-white shadow-lift' : 'border-line hover:border-ink'}`}>
-                  <span className={`tnum flex items-center gap-1.5 text-[13px] ${on ? 'text-white/70' : 'text-mute'}`}><Clock size={14} strokeWidth={1.75} /> Cita {hhmm(a.starts_at)}{a.staff_name ? `, ${a.staff_name}` : ''}</span>
-                  <span className="mt-1 block truncate text-[16px] font-medium">{a.client_name ?? 'Cliente'}</span>
-                  <span className={`mt-0.5 block truncate text-[14px] ${on ? 'text-white/70' : 'text-mute'}`}>{a.services.map((s) => s.name).join(', ')}</span>
-                  <span className="tnum mt-2 flex items-baseline gap-2 text-[15px] font-semibold">
-                    {soles(sum)}
-                    {Number(a.deposit_cents) > 0 && <span className={`text-[13px] font-normal ${on ? 'text-white/70' : 'text-ok'}`}>adelanto {soles(a.deposit_cents)}</span>}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{visible.map(pendingCard)}</ul>
+          {cards.length > visible.length && (
+            <button type="button" onClick={() => { haptic.tap(); setShowAll(true); }} className="mt-3 inline-flex min-h-11 items-center gap-1 rounded-full px-3 text-[14px] font-medium text-mute hover:bg-field hover:text-ink">
+              Ver todos ({cards.length}) <ChevronRight size={16} strokeWidth={1.75} />
+            </button>
+          )}
+          {showAll && cards.length > 4 && (
+            <button type="button" onClick={() => setShowAll(false)} className="mt-3 inline-flex min-h-11 items-center rounded-full px-3 text-[14px] font-medium text-mute hover:bg-field hover:text-ink">Ver menos</button>
+          )}
         </section>
       )}
+
+      <ExpressSheet api={api} state={state} services={catalog.services} overrides={overrides} target={express} onClose={() => setExpress(null)} onDone={onExpressDone} />
 
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
         <CatalogPanel catalog={catalog} features={f} lines={lines} onAdd={add} mainStaff={mainStaff} overrides={overrides} />
@@ -1010,6 +1176,213 @@ function Register({
 
       <ClientSheet api={api} open={clientSheet} onClose={() => setClientSheet(false)} current={client} onPick={(c) => { setClient(c); setClientSheet(false); }} />
     </>
+  );
+}
+
+/* ---------- Cobro de un toque ---------- */
+
+function MethodButtons({ methods, onPick, className = '' }: { methods: string[]; onPick: (m: string) => void; className?: string }) {
+  return (
+    <div className={`grid gap-1.5 ${className}`} style={{ gridTemplateColumns: `repeat(${methods.length}, minmax(0, 1fr))` }}>
+      {methods.map((m) => {
+        const Icon = METHOD[m]?.icon ?? Wallet;
+        return (
+          <button
+            key={m}
+            type="button"
+            onClick={() => { haptic.tap(); onPick(m); }}
+            className="flex min-h-[52px] min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl bg-field px-1 text-[13px] font-medium transition-[background-color,transform] hover:bg-line active:scale-[0.97]"
+            aria-label={`Cobrar con ${methodLabel(m)}`}
+          >
+            <Icon size={18} strokeWidth={1.75} />
+            <span className="max-w-full truncate">{methodLabel(m)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Hoja corta de confirmación: el servidor arma lo pendiente (servicios, descuento de la
+ * reserva y adelanto) y cobra el resto con el medio elegido.
+ */
+function ExpressSheet({
+  api, state, services, overrides, target, onClose, onDone,
+}: {
+  api: Api; state: PosState; services: Svc[]; overrides: Record<string, Record<string, number>>; target: ExpressTarget | null; onClose: () => void; onDone: (id: string) => void;
+}) {
+  const cfg = state.config;
+  const tipsOn = !!state.features.tips;
+  const [info, setInfo] = useState<ExpressInfo | null>(null);
+  const [method, setMethod] = useState('cash');
+  const [svc, setSvc] = useState<string | null>(null);
+  const [tipPct, setTipPct] = useState(0);
+  const [received, setReceived] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!target) return;
+    setInfo(null);
+    setMethod(target.method);
+    setSvc(null);
+    setTipPct(0);
+    setReceived('');
+    let alive = true;
+    const q = target.kind === 'ticket' ? `ticketId=${target.id}` : `appointmentId=${target.id}`;
+    api<ExpressInfo>(`/admin/pos/express?${q}`)
+      .then((d) => { if (alive) setInfo(d); })
+      .catch((e) => {
+        if (!alive) return;
+        toast.error(errMsg(e, 'No pudimos traer lo pendiente. Intenta de nuevo.'));
+        if (e instanceof ApiError && e.status === 404) onDone(target.id);
+        onClose();
+      });
+    return () => { alive = false; };
+    // Solo al abrir otro cobro
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target?.id, target?.kind]);
+
+  const picked = services.find((s) => s.id === svc) ?? null;
+  const needsService = !!info?.needsService;
+  const items = needsService
+    ? picked ? [{ serviceId: picked.id, name: picked.name, priceCents: (info?.staffId ? overrides[picked.id]?.[info.staffId] : undefined) ?? picked.price_cents }] : []
+    : info?.items ?? [];
+  const subtotal = items.reduce((s, i) => s + i.priceCents, 0);
+  const discount = needsService ? 0 : info?.discountCents ?? 0;
+  const total = needsService ? subtotal : info?.totalCents ?? 0;
+  const deposit = needsService ? 0 : Math.min(info?.depositCents ?? 0, total);
+  const tip = tipsOn ? tipOf(total, tipPct) : 0;
+  const charge = Math.max(0, total - deposit) + tip;
+  const change = method === 'cash' && toCents(received) > 0 ? toCents(received) - charge : 0;
+  const ready = !!info && (!needsService || !!picked);
+  const label = methodLabel(method);
+  const methods = Array.from(new Set([...quickMethods(cfg), ...cfg.methods.filter((m) => EXPRESS_METHODS.includes(m))]));
+
+  async function submit() {
+    if (!target || !ready || busy) return;
+    setBusy(true);
+    try {
+      const body = {
+        ticketId: target.kind === 'ticket' ? target.id : undefined,
+        appointmentId: target.kind === 'appointment' ? target.id : undefined,
+        payWith: method,
+        tipCents: tip || undefined,
+        items: needsService && picked ? [{ kind: 'service', refId: picked.id }] : undefined,
+      };
+      const r = await api<CheckoutResult>('/admin/pos/checkout', { method: 'POST', body });
+      haptic.success();
+      const who = info?.clientName ?? target.name;
+      toast.success(`${who ? `${who}: ` : ''}${soles(charge)} con ${label}${change > 0 ? `. Vuelto ${soles(change)}` : ''}. Venta ${r.number}.`);
+      if (r.lowStock?.length) toast.info(`Stock bajo: ${r.lowStock.map((p) => `${p.name} (${p.stock})`).join(', ')}`);
+      onDone(target.id);
+      onClose();
+    } catch (e) {
+      haptic.error();
+      toast.error(errMsg(e));
+      if (e instanceof ApiError && (e.message === 'cita_ya_cobrada' || e.message === 'nada_por_cobrar')) { onDone(target.id); onClose(); }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet
+      open={!!target}
+      onClose={onClose}
+      title="Cobro rápido"
+      footer={
+        <button
+          type="button"
+          disabled={!ready || busy}
+          onClick={submit}
+          className="flex min-h-[52px] w-full items-center justify-between gap-3 rounded-full bg-red px-5 text-[16px] font-semibold text-white transition-colors hover:bg-red-deep active:scale-[0.98] disabled:opacity-40"
+        >
+          <span className="flex items-center gap-2">{busy && <Loader2 size={17} className="animate-spin" />} Cobrar</span>
+          <span className="tnum">{ready ? soles(charge) : ''}</span>
+        </button>
+      }
+    >
+      {!info ? (
+        <div className="space-y-3" aria-busy="true">
+          <div className="h-8 w-3/4 animate-pulse rounded-lg bg-field" />
+          <div className="h-5 w-1/2 animate-pulse rounded-lg bg-field" />
+          <div className="h-24 animate-pulse rounded-xl bg-field" />
+        </div>
+      ) : (
+        <div className="space-y-6">
+          <div>
+            <p className="text-[24px] font-semibold leading-tight tracking-[-0.03em] [text-wrap:balance]">
+              {ready ? <>Cobrar <span className="tnum">{soles(charge)}</span> con {label}</> : 'Elige el servicio que se hizo'}
+            </p>
+            <p className="mt-1 text-[15px] text-mute">{info.clientName ?? target?.name ?? 'Sin cliente'}</p>
+          </div>
+
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="radiogroup" aria-label="Medio de pago">
+            {methods.map((m) => {
+              const Icon = METHOD[m]?.icon ?? Wallet;
+              return (
+                <button key={m} type="button" role="radio" aria-checked={method === m} onClick={() => { haptic.select(); setMethod(m); }} className={`${chipCls(method === m)} shrink-0`}>
+                  <Icon size={16} strokeWidth={1.75} /> {methodLabel(m)}
+                </button>
+              );
+            })}
+          </div>
+
+          {needsService && (
+            <section>
+              <h3 className="mb-2 text-[15px] font-medium">¿Qué servicio se hizo?</h3>
+              <div className="flex flex-wrap gap-2">
+                {services.filter((s) => !s.is_addon).concat(services.filter((s) => s.is_addon)).map((s) => (
+                  <button key={s.id} type="button" onClick={() => { haptic.select(); setSvc(s.id); }} className={chipCls(svc === s.id)}>
+                    {s.name} <span className="tnum opacity-70">{soles((info.staffId ? overrides[s.id]?.[info.staffId] : undefined) ?? s.price_cents)}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {items.length > 0 && (
+            <div className="rounded-xl bg-field px-4 py-2">
+              {items.map((i, idx) => <Row key={`${i.serviceId}-${idx}`} label={i.name} value={soles(i.priceCents)} />)}
+              {discount > 0 && <Row label="Descuento de la reserva" value={`- ${soles(discount)}`} muted />}
+              {deposit > 0 && <Row label={<span className="flex items-center gap-1.5 text-ok"><CalendarCheck size={15} strokeWidth={1.75} /> Adelanto pagado</span>} value={<span className="text-ok">- {soles(deposit)}</span>} />}
+              {tip > 0 && <Row label="Propina" value={`+ ${soles(tip)}`} muted />}
+            </div>
+          )}
+
+          {tipsOn && cfg.tipPresets.length > 0 && ready && (
+            <section>
+              <h3 className="mb-2 text-[15px] font-medium">Propina</h3>
+              <div className="flex flex-wrap gap-2">
+                {Array.from(new Set([0, ...cfg.tipPresets])).map((p) => (
+                  <button key={p} type="button" onClick={() => { haptic.select(); setTipPct(p); }} className={chipCls(tipPct === p)}>
+                    {p === 0 ? 'Sin propina' : <>{p}% <span className="tnum opacity-70">{soles(tipOf(total, p))}</span></>}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {method === 'cash' && ready && charge > 0 && (
+            <section>
+              <div className="mb-2 flex items-baseline justify-between gap-3">
+                <h3 className="text-[15px] font-medium">¿Con cuánto paga?</h3>
+                {change !== 0 && (
+                  <span className={`tnum text-[17px] font-semibold ${change < 0 ? 'text-red-deep' : ''}`}>{change < 0 ? `Falta ${soles(-change)}` : `Vuelto ${soles(change)}`}</span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => { haptic.select(); setReceived(''); }} className={chipCls(!received)}>Exacto</button>
+                {[1000, 2000, 5000, 10000, 20000].filter((b) => b > charge && b < charge * 10).slice(0, 4).map((b) => (
+                  <button key={b} type="button" onClick={() => { haptic.select(); setReceived(String(b / 100)); }} className={`${chipCls(toCents(received) === b)} tnum`}>S/ {b / 100}</button>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      )}
+    </Sheet>
   );
 }
 
@@ -2069,5 +2442,435 @@ function CloseCashSheet({ api, open, session, onClose, onDone }: { api: Api; ope
         </div>
       )}
     </Sheet>
+  );
+}
+
+/* ------------------------------ Cierre del día ------------------------------ */
+
+const activeStaff = (r: DayReport) => r.byStaff.filter((s) => s.clientes || s.servicios_cents || s.productos_cents || s.tips_cents);
+
+/** Resumen en texto plano para WhatsApp: corto, sin símbolos, fácil de leer en el teléfono. */
+function closingText(r: DayReport, shop: string): string {
+  const t = r.totals;
+  const out: string[] = [];
+  out.push(`Cierre de ${shop}, ${longDay(r.date)}`);
+  out.push('');
+  out.push(`Total ${soles(t.total_cents)} en ${t.ventas} ${t.ventas === 1 ? 'venta' : 'ventas'}. Ticket promedio ${soles(t.ticket_promedio_cents)}. Propinas ${soles(t.tips_cents)}.`);
+  if (r.byMethod.length) out.push(`${r.byMethod.map((m) => `${reportMethod(m.method)} ${soles(m.cents)}`).join(', ')}.`);
+  const staff = activeStaff(r);
+  if (staff.length) {
+    out.push('');
+    out.push('Por barbero:');
+    for (const s of staff) {
+      out.push(`${s.name}: ${soles(s.servicios_cents + s.productos_cents)}, ${s.clientes} ${s.clientes === 1 ? 'cliente' : 'clientes'}, comisión ${soles(s.comision_cents)}, propinas ${soles(s.tips_cents)}, a entregar ${soles(s.a_entregar_cents)}.`);
+    }
+  }
+  out.push('');
+  const c = r.cash;
+  if (!c.sessions) out.push('Efectivo: no se abrió la caja.');
+  else if (c.open) out.push(`Efectivo: debería haber ${soles(c.expected_cents)}. La caja sigue abierta.`);
+  else {
+    const d = Number(c.difference_cents ?? 0);
+    out.push(`Efectivo: debía haber ${soles(c.expected_cents)}, se contó ${soles(c.counted_cents)}, ${d === 0 ? 'cuadra exacto' : d < 0 ? `falta ${soles(-d)}` : `sobra ${soles(d)}`}.`);
+  }
+  if (r.appointments.total) out.push(`Citas: ${r.appointments.completed} completadas, ${r.appointments.no_show} no vinieron, ${r.appointments.cancelled} canceladas.`);
+  if (r.queue.atendidos || r.queue.no_vinieron) out.push(`Fila: ${r.queue.atendidos} atendidos, ${r.queue.no_vinieron} no vinieron, espera promedio ${r.queue.espera_promedio_min} min.`);
+  if (r.expenses_cents) out.push(`Gastos: ${soles(r.expenses_cents)}.`);
+  if (r.topServices.length) out.push(`Más pedidos: ${r.topServices.map((s) => `${s.name} (${s.n})`).join(', ')}.`);
+  if (r.uncharged.length) out.push(`Sin cobrar: ${r.uncharged.length} (${r.uncharged.map((u) => u.name ?? 'Cliente').join(', ')}).`);
+  return out.join('\n');
+}
+
+const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!);
+
+/** Hoja imprimible del cierre, para archivar en papel. */
+function printClosing(r: DayReport, shop: string) {
+  const w = window.open('', '_blank', 'width=720,height=900');
+  if (!w) {
+    toast.error('Tu navegador bloqueó la ventana. Permite ventanas emergentes para imprimir.');
+    return;
+  }
+  const t = r.totals;
+  const c = r.cash;
+  const row = (a: string, b: string, strong = false) => `<tr${strong ? ' class="strong"' : ''}><td>${esc(a)}</td><td class="n">${esc(b)}</td></tr>`;
+  const staff = activeStaff(r);
+  const d = Number(c.difference_cents ?? 0);
+  const html = `<!doctype html><html lang="es-PE"><head><meta charset="utf-8"><title>Cierre ${esc(r.date)}</title>
+<style>
+  *{box-sizing:border-box} body{font-family:Figtree,ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;color:#0a0a0a;margin:32px;font-size:13px;line-height:1.45}
+  h1{font-size:22px;letter-spacing:-0.02em;margin:0} .sub{color:#5f5f66;margin:2px 0 20px}
+  .total{font-size:34px;font-weight:600;letter-spacing:-0.03em;margin:0} h2{font-size:14px;margin:22px 0 6px;letter-spacing:-0.01em}
+  table{width:100%;border-collapse:collapse} td,th{padding:5px 0;border-bottom:1px solid #e6e6e9;text-align:left;vertical-align:top} th{font-weight:500;color:#5f5f66;font-size:12px}
+  .n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;padding-left:12px} .strong td{font-weight:600}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:0 28px} .foot{margin-top:28px;color:#71717a;font-size:11px}
+  .sign{margin-top:48px;display:grid;grid-template-columns:1fr 1fr;gap:40px} .sign div{border-top:1px solid #0a0a0a;padding-top:4px;color:#5f5f66;font-size:11px}
+  @media print{body{margin:14mm}}
+</style></head><body>
+<h1>Cierre de ${esc(shop)}</h1>
+<p class="sub">${esc(longDay(r.date))}</p>
+<p class="total">${esc(soles(t.total_cents))}</p>
+<p class="sub">${t.ventas} ${t.ventas === 1 ? 'venta' : 'ventas'}, ticket promedio ${esc(soles(t.ticket_promedio_cents))}, propinas ${esc(soles(t.tips_cents))}. Servicios ${esc(soles(t.servicios_cents))}, productos ${esc(soles(t.productos_cents))}${t.discount_cents ? `, descuentos ${esc(soles(t.discount_cents))}` : ''}.</p>
+<div class="cols">
+  <div><h2>Por medio de pago</h2><table>${r.byMethod.length ? r.byMethod.map((m) => row(`${reportMethod(m.method)} (${m.ventas})`, soles(m.cents))).join('') : row('Sin cobros', soles(0))}</table></div>
+  <div><h2>Efectivo</h2><table>${
+    !c.sessions
+      ? row('No se abrió la caja', '')
+      : [row('Apertura', soles(c.opening_cents)), row('Cobros en efectivo', soles(c.cash_sales_cents)), row('Entradas', soles(c.ins_cents)), row('Salidas y gastos', soles(c.outs_cents)), row('Debía haber', soles(c.expected_cents), true),
+        c.open ? row('Contado', 'Caja abierta') : row('Contado', soles(c.counted_cents)),
+        c.open ? '' : row('Diferencia', d === 0 ? 'Cuadra exacto' : d < 0 ? `Falta ${soles(-d)}` : `Sobra ${soles(d)}`, true)].join('')
+  }</table></div>
+</div>
+${staff.length ? `<h2>Por barbero</h2><table><tr><th>Barbero</th><th class="n">Clientes</th><th class="n">Servicios</th><th class="n">Productos</th><th class="n">Comisión</th><th class="n">Propinas</th><th class="n">A entregar</th></tr>${staff
+    .map((s) => `<tr><td>${esc(s.name)}</td><td class="n">${s.clientes}</td><td class="n">${esc(soles(s.servicios_cents))}</td><td class="n">${esc(soles(s.productos_cents))}</td><td class="n">${esc(soles(s.comision_cents))}</td><td class="n">${esc(soles(s.tips_cents))}</td><td class="n"><b>${esc(soles(s.a_entregar_cents))}</b></td></tr>`)
+    .join('')}<tr class="strong"><td>Total</td><td class="n">${staff.reduce((a, s) => a + s.clientes, 0)}</td><td class="n">${esc(soles(staff.reduce((a, s) => a + s.servicios_cents, 0)))}</td><td class="n">${esc(soles(staff.reduce((a, s) => a + s.productos_cents, 0)))}</td><td class="n">${esc(soles(staff.reduce((a, s) => a + s.comision_cents, 0)))}</td><td class="n">${esc(soles(staff.reduce((a, s) => a + s.tips_cents, 0)))}</td><td class="n">${esc(soles(staff.reduce((a, s) => a + s.a_entregar_cents, 0)))}</td></tr></table>` : ''}
+<div class="cols">
+  <div><h2>Citas y fila</h2><table>${row('Citas completadas', String(r.appointments.completed))}${row('No vinieron a su cita', String(r.appointments.no_show))}${row('Citas canceladas', String(r.appointments.cancelled))}${row('Atendidos en la fila', String(r.queue.atendidos))}${row('No vinieron en la fila', String(r.queue.no_vinieron))}${row('Espera promedio', `${r.queue.espera_promedio_min} min`)}</table></div>
+  <div><h2>Gastos y más pedidos</h2><table>${row('Gastos del día', soles(r.expenses_cents), true)}${r.topServices.map((s) => row(`${s.name} (${s.n})`, soles(s.cents))).join('')}</table></div>
+</div>
+${r.uncharged.length ? `<h2>Sin cobrar</h2><table>${r.uncharged.map((u) => row(`${u.name ?? 'Cliente'}${u.staff ? `, ${u.staff}` : ''}`, `${u.kind === 'ticket' ? 'Turno' : 'Cita'} ${hhmm(u.at)}`)).join('')}</table>` : ''}
+<div class="sign"><div>Entregó</div><div>Recibió</div></div>
+<p class="foot">Impreso el ${esc(new Date().toLocaleString('es-PE', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/Lima' }).replace(/septiembre/i, 'setiembre'))} desde date.pe</p>
+</body></html>`;
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  setTimeout(() => { try { w.print(); } catch { /* el usuario puede imprimir a mano */ } }, 300);
+}
+
+function MiniStat({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="min-w-0 rounded-xl bg-field px-3 py-3">
+      <span className="tnum block text-[20px] font-semibold leading-tight tracking-[-0.02em]">{value}</span>
+      <span className="block truncate text-[13px] text-mute">{label}</span>
+    </div>
+  );
+}
+
+function Cierre({
+  api, tenant, state, catalog, overrides, tick, onChanged, onCloseCash,
+}: {
+  api: Api; tenant: string; state: PosState; catalog: Catalog | null; overrides: Record<string, Record<string, number>>; tick: number; onChanged: () => void; onCloseCash: () => void;
+}) {
+  const today = limaToday();
+  const yesterday = shiftDay(today, -1);
+  const [date, setDate] = useState(today);
+  const [report, setReport] = useState<DayReport | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [shop, setShop] = useState(tenant);
+  const [express, setExpress] = useState<ExpressTarget | null>(null);
+  const [charged, setCharged] = useState<Set<string>>(() => new Set());
+  const methods = quickMethods(state.config);
+
+  useEffect(() => {
+    fetch(`${API_BASE_CLIENT}/api/public/site`, { headers: { 'X-Tenant-Slug': tenant } })
+      .then((r) => r.json())
+      .then((d) => d?.tenant?.name && setShop(d.tenant.name))
+      .catch(() => {});
+  }, [tenant]);
+
+  const load = useCallback(() => {
+    setFailed(false);
+    api<DayReport>(`/admin/day/report?date=${date}`)
+      .then((r) => { setReport(r); setCharged(new Set()); })
+      .catch(() => setFailed(true));
+  }, [api, date]);
+  useEffect(() => { load(); }, [load, tick]);
+
+  function pickDay(d: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d > today) return;
+    haptic.select();
+    setDate(d);
+  }
+
+  const dayChips = (
+    <div className="flex flex-wrap items-center gap-2">
+      <button type="button" onClick={() => pickDay(today)} className={chipCls(date === today)}>Hoy</button>
+      <button type="button" onClick={() => pickDay(yesterday)} className={chipCls(date === yesterday)}>Ayer</button>
+      <label className={`${chipCls(date !== today && date !== yesterday)} relative gap-2 pr-3`}>
+        <CalendarDays size={16} strokeWidth={1.75} />
+        <input
+          type="date"
+          value={date}
+          max={today}
+          onChange={(e) => pickDay(e.target.value)}
+          className="tnum w-[8.5rem] bg-transparent text-[16px] outline-none [color-scheme:light]"
+          aria-label="Elegir otro día"
+        />
+      </label>
+    </div>
+  );
+
+  if (failed) {
+    return (
+      <div className="space-y-6">
+        {dayChips}
+        <Empty icon={FileText} title="No pudimos cargar el cierre" body="Revisa tu conexión e intenta de nuevo." action={<Btn onClick={load}>Reintentar</Btn>} />
+      </div>
+    );
+  }
+  if (!report || report.date !== date) {
+    return (
+      <div className="space-y-6">
+        {dayChips}
+        <Skeleton rows={6} />
+      </div>
+    );
+  }
+
+  const r = report;
+  const t = r.totals;
+  const c = r.cash;
+  const staff = activeStaff(r);
+  const uncharged = r.uncharged.filter((u) => !charged.has(u.id));
+  const isToday = r.date === today;
+  const dayName = isToday ? 'hoy' : r.date === yesterday ? 'ayer' : longDay(r.date);
+  const diff = Number(c.difference_cents ?? 0);
+  const staffIdx = (id: string) => {
+    const i = catalog?.staff.findIndex((s) => s.id === id) ?? -1;
+    return i < 0 ? 99 : i;
+  };
+  const sum = (k: 'clientes' | 'servicios_cents' | 'productos_cents' | 'comision_cents' | 'tips_cents' | 'a_entregar_cents') => staff.reduce((a, s) => a + s[k], 0);
+
+  function share() {
+    haptic.tap();
+    window.open(`https://wa.me/?text=${encodeURIComponent(closingText(r, shop))}`, '_blank', 'noopener,noreferrer');
+  }
+
+  return (
+    <div className="space-y-10">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {dayChips}
+        <div className="grid grid-cols-2 gap-2 sm:flex">
+          <Btn variant="secondary" className="min-h-11" onClick={share}><MessageCircle size={16} strokeWidth={1.75} /> <span className="sm:hidden">WhatsApp</span><span className="hidden sm:inline">Compartir por WhatsApp</span></Btn>
+          <Btn variant="secondary" className="min-h-11" onClick={() => { haptic.tap(); printClosing(r, shop); }}><Printer size={16} strokeWidth={1.75} /> Imprimir</Btn>
+        </div>
+      </div>
+
+      {/* Total del día */}
+      <section className="rounded-xl border border-line p-5 md:p-6">
+        <p className="text-[15px] text-mute">Total {isToday || r.date === yesterday ? `de ${dayName}` : `del ${dayName}`}</p>
+        <p className="tnum mt-1 text-[44px] font-semibold leading-none tracking-[-0.04em] md:text-[56px]">{soles(t.total_cents)}</p>
+        <dl className="mt-5 grid grid-cols-3 gap-3 border-t border-line pt-4">
+          <div className="min-w-0"><dt className="text-[13px] text-mute">Ventas</dt><dd className="tnum text-[18px] font-semibold md:text-[20px]">{t.ventas}</dd></div>
+          <div className="min-w-0"><dt className="truncate text-[13px] text-mute">Ticket promedio</dt><dd className="tnum truncate text-[18px] font-semibold md:text-[20px]">{soles(t.ticket_promedio_cents)}</dd></div>
+          <div className="min-w-0"><dt className="text-[13px] text-mute">Propinas</dt><dd className="tnum truncate text-[18px] font-semibold md:text-[20px]">{soles(t.tips_cents)}</dd></div>
+        </dl>
+        <p className="tnum mt-3 text-[13px] text-soft">
+          Servicios {soles(t.servicios_cents)}, productos {soles(t.productos_cents)}{t.discount_cents ? `, descuentos ${soles(t.discount_cents)}` : ''}.
+        </p>
+      </section>
+
+      {/* Lo que falta cobrar, con cobro de un toque */}
+      {uncharged.length > 0 && (
+        <section>
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 className="text-[17px] font-semibold tracking-[-0.02em]">Sin cobrar</h2>
+            <span className="text-[13px] text-soft">{uncharged.length} {uncharged.length === 1 ? 'atendido sin venta' : 'atendidos sin venta'}</span>
+          </div>
+          <ul className="divide-y divide-line border-y border-line">
+            {uncharged.map((u) => (
+              <li key={u.id} className="flex flex-col gap-3 py-3.5 md:flex-row md:items-center">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{u.name ?? 'Cliente'}</span>
+                  <span className="tnum block truncate text-[13px] text-mute">
+                    {u.kind === 'ticket' ? `Turno terminado a las ${hhmm(u.at)}` : `Cita de las ${hhmm(u.at)}`}{u.staff ? `, ${u.staff}` : ''}
+                  </span>
+                </span>
+                <MethodButtons methods={methods} onPick={(m) => setExpress({ kind: u.kind, id: u.id, method: m, name: u.name })} className="md:w-[340px]" />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <div className="grid gap-10 lg:grid-cols-2">
+        <section>
+          <h2 className="text-[17px] font-semibold tracking-[-0.02em]">Por medio de pago</h2>
+          {r.byMethod.length === 0 ? (
+            <p className="mt-3 text-[15px] text-mute">No hubo cobros este día.</p>
+          ) : (
+            <ul className="mt-2 divide-y divide-line border-y border-line">
+              {r.byMethod.map((m) => {
+                const Icon = METHOD[m.method]?.icon ?? Wallet;
+                return (
+                  <li key={m.method} className="flex min-h-12 items-center gap-3 py-2 text-[15px]">
+                    <Icon size={17} strokeWidth={1.75} className="shrink-0 text-mute" />
+                    <span className="min-w-0 flex-1 truncate">{reportMethod(m.method)} <span className="tnum text-[13px] text-soft">{m.ventas} {m.ventas === 1 ? 'venta' : 'ventas'}</span></span>
+                    <span className="tnum shrink-0 font-semibold">{soles(m.cents)}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        <section>
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-[17px] font-semibold tracking-[-0.02em]">Efectivo</h2>
+            {c.sessions > 1 && <span className="text-[13px] text-soft">{c.sessions} turnos de caja</span>}
+          </div>
+          {!c.sessions ? (
+            <p className="mt-3 text-[15px] text-mute">No se abrió la caja este día.</p>
+          ) : (
+            <>
+              <div className="mt-2 divide-y divide-line border-y border-line">
+                <Row label="Apertura" value={soles(c.opening_cents)} />
+                <Row label="Cobros en efectivo" value={`+ ${soles(c.cash_sales_cents)}`} />
+                {c.ins_cents > 0 && <Row label="Entradas" value={`+ ${soles(c.ins_cents)}`} />}
+                {c.outs_cents > 0 && <Row label="Salidas y gastos" value={`- ${soles(c.outs_cents)}`} />}
+                <Row label="Debía haber" value={soles(c.expected_cents)} strong />
+                {!c.open && <Row label="Contado" value={soles(c.counted_cents)} strong />}
+              </div>
+              {c.open ? (
+                <div className="mt-3 flex flex-col gap-3 rounded-xl bg-field p-4 sm:flex-row sm:items-center">
+                  <span className="flex min-w-0 flex-1 items-center gap-2 text-[15px]"><LockOpen size={17} strokeWidth={1.75} className="shrink-0" /> La caja sigue abierta. Cuenta el efectivo para ver si cuadra.</span>
+                  <Btn className="min-h-11 shrink-0" onClick={() => { haptic.tap(); onCloseCash(); }}><Lock size={16} strokeWidth={1.75} /> Cerrar caja</Btn>
+                </div>
+              ) : (
+                <div className="mt-3"><DiffPill diff={diff} large /></div>
+              )}
+            </>
+          )}
+        </section>
+      </div>
+
+      <section>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-[17px] font-semibold tracking-[-0.02em]">Por barbero</h2>
+          {staff.length > 0 && <span className="text-[13px] text-soft">A entregar es comisión más propinas</span>}
+        </div>
+        {staff.length === 0 ? (
+          <p className="mt-3 text-[15px] text-mute">Nadie cobró servicios este día.</p>
+        ) : (
+          <>
+            {/* Teléfono: una fila por barbero */}
+            <ul className="mt-2 divide-y divide-line border-y border-line md:hidden">
+              {staff.map((s) => (
+                <li key={s.staff_id} className="py-3.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: staffColor(staffIdx(s.staff_id)) }} aria-hidden />
+                      <span className="truncate font-medium">{s.name}</span>
+                      <span className="tnum shrink-0 text-[13px] text-soft">{s.clientes} {s.clientes === 1 ? 'cliente' : 'clientes'}</span>
+                    </span>
+                    <span className="shrink-0 rounded-lg bg-field px-3 py-1.5 text-right">
+                      <span className="block text-[12px] text-mute">A entregar</span>
+                      <span className="tnum block text-[17px] font-semibold leading-tight">{soles(s.a_entregar_cents)}</span>
+                    </span>
+                  </div>
+                  <div className="tnum mt-2 grid grid-cols-3 gap-2 text-[13px]">
+                    <span className="min-w-0"><span className="block text-soft">Servicios</span><span className="block truncate">{soles(s.servicios_cents + s.productos_cents)}</span></span>
+                    <span className="min-w-0"><span className="block text-soft">Comisión</span><span className="block truncate">{soles(s.comision_cents)}</span></span>
+                    <span className="min-w-0"><span className="block text-soft">Propinas</span><span className="block truncate">{soles(s.tips_cents)}</span></span>
+                  </div>
+                </li>
+              ))}
+              {staff.length > 1 && (
+                <li className="flex items-baseline justify-between gap-3 py-3 font-semibold">
+                  <span>Total a entregar</span>
+                  <span className="tnum">{soles(sum('a_entregar_cents'))}</span>
+                </li>
+              )}
+            </ul>
+
+            {/* Tableta y escritorio: tabla */}
+            <table className="mt-2 hidden w-full text-left text-[15px] md:table">
+              <thead>
+                <tr className="border-b border-ink text-[13px] text-mute">
+                  <th className="py-2.5 pr-3 font-medium">Barbero</th>
+                  <th className="py-2.5 pr-3 text-right font-medium">Clientes</th>
+                  <th className="py-2.5 pr-3 text-right font-medium">Servicios</th>
+                  <th className="py-2.5 pr-3 text-right font-medium">Productos</th>
+                  <th className="py-2.5 pr-3 text-right font-medium">Comisión</th>
+                  <th className="py-2.5 pr-3 text-right font-medium">Propinas</th>
+                  <th className="bg-field px-3 py-2.5 text-right font-medium text-ink">A entregar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {staff.map((s) => (
+                  <tr key={s.staff_id} className="border-b border-line">
+                    <td className="py-3 pr-3 font-medium">
+                      <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: staffColor(staffIdx(s.staff_id)) }} aria-hidden />{s.name}</span>
+                    </td>
+                    <td className="tnum py-3 pr-3 text-right">{s.clientes}</td>
+                    <td className="tnum py-3 pr-3 text-right">{soles(s.servicios_cents)}</td>
+                    <td className="tnum py-3 pr-3 text-right">{soles(s.productos_cents)}</td>
+                    <td className="tnum py-3 pr-3 text-right">{soles(s.comision_cents)}</td>
+                    <td className="tnum py-3 pr-3 text-right">{soles(s.tips_cents)}</td>
+                    <td className="tnum bg-field px-3 py-3 text-right text-[16px] font-semibold">{soles(s.a_entregar_cents)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {staff.length > 1 && (
+                <tfoot>
+                  <tr className="font-semibold">
+                    <td className="py-3 pr-3">Total</td>
+                    <td className="tnum py-3 pr-3 text-right">{sum('clientes')}</td>
+                    <td className="tnum py-3 pr-3 text-right">{soles(sum('servicios_cents'))}</td>
+                    <td className="tnum py-3 pr-3 text-right">{soles(sum('productos_cents'))}</td>
+                    <td className="tnum py-3 pr-3 text-right">{soles(sum('comision_cents'))}</td>
+                    <td className="tnum py-3 pr-3 text-right">{soles(sum('tips_cents'))}</td>
+                    <td className="tnum bg-field px-3 py-3 text-right text-[16px]">{soles(sum('a_entregar_cents'))}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </>
+        )}
+      </section>
+
+      <div className="grid gap-10 lg:grid-cols-2">
+        <section>
+          <h2 className="text-[17px] font-semibold tracking-[-0.02em]">Citas</h2>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <MiniStat label="Completadas" value={r.appointments.completed} />
+            <MiniStat label="No vino" value={r.appointments.no_show} />
+            <MiniStat label="Canceladas" value={r.appointments.cancelled} />
+          </div>
+          {r.appointments.pending > 0 && (
+            <p className="mt-2 text-[13px] text-soft">{r.appointments.pending} {r.appointments.pending === 1 ? 'cita sigue pendiente o sin marcar' : 'citas siguen pendientes o sin marcar'}.</p>
+          )}
+          <h2 className="mt-8 text-[17px] font-semibold tracking-[-0.02em]">Fila</h2>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <MiniStat label="Atendidos" value={r.queue.atendidos} />
+            <MiniStat label="No vinieron" value={r.queue.no_vinieron} />
+            <MiniStat label="Espera promedio" value={`${r.queue.espera_promedio_min} min`} />
+          </div>
+        </section>
+
+        <section>
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-[17px] font-semibold tracking-[-0.02em]">Gastos del día</h2>
+            <span className="tnum text-[17px] font-semibold">{soles(r.expenses_cents)}</span>
+          </div>
+          <a href="#finanzas" className="mt-1 inline-flex min-h-11 items-center gap-1 text-[14px] font-medium text-mute hover:text-ink">Ver gastos en Finanzas <ChevronRight size={15} strokeWidth={1.75} /></a>
+          <h2 className="mt-6 text-[17px] font-semibold tracking-[-0.02em]">Más pedidos</h2>
+          {r.topServices.length === 0 ? (
+            <p className="mt-3 text-[15px] text-mute">Aún no hay servicios cobrados.</p>
+          ) : (
+            <ol className="mt-2 divide-y divide-line border-y border-line">
+              {r.topServices.map((s, i) => (
+                <li key={s.name} className="flex min-h-12 items-center gap-3 py-2 text-[15px]">
+                  <span className="tnum w-5 shrink-0 text-[13px] text-soft">{i + 1}</span>
+                  <span className="min-w-0 flex-1 truncate">{s.name} <span className="tnum text-[13px] text-soft">{s.n} {s.n === 1 ? 'vez' : 'veces'}</span></span>
+                  <span className="tnum shrink-0 font-medium">{soles(s.cents)}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      </div>
+
+      <ExpressSheet
+        api={api}
+        state={state}
+        services={catalog?.services ?? []}
+        overrides={overrides}
+        target={express}
+        onClose={() => setExpress(null)}
+        onDone={(id) => { setCharged((p) => new Set(p).add(id)); onChanged(); }}
+      />
+    </div>
   );
 }

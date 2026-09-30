@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Megaphone, UserPlus, Monitor, Copy, ExternalLink, RefreshCw, Printer, Trash2, Phone, Receipt, Check,
-  UserX, Undo2, Armchair, ListOrdered, Loader2, Plus, CircleCheck, WifiOff,
+  UserX, Undo2, Armchair, ListOrdered, Loader2, Plus, CircleCheck, WifiOff, X, ChevronDown, Timer,
 } from 'lucide-react';
 import { useAdmin, useApi, soles } from './api';
 import { PageHead, Btn, Drawer, Field, inputCls, Empty, Skeleton } from './ui';
@@ -25,6 +25,13 @@ interface AdminQueue {
   stats: { atendidos: number; no_vinieron: number; espera_promedio_min: number }; estimatedWaitMin: number;
 }
 interface Me { me: { id: string; name: string | null; role: string; staffId: string | null } }
+interface QueueCfg { noShowMinutes: number; autoNoShow: boolean }
+interface FinishOut {
+  finished: { kind: 'ticket' | 'appointment'; id: string; name: string | null; number: number | null } | null;
+  charge: { appointmentId: string | null; ticketId: string | null; clientName: string | null; dueCents: number; needsService?: boolean } | null;
+  next: { id: string; number: number; name: string; staffName: string } | null;
+}
+interface PendingCharge { name: string; href: string; dueCents: number; needsService: boolean }
 
 const mins = (from: string | null, now: number) => (from ? Math.max(0, Math.floor((now - new Date(from).getTime()) / 60000)) : 0);
 const STATUS: Record<AdminTicket['status'], [string, string]> = {
@@ -48,6 +55,9 @@ export function Fila() {
   const [walkIn, setWalkIn] = useState(false);
   const [rotateOpen, setRotateOpen] = useState(false);
   const [error, setError] = useState(false);
+  const [qCfg, setQCfg] = useState<QueueCfg>({ noShowMinutes: 10, autoNoShow: true });
+  const [finishing, setFinishing] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingCharge | null>(null);
 
   const loadQueue = useCallback(async () => {
     try {
@@ -65,8 +75,16 @@ export function Fila() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenant]);
 
+  const loadCfg = useCallback(() => {
+    api<{ queue?: Partial<QueueCfg> }>('/admin/features')
+      .then((d) => setQCfg({ noShowMinutes: d.queue?.noShowMinutes ?? 10, autoNoShow: d.queue?.autoNoShow !== false }))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     loadQueue();
+    loadCfg();
     api<Me>('/admin/me').then((d) => setMe(d.me)).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -74,6 +92,7 @@ export function Fila() {
   const online = useTenantSocket(
     tenant,
     (type) => {
+      if (type === 'config_changed') loadCfg();
       if (type === 'queue_changed' || type === 'config_changed') loadQueue();
       if (type === 'sale_created') loadQueue();
     },
@@ -112,6 +131,35 @@ export function Fila() {
       toast.error(queueError((e as Error).message));
     } finally {
       setCalling(null);
+    }
+  }
+
+  // "Terminé y siguiente": cierra lo que atiende ese barbero, llama al siguiente y deja el cobro a un toque
+  async function finishFor(staffId: string) {
+    haptic.tap();
+    setFinishing(staffId);
+    try {
+      const out = await api<FinishOut>('/admin/queue/finish', { method: 'POST', body: { staffId, callNext: true } });
+      haptic.success();
+      const done = out.finished ? `${out.finished.name ?? 'Cliente'} listo. ` : '';
+      toast.success(out.next ? `${done}Turno ${out.next.number}: ${out.next.name} pasa con ${out.next.staffName}` : `${done}No hay nadie en la fila`);
+      const c = out.charge;
+      if (q?.features.pos && c && (c.dueCents > 0 || c.needsService)) {
+        setPending({
+          name: c.clientName ?? out.finished?.name ?? 'Cliente',
+          href: c.appointmentId ? `#caja?cita=${c.appointmentId}` : `#caja?ticket=${c.ticketId}`,
+          dueCents: c.dueCents,
+          needsService: !!c.needsService,
+        });
+      }
+      loadQueue();
+    } catch (e) {
+      const code = (e as Error).message;
+      if (code === 'nada_que_cerrar') toast.info('No hay nada que cerrar ni nadie esperando.');
+      else if (code === 'sin_permiso') toast.error('Solo puedes cerrar tus propios clientes.');
+      else toast.error(queueError(code));
+    } finally {
+      setFinishing(null);
     }
   }
 
@@ -157,10 +205,26 @@ export function Fila() {
         actions={
           <>
             <Btn variant="secondary" onClick={() => window.open(tvUrl, '_blank', 'noopener')}><Monitor size={16} strokeWidth={1.75} /> Abrir pantalla</Btn>
-            <Btn onClick={() => setWalkIn(true)}><UserPlus size={16} strokeWidth={1.75} /> Agregar cliente</Btn>
+            <Btn variant="secondary" onClick={() => setWalkIn(true)}><UserPlus size={16} strokeWidth={1.75} /> Agregar con celular</Btn>
           </>
         }
       />
+
+      <QuickAdd pub={pub} api={api} reload={loadQueue} />
+
+      {pending && (
+        <div className="rise-in mb-6 flex items-center gap-3 rounded-xl border border-ink p-3 pl-4" role="status">
+          <Receipt size={20} strokeWidth={1.75} className="shrink-0" />
+          <p className="min-w-0 flex-1 text-[15px]">
+            <span className="font-medium">{pending.name}</span>{' '}
+            <span className="text-mute">{pending.needsService ? 'terminó, falta elegir el servicio y cobrar' : <>terminó, falta cobrar <span className="tnum">{soles(pending.dueCents)}</span></>}</span>
+          </p>
+          <a href={pending.href} onClick={() => setPending(null)} className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full bg-ink px-4 text-[14px] font-medium text-white hover:bg-ink-2">Cobrar</a>
+          <button type="button" onClick={() => setPending(null)} aria-label="Cerrar aviso" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full hover:bg-field">
+            <X size={18} strokeWidth={1.75} />
+          </button>
+        </div>
+      )}
 
       {/* Llamar al siguiente */}
       <section className="mb-8">
@@ -173,9 +237,11 @@ export function Fila() {
               const self = me?.staffId === s.id;
               const busy = inChair.find((t) => t.served_by === s.id);
               const primary = self || (!me?.staffId && i === 0 && callers.length === 1);
+              // Un barbero solo puede cerrar lo suyo; dueño, encargado y caja cierran por cualquiera
+              const canFinish = me?.role !== 'staff' || self;
               return (
+                <div key={s.id} className="flex flex-col gap-1.5">
                 <button
-                  key={s.id}
                   type="button"
                   onClick={() => callNext(s.id)}
                   disabled={!!calling || n === 0}
@@ -196,6 +262,18 @@ export function Fila() {
                   </span>
                   {calling === s.id ? <Loader2 size={20} className="animate-spin" /> : <Megaphone size={20} strokeWidth={1.75} />}
                 </button>
+                {canFinish && (
+                  <button
+                    type="button"
+                    onClick={() => finishFor(s.id)}
+                    disabled={!!finishing || !!calling}
+                    className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-line px-4 text-[14px] font-medium transition-colors hover:border-ink disabled:opacity-45"
+                  >
+                    {finishing === s.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} strokeWidth={2} />}
+                    {busy ? `Terminé con el ${busy.number} y siguiente` : 'Terminé y siguiente'}
+                  </button>
+                )}
+                </div>
               );
             })}
           </div>
@@ -211,15 +289,15 @@ export function Fila() {
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-10 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="min-w-0 space-y-10">
-          <TicketGroup title="En el sillón" empty="Nadie llamado todavía." items={inChair} now={now} onOpen={setOpen} api={api} reload={loadQueue} pos={!!q.features.pos} />
-          <TicketGroup title="En espera" empty="No hay nadie en la fila. Comparte el QR o agrega a quien llegue." items={waiting} now={now} onOpen={setOpen} api={api} reload={loadQueue} pos={!!q.features.pos} />
+          <TicketGroup title="En el sillón" empty="Nadie llamado todavía." items={inChair} now={now} onOpen={setOpen} api={api} reload={loadQueue} pos={!!q.features.pos} noShowMin={qCfg.autoNoShow ? qCfg.noShowMinutes : null} />
+          <TicketGroup title="En espera" empty="No hay nadie en la fila. Comparte el QR o agrega a quien llegue." items={waiting} now={now} onOpen={setOpen} api={api} reload={loadQueue} pos={!!q.features.pos} noShowMin={qCfg.autoNoShow ? qCfg.noShowMinutes : null} />
           {finished.length > 0 && (
             <details className="border-t border-line">
               <summary className="flex min-h-[52px] items-center justify-between text-[15px] font-medium">
                 Terminados hoy <span className="flex items-center gap-2 text-mute"><span className="tnum">{finished.length}</span><Plus size={18} strokeWidth={1.75} className="acc-icon" /></span>
               </summary>
               <div className="acc-body"><div>
-                <TicketGroup title="" empty="" items={finished} now={now} onOpen={setOpen} api={api} reload={loadQueue} pos={!!q.features.pos} />
+                <TicketGroup title="" empty="" items={finished} now={now} onOpen={setOpen} api={api} reload={loadQueue} pos={!!q.features.pos} noShowMin={qCfg.autoNoShow ? qCfg.noShowMinutes : null} />
               </div></div>
             </details>
           )}
@@ -265,8 +343,10 @@ export function Fila() {
 type Api = ReturnType<typeof useApi>;
 
 // ------------------------------- Lista de turnos -------------------------------
-function TicketGroup({ title, empty, items, now, onOpen, api, reload, pos }: {
+function TicketGroup({ title, empty, items, now, onOpen, api, reload, pos, noShowMin }: {
   title: string; empty: string; items: AdminTicket[]; now: number; onOpen: (t: AdminTicket) => void; api: Api; reload: () => void; pos: boolean;
+  /** Minutos para pasar a "no vino" si el aviso automático está activo. */
+  noShowMin: number | null;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   async function patch(t: AdminTicket, body: Record<string, unknown>, msg: string) {
@@ -302,6 +382,7 @@ function TicketGroup({ title, empty, items, now, onOpen, api, reload, pos }: {
                       <span className="truncate text-[15px] font-medium">{t.name}</span>
                       <span className={`hidden shrink-0 rounded-full px-2 py-0.5 text-[12px] font-medium sm:inline-flex ${cls}`}>{label}</span>
                     </span>
+                    {t.status === 'called' && noShowMin != null && t.called_at && <NoShowLeft calledAt={t.called_at} minutes={noShowMin} />}
                     <span className="block truncate text-[13px] text-mute">
                       {[t.service_name, who ? (t.status === 'waiting' ? `pidió a ${who}` : who) : t.status === 'waiting' ? 'el primero libre' : null, since != null ? (t.status === 'waiting' ? `espera ${fmtMinutes(since)}` : t.status === 'called' ? `llamado hace ${fmtMinutes(since)}` : `hace ${fmtMinutes(since)}`) : null, t.delays ? 'pidió tiempo' : null].filter(Boolean).join(', ')}
                     </span>
@@ -336,6 +417,120 @@ function TicketGroup({ title, empty, items, now, onOpen, api, reload, pos }: {
         </ul>
       )}
     </section>
+  );
+}
+
+/** "Pasa a no vino en 4:32", con segundos en vivo. */
+function NoShowLeft({ calledAt, minutes }: { calledAt: string; minutes: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const left = Math.max(0, Math.ceil((new Date(calledAt).getTime() + minutes * 60000 - now) / 1000));
+  return (
+    <span className="flex items-center gap-1 text-[13px] font-medium text-[#8a5300]">
+      <Timer size={13} strokeWidth={1.75} />
+      {left > 0 ? <span>Pasa a no vino en <span className="tnum">{Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}</span></span> : 'Pasando a no vino'}
+    </span>
+  );
+}
+
+// ------------------------------- Anotar rápido -------------------------------
+/** Anotar a quien llega en un segundo: nombre, Enter y listo para el siguiente. */
+function QuickAdd({ pub, api, reload }: { pub: QueueState | null; api: Api; reload: () => void }) {
+  const [name, setName] = useState('');
+  const [more, setMore] = useState(false);
+  const [serviceId, setServiceId] = useState<string | null>(null);
+  const [staffId, setStaffId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const services = pub?.services ?? [];
+  const staff = pub?.staff ?? [];
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const n = name.trim();
+    if (!n) {
+      inputRef.current?.focus();
+      return;
+    }
+    if (busy) return;
+    haptic.tap();
+    setBusy(true);
+    try {
+      const out = await api<{ number: number }>('/admin/queue', { method: 'POST', body: { name: n, ...(serviceId ? { serviceId } : {}), ...(staffId ? { staffId } : {}) } });
+      toast.success(`Turno ${out.number} para ${n}`);
+      setName('');
+      setServiceId(null);
+      setStaffId(null);
+      reload();
+    } catch (err) {
+      toast.error(queueError((err as Error).message));
+    } finally {
+      setBusy(false);
+      inputRef.current?.focus();
+    }
+  }
+
+  const chip = (on: boolean) => `min-h-11 rounded-full px-4 text-[15px] transition-colors ${on ? 'bg-ink text-white' : 'bg-field text-ink hover:bg-line'}`;
+  const extras = services.length > 0 || staff.length > 0;
+
+  return (
+    <form onSubmit={submit} className="mb-6">
+      <div className="flex gap-2">
+        <input
+          ref={inputRef}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={40}
+          autoCapitalize="words"
+          autoComplete="off"
+          enterKeyHint="done"
+          aria-label="Nombre de quien llegó"
+          placeholder="Nombre de quien llegó"
+          className="min-h-12 w-full min-w-0 flex-1 rounded-full border border-line-2 bg-white px-5 text-[16px] outline-none transition-colors focus:border-ink"
+        />
+        <button type="submit" disabled={busy} className="inline-flex min-h-12 shrink-0 items-center gap-2 rounded-full bg-ink px-5 text-[15px] font-medium text-white hover:bg-ink-2 disabled:opacity-60">
+          {busy ? <Loader2 size={17} className="animate-spin" /> : <Plus size={17} strokeWidth={2} />} Anotar
+        </button>
+      </div>
+      {extras && (
+        <button type="button" onClick={() => { haptic.tap(); setMore((m) => !m); }} aria-expanded={more} className="mt-1 inline-flex min-h-11 items-center gap-1 rounded-full px-2 text-[14px] font-medium text-mute hover:bg-field hover:text-ink">
+          Más opciones{serviceId || staffId ? ' (elegidas)' : ''} <ChevronDown size={16} strokeWidth={1.75} className={`transition-transform duration-200 ${more ? 'rotate-180' : ''}`} />
+        </button>
+      )}
+      {more && extras && (
+        <div className="fade-in mt-2 space-y-4 rounded-xl border border-line p-4">
+          {services.length > 0 && (
+            <div>
+              <p className="mb-2 text-[14px] font-medium">Servicio</p>
+              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Servicio">
+                <button type="button" role="radio" aria-checked={!serviceId} onClick={() => setServiceId(null)} className={chip(!serviceId)}>Sin elegir</button>
+                {services.map((s) => (
+                  <button key={s.id} type="button" role="radio" aria-checked={serviceId === s.id} onClick={() => { haptic.select(); setServiceId(s.id); }} className={chip(serviceId === s.id)}>
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {staff.length > 0 && (
+            <div>
+              <p className="mb-2 text-[14px] font-medium">Barbero</p>
+              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Barbero">
+                <button type="button" role="radio" aria-checked={!staffId} onClick={() => setStaffId(null)} className={chip(!staffId)}>El primero libre</button>
+                {staff.map((s) => (
+                  <button key={s.id} type="button" role="radio" aria-checked={staffId === s.id} onClick={() => { haptic.select(); setStaffId(s.id); }} className={chip(staffId === s.id)}>
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </form>
   );
 }
 

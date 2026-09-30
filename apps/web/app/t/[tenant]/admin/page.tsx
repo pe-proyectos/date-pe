@@ -415,7 +415,7 @@ function PushPrompt({ publicKey }: { publicKey: string }) {
 
   if (!show) return null;
   return (
-    <div role="dialog" aria-label="Notificaciones" className="rise-in fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-40 rounded-xl border border-line bg-white p-4 shadow-pop md:inset-x-auto md:right-6 md:w-[380px] lg:bottom-6">
+    <div role="dialog" aria-label="Notificaciones" className="rise-in fixed inset-x-3 top-[calc(64px+env(safe-area-inset-top))] z-40 rounded-xl border border-line bg-white p-4 shadow-pop md:inset-x-auto md:right-6 md:top-auto md:bottom-6 md:w-[380px]">
       <div className="flex items-start gap-3">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-field"><BellRing size={19} strokeWidth={1.75} /></span>
         <div className="min-w-0 flex-1">

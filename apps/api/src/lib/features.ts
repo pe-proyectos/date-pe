@@ -17,6 +17,7 @@ export const FEATURE_DEFAULTS = {
   marketing: true,
   client_photos: true,
   push: true,
+  daily_summary: true,
   whatsapp: false,
 } as const;
 export type FeatureKey = keyof typeof FEATURE_DEFAULTS;
@@ -43,6 +44,7 @@ export const QUEUE_DEFAULTS = {
   askPhone: false,
   allowStaffChoice: true,
   noShowMinutes: 10,
+  autoNoShow: true, // si no se presenta: segundo llamado a la mitad y luego pasa al siguiente
   earlyMinutes: 60, // se puede sacar turno hasta 60 min antes de abrir
   fallbackMinutes: 30,
   welcome: '',

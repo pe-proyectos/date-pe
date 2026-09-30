@@ -2,7 +2,7 @@ import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { withTenant, admin, type Sql } from '../db.js';
 import { tenantConfig, FeatureOff, type TenantConfig } from '../lib/features.js';
-import { emitTenantEvent } from '../lib/realtime.js';
+import { emitTenantEvent, emitAvailabilityChange } from '../lib/realtime.js';
 import { pushToTicket, pushToUsers, saveSubscription, pushEnabled } from '../lib/push.js';
 import { env } from '../env.js';
 
@@ -378,23 +378,53 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
       const b = z.object({ staffId: z.string().uuid().optional() }).parse(request.body ?? {});
       const staffId = b.staffId ?? request.user.staffId ?? null;
       if (!staffId) return reply.code(400).send({ error: 'elige_el_barbero' });
-      const out = await withTenant(t.id, async (sql) => {
-        const next = await sql<{ id: string; number: number; name: string }>(
-          `UPDATE queue_tickets SET status = 'called', served_by = $1, called_at = now()
-            WHERE id = (SELECT id FROM queue_tickets WHERE day = ${TODAY} AND status = 'waiting' AND (staff_id IS NULL OR staff_id = $1)
-                        ORDER BY sort_at LIMIT 1 FOR UPDATE SKIP LOCKED)
-            RETURNING id, number, name`,
+      const out = await callNext(t.id, staffId);
+      if (!out) return reply.code(404).send({ error: 'nadie_esperando' });
+      return out;
+    });
+
+    // "Terminé": cierra lo que el barbero está atendiendo (turno o cita), lo deja listo
+    // para cobrar y, si se pide, llama al siguiente de la fila. Todo en un toque.
+    panel.post('/admin/queue/finish', async (request, reply) => {
+      const t = tenantOf(request);
+      const b = z.object({ staffId: z.string().uuid().optional(), callNext: z.boolean().default(true) }).parse(request.body ?? {});
+      const staffId = b.staffId ?? request.user.staffId ?? null;
+      if (!staffId) return reply.code(400).send({ error: 'elige_el_barbero' });
+      if (request.user.role === 'staff' && request.user.staffId && staffId !== request.user.staffId) return reply.code(403).send({ error: 'sin_permiso' });
+      const finished = await withTenant(t.id, async (sql) => {
+        const tk = await sql<{ id: string; name: string; number: number; client_id: string | null }>(
+          `UPDATE queue_tickets SET status = 'done', finished_at = now(), started_at = COALESCE(started_at, called_at)
+            WHERE id = (SELECT id FROM queue_tickets WHERE day = ${TODAY} AND served_by = $1 AND status IN ('called','serving') ORDER BY called_at DESC LIMIT 1)
+            RETURNING id, name, number, client_id`,
           [staffId],
         );
-        const staff = await sql<{ name: string }>('SELECT name FROM staff WHERE id = $1', [staffId]);
-        return next.rows[0] ? { ...next.rows[0], staffName: staff.rows[0]?.name ?? '' } : null;
+        if (tk.rows[0]) return { kind: 'ticket' as const, id: tk.rows[0].id, name: firstName(tk.rows[0].name), number: tk.rows[0].number };
+        // Cita en curso (o que empezó hace poco) de este barbero
+        const ap = await sql<{ id: string; client_name: string | null }>(
+          `UPDATE appointments a SET status = 'completed'
+             FROM (SELECT a2.id FROM appointments a2 WHERE a2.staff_id = $1 AND a2.status = 'confirmed'
+                     AND a2.starts_at <= now() + interval '10 minutes' AND a2.ends_at >= now() - interval '90 minutes'
+                   ORDER BY a2.starts_at LIMIT 1) x
+            WHERE a.id = x.id
+           RETURNING a.id, (SELECT name FROM clients c WHERE c.id = a.client_id) AS client_name`,
+          [staffId],
+        );
+        if (!ap.rows[0]) return null;
+        // Puntos de la visita (una sola vez)
+        await sql(
+          `UPDATE clients c SET loyalty_points = c.loyalty_points + COALESCE((SELECT loyalty_points_per_visit FROM tenant_settings LIMIT 1), 10)
+             FROM appointments a WHERE a.id = $1 AND a.client_id = c.id AND a.points_awarded = false`,
+          [ap.rows[0].id],
+        );
+        await sql('UPDATE appointments SET points_awarded = true WHERE id = $1', [ap.rows[0].id]);
+        return { kind: 'appointment' as const, id: ap.rows[0].id, name: firstName(ap.rows[0].client_name), number: null };
       });
-      if (!out) return reply.code(404).send({ error: 'nadie_esperando' });
-      // La TV anuncia con voz y el celular del cliente vibra
-      await emitTenantEvent(t.id, 'queue_changed', { announce: { number: out.number, name: firstName(out.name), staff: out.staffName } });
-      void pushToTicket(out.id, { title: `Te toca, ${firstName(out.name)}`, body: `${out.staffName} te espera. Turno ${out.number}.`, urgent: true, tag: 'turno', url: '/turno' });
-      void notifyNearTickets(t.id);
-      return out;
+      const charge = finished ? await withTenant(t.id, (sql) => expressCharge(sql, finished.kind === 'ticket' ? { ticketId: finished.id } : { appointmentId: finished.id })) : null;
+      const next = b.callNext ? await callNext(t.id, staffId) : null;
+      if (finished && !next) await emitTenantEvent(t.id, 'queue_changed');
+      if (finished?.kind === 'appointment') await emitAvailabilityChange(t.id);
+      if (!finished && !next) return reply.code(404).send({ error: 'nada_que_cerrar' });
+      return { finished, charge, next };
     });
 
     panel.post('/admin/queue/:id/recall', async (request, reply) => {
@@ -453,4 +483,66 @@ export async function notifyNearTickets(tenantId: string) {
     [tenantId],
   );
   for (const r of rows) void pushToTicket(r.id, { title: `Ya casi te toca, ${firstName(r.name)}`, body: `Turno ${r.number}: acércate al local.`, tag: 'turno', url: '/turno' });
+}
+
+/** Llama al siguiente para un barbero: el primero que lo espera a él o a cualquiera. */
+export async function callNext(tenantId: string, staffId: string) {
+  const out = await withTenant(tenantId, async (sql) => {
+    const next = await sql<{ id: string; number: number; name: string }>(
+      `UPDATE queue_tickets SET status = 'called', served_by = $1, called_at = now(), recalled_at = NULL
+        WHERE id = (SELECT id FROM queue_tickets WHERE day = ${TODAY} AND status = 'waiting' AND (staff_id IS NULL OR staff_id = $1)
+                    ORDER BY sort_at LIMIT 1 FOR UPDATE SKIP LOCKED)
+        RETURNING id, number, name`,
+      [staffId],
+    );
+    const staff = await sql<{ name: string }>('SELECT name FROM staff WHERE id = $1', [staffId]);
+    return next.rows[0] ? { ...next.rows[0], name: firstName(next.rows[0].name), staffName: staff.rows[0]?.name ?? '' } : null;
+  });
+  if (!out) return null;
+  // La TV anuncia con voz y el celular del cliente vibra
+  await emitTenantEvent(tenantId, 'queue_changed', { announce: { number: out.number, name: out.name, staff: out.staffName } });
+  void pushToTicket(out.id, { title: `Te toca, ${out.name}`, body: `${out.staffName} te espera. Turno ${out.number}.`, urgent: true, tag: 'turno', url: '/turno' });
+  void notifyNearTickets(tenantId);
+  return out;
+}
+
+/**
+ * Lo que hay que cobrar por un turno o una cita, calculado igual que la caja:
+ * servicios con su precio (y el del barbero), descuento de la reserva y adelanto ya pagado.
+ */
+export async function expressCharge(sql: Sql, ref: { ticketId?: string; appointmentId?: string }) {
+  if (ref.appointmentId) {
+    const a = await sql<{ id: string; staff_id: string | null; client_id: string | null; discount_cents: number; client_name: string | null; paid: boolean }>(
+      `SELECT a.id, a.staff_id, a.client_id, a.discount_cents, c.name AS client_name,
+              EXISTS (SELECT 1 FROM sales s WHERE s.appointment_id = a.id AND s.status = 'paid') AS paid
+         FROM appointments a LEFT JOIN clients c ON c.id = a.client_id WHERE a.id = $1`,
+      [ref.appointmentId],
+    );
+    const row = a.rows[0];
+    if (!row || row.paid) return null;
+    const lines = (
+      await sql<{ service_id: string; name: string; price_cents: number }>(
+        `SELECT aps.service_id, sv.name, aps.price_cents FROM appointment_services aps JOIN services sv ON sv.id = aps.service_id WHERE aps.appointment_id = $1 ORDER BY sv.is_addon`,
+        [row.id],
+      )
+    ).rows;
+    const deposit = (await sql<{ d: number }>(`SELECT COALESCE(sum(amount_cents), 0)::int AS d FROM payments WHERE appointment_id = $1 AND status = 'captured'`, [row.id])).rows[0].d;
+    const subtotal = lines.reduce((s2, l) => s2 + l.price_cents, 0);
+    const total = Math.max(0, subtotal - (row.discount_cents ?? 0));
+    return { appointmentId: row.id, ticketId: null, staffId: row.staff_id, clientId: row.client_id, clientName: firstName(row.client_name), items: lines.map((l) => ({ serviceId: l.service_id, name: l.name, priceCents: l.price_cents })), discountCents: row.discount_cents ?? 0, totalCents: total, depositCents: Math.min(deposit, total), dueCents: Math.max(0, total - deposit) };
+  }
+  if (ref.ticketId) {
+    const tk = await sql<{ id: string; name: string; served_by: string | null; service_id: string | null; client_id: string | null; sale_id: string | null }>(
+      'SELECT id, name, served_by, service_id, client_id, sale_id FROM queue_tickets WHERE id = $1',
+      [ref.ticketId],
+    );
+    const row = tk.rows[0];
+    if (!row || row.sale_id) return null;
+    if (!row.service_id) return { appointmentId: null, ticketId: row.id, staffId: row.served_by, clientId: row.client_id, clientName: firstName(row.name), items: [], discountCents: 0, totalCents: 0, depositCents: 0, dueCents: 0, needsService: true };
+    const sv = await sql<{ name: string; price_cents: number }>('SELECT name, price_cents FROM services WHERE id = $1', [row.service_id]);
+    const ov = row.served_by ? await sql<{ price_cents: number | null }>('SELECT price_cents FROM service_staff WHERE service_id = $1 AND staff_id = $2', [row.service_id, row.served_by]) : { rows: [] as Array<{ price_cents: number | null }> };
+    const price = ov.rows[0]?.price_cents ?? sv.rows[0]?.price_cents ?? 0;
+    return { appointmentId: null, ticketId: row.id, staffId: row.served_by, clientId: row.client_id, clientName: firstName(row.name), items: [{ serviceId: row.service_id, name: sv.rows[0]?.name ?? 'Servicio', priceCents: price }], discountCents: 0, totalCents: price, depositCents: 0, dueCents: price };
+  }
+  return null;
 }
