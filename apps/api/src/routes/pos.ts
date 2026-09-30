@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { withTenant, type Sql } from '../db.js';
 import { tenantConfig } from '../lib/features.js';
 import { emitTenantEvent, emitAvailabilityChange } from '../lib/realtime.js';
-import { notifyNearTickets, expressCharge } from './queue.js';
+import { notifyNearTickets, expressCharge, locationParam } from './queue.js';
 import { dayReport } from '../lib/day-report.js';
 
 // Caja del local: cobrar servicios y productos con pago mixto y propinas,
@@ -22,12 +22,15 @@ class PosError extends Error {
   }
 }
 
-async function openSession(sql: Sql, userId: string, openingCents = 0, auto = false) {
-  const cur = await sql<{ id: string }>("SELECT id FROM cash_sessions WHERE status = 'open' ORDER BY opened_at DESC LIMIT 1");
+// Cada sede tiene su propia caja. Sin sede elegida (barbería de una sola sede) vale la caja abierta que haya.
+const SAME_LOC = '($1::uuid IS NULL OR location_id = $1::uuid)';
+
+async function openSession(sql: Sql, userId: string, openingCents = 0, auto = false, loc: string | null = null) {
+  const cur = await sql<{ id: string }>(`SELECT id FROM cash_sessions WHERE status = 'open' AND ${SAME_LOC} ORDER BY opened_at DESC LIMIT 1`, [loc]);
   if (cur.rows[0]) return cur.rows[0].id;
   const r = await sql<{ id: string }>(
-    `INSERT INTO cash_sessions (tenant_id, opened_by, opening_cents, notes) VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3) RETURNING id`,
-    [userId, openingCents, auto ? 'Abierta automáticamente con el primer cobro' : null],
+    `INSERT INTO cash_sessions (tenant_id, opened_by, opening_cents, notes, location_id) VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4) RETURNING id`,
+    [userId, openingCents, auto ? 'Abierta automáticamente con el primer cobro' : null, loc],
   );
   return r.rows[0].id;
 }
@@ -109,6 +112,9 @@ const checkoutSchema = z.object({
   receiptUrl: z.string().max(500).optional(),
   receiptNumber: z.string().max(40).optional(),
   note: z.string().max(300).optional(),
+  // Caja sin internet: referencia única del dispositivo y hora real del cobro
+  clientRef: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/).optional(),
+  offlineAt: z.string().datetime().optional(),
 });
 
 export const posRoutes: FastifyPluginAsync = async (app) => {
@@ -117,6 +123,7 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
   // Lo que la caja necesita para cobrar rápido: catálogo y a quién cobrarle ahora
   app.get('/admin/pos/catalog', async (request) =>
     withTenant(tid(request), async (sql) => {
+      const loc = locationParam(request);
       const [services, products, packages, plans, rewards, staff, pendingAppts, tickets] = await Promise.all([
         sql('SELECT id, name, price_cents, duration_min, is_addon FROM services WHERE is_active ORDER BY is_addon, sort_order, name'),
         sql('SELECT id, name, price_cents, stock, min_stock, category, photo_url FROM products WHERE is_active ORDER BY category NULLS LAST, name'),
@@ -125,7 +132,7 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
         sql('SELECT id, name, points_cost, kind, value, ref_id FROM rewards WHERE active ORDER BY points_cost'),
         sql(`SELECT id, name, photo_url, commission_percent,
                     (SELECT COALESCE(json_object_agg(ss.service_id, ss.price_cents), '{}'::json) FROM service_staff ss WHERE ss.staff_id = staff.id AND ss.price_cents IS NOT NULL) AS prices
-               FROM staff ORDER BY sort_order, name`),
+               FROM staff WHERE ($1::uuid IS NULL OR location_id IS NULL OR location_id = $1) ORDER BY sort_order, name`, [loc]),
         sql(
           `SELECT a.id, a.starts_at, a.status, a.price_cents, a.staff_id, s.name AS staff_name, a.client_id, c.name AS client_name, c.phone AS client_phone,
                   (SELECT json_agg(json_build_object('service_id', aps.service_id, 'name', sv.name, 'price_cents', aps.price_cents))
@@ -135,14 +142,18 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
              FROM appointments a LEFT JOIN staff s ON s.id = a.staff_id LEFT JOIN clients c ON c.id = a.client_id
             WHERE (a.starts_at AT TIME ZONE 'America/Lima')::date = ${TODAY} AND a.status IN ('confirmed','pending','completed')
               AND NOT EXISTS (SELECT 1 FROM sales x WHERE x.appointment_id = a.id AND x.status = 'paid')
+              AND ($1::uuid IS NULL OR a.location_id IS NULL OR a.location_id = $1)
             ORDER BY a.starts_at`,
+          [loc],
         ),
         sql(
           `SELECT q.id, q.number, q.name, q.status, q.served_by, sb.name AS served_by_name, q.service_id, sv.name AS service_name, sv.price_cents, q.client_id, q.finished_at
              FROM queue_tickets q LEFT JOIN staff sb ON sb.id = q.served_by LEFT JOIN services sv ON sv.id = q.service_id
             WHERE q.day = ${TODAY} AND q.sale_id IS NULL
               AND (q.status IN ('called','serving') OR (q.status = 'done' AND q.finished_at > now() - interval '4 hours'))
+              AND ($1::uuid IS NULL OR q.location_id IS NULL OR q.location_id = $1)
             ORDER BY (q.status = 'done') DESC, q.called_at`,
+          [loc],
         ),
       ]);
       return { services: services.rows, products: products.rows, packages: packages.rows, plans: plans.rows, rewards: rewards.rows, staff: staff.rows, pendingAppointments: pendingAppts.rows, tickets: tickets.rows };
@@ -152,22 +163,25 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
   app.get('/admin/pos/state', async (request) =>
     withTenant(tid(request), async (sql) => {
       const cfg = await tenantConfig(sql);
+      const loc = locationParam(request);
       const s = await sql<{ id: string; opened_at: Date; opening_cents: number; opened_by_name: string | null }>(
         `SELECT cs.id, cs.opened_at, cs.opening_cents, u.name AS opened_by_name FROM cash_sessions cs LEFT JOIN users u ON u.id = cs.opened_by
-          WHERE cs.status = 'open' ORDER BY cs.opened_at DESC LIMIT 1`,
+          WHERE cs.status = 'open' AND ($1::uuid IS NULL OR cs.location_id = $1::uuid) ORDER BY cs.opened_at DESC LIMIT 1`,
+        [loc],
       );
       const session = s.rows[0] ? { ...s.rows[0], cash: await expectedCash(sql, s.rows[0].id) } : null;
-      const today = await summary(sql, `(s.created_at AT TIME ZONE 'America/Lima')::date = ${TODAY}`, []);
+      const today = await summary(sql, `(s.created_at AT TIME ZONE 'America/Lima')::date = ${TODAY} AND ($1::uuid IS NULL OR s.location_id = $1)`, [loc]);
       return { session, config: cfg.pos, features: cfg.features, today };
     }),
   );
 
   app.post('/admin/cash/open', async (request, reply) => {
     const b = z.object({ openingCents: z.number().int().min(0).default(0) }).parse(request.body ?? {});
+    const loc = locationParam(request);
     const id = await withTenant(tid(request), async (sql) => {
-      const cur = await sql("SELECT 1 FROM cash_sessions WHERE status = 'open'");
+      const cur = await sql(`SELECT 1 FROM cash_sessions WHERE status = 'open' AND ${SAME_LOC}`, [loc]);
       if (cur.rows.length) return null;
-      return openSession(sql, request.user.sub, b.openingCents);
+      return openSession(sql, request.user.sub, b.openingCents, false, loc);
     });
     if (!id) return reply.code(409).send({ error: 'caja_ya_abierta' });
     await emitTenantEvent(tid(request), 'cash_changed');
@@ -176,8 +190,9 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/admin/cash/movement', async (request, reply) => {
     const b = z.object({ kind: z.enum(['in', 'out']), amountCents: z.number().int().min(1), reason: z.string().min(1).max(120) }).parse(request.body);
+    const loc = locationParam(request);
     const ok = await withTenant(tid(request), async (sql) => {
-      const cur = await sql<{ id: string }>("SELECT id FROM cash_sessions WHERE status = 'open' LIMIT 1");
+      const cur = await sql<{ id: string }>(`SELECT id FROM cash_sessions WHERE status = 'open' AND ${SAME_LOC} LIMIT 1`, [loc]);
       if (!cur.rows[0]) return false;
       await sql(`INSERT INTO cash_movements (tenant_id, session_id, kind, amount_cents, reason, created_by) VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4, $5)`, [
         cur.rows[0].id,
@@ -196,8 +211,9 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
   // Cierre con cuadre: lo contado contra lo esperado
   app.post('/admin/cash/close', async (request, reply) => {
     const b = z.object({ countedCents: z.number().int().min(0), notes: z.string().max(300).optional() }).parse(request.body);
+    const loc = locationParam(request);
     const out = await withTenant(tid(request), async (sql) => {
-      const cur = await sql<{ id: string }>("SELECT id FROM cash_sessions WHERE status = 'open' LIMIT 1");
+      const cur = await sql<{ id: string }>(`SELECT id FROM cash_sessions WHERE status = 'open' AND ${SAME_LOC} LIMIT 1`, [loc]);
       if (!cur.rows[0]) return null;
       const cash = await expectedCash(sql, cur.rows[0].id);
       await sql(
@@ -217,11 +233,13 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
     withTenant(tid(request), async (sql) => {
       const { rows } = await sql(
         `SELECT cs.id, cs.status, cs.opened_at, cs.closed_at, cs.opening_cents, cs.expected_cents, cs.counted_cents, cs.difference_cents, cs.notes,
-                uo.name AS opened_by_name, uc.name AS closed_by_name,
+                uo.name AS opened_by_name, uc.name AS closed_by_name, cs.location_id, (SELECT name FROM locations l WHERE l.id = cs.location_id) AS location_name,
                 (SELECT COALESCE(sum(total_cents), 0) FROM sales s WHERE s.session_id = cs.id AND s.status = 'paid')::int AS total_cents,
                 (SELECT count(*) FROM sales s WHERE s.session_id = cs.id AND s.status = 'paid')::int AS ventas
            FROM cash_sessions cs LEFT JOIN users uo ON uo.id = cs.opened_by LEFT JOIN users uc ON uc.id = cs.closed_by
+          WHERE ($1::uuid IS NULL OR cs.location_id = $1)
           ORDER BY cs.opened_at DESC LIMIT 60`,
+        [locationParam(request)],
       );
       return { sessions: rows };
     }),
@@ -231,6 +249,15 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
   app.post('/admin/pos/checkout', async (request, reply) => {
     const b = checkoutSchema.parse(request.body);
     const tenantId = tid(request);
+    // Una venta hecha sin conexión puede llegar dos veces: la segunda devuelve la primera
+    if (b.clientRef) {
+      const prev = await withTenant(tenantId, (sql) =>
+        sql<{ id: string; number: number; total_cents: number; created_at: Date }>('SELECT id, number, total_cents, created_at FROM sales WHERE client_ref = $1', [b.clientRef]),
+      );
+      if (prev.rows[0]) return { saleId: prev.rows[0].id, number: prev.rows[0].number, total: prev.rows[0].total_cents, duplicate: true, createdAt: prev.rows[0].created_at };
+    }
+    // Hora real del cobro offline (hasta 3 días atrás) para que caiga en el día correcto
+    const offlineAt = b.offlineAt && Date.parse(b.offlineAt) > Date.now() - 3 * 86_400_000 && Date.parse(b.offlineAt) <= Date.now() + 60_000 ? b.offlineAt : null;
     try {
       const result = await withTenant(tenantId, async (sql) => {
         const cfg = await tenantConfig(sql);
@@ -374,13 +401,21 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
         }
 
         // Caja abierta (si no hay, se abre sola con el primer cobro)
-        const sessionId = cfg.pos.requireSession ? await openSession(sql, request.user.sub, 0, true) : null;
+        // Sede de la venta: la elegida en el panel, o la de la cita o el turno
+        const saleLoc =
+          locationParam(request) ??
+          (b.appointmentId ? (await sql<{ l: string | null }>('SELECT location_id AS l FROM appointments WHERE id = $1', [b.appointmentId])).rows[0]?.l : null) ??
+          (b.ticketId ? (await sql<{ l: string | null }>('SELECT location_id AS l FROM queue_tickets WHERE id = $1', [b.ticketId])).rows[0]?.l : null) ??
+          null;
+        // Barbería de una sola sede: la caja sigue sin sede (como siempre)
+        const multi = (await sql<{ n: number }>('SELECT count(*)::int AS n FROM locations WHERE is_active')).rows[0].n > 1;
+        const sessionId = cfg.pos.requireSession ? await openSession(sql, request.user.sub, 0, true, multi ? saleLoc : null) : null;
         const number = (await sql<{ n: number }>('SELECT COALESCE(max(number), 0) + 1 AS n FROM sales')).rows[0].n;
         const sale = await sql<{ id: string; created_at: Date }>(
           `INSERT INTO sales (tenant_id, session_id, number, appointment_id, ticket_id, client_id, staff_id, subtotal_cents, discount_cents, tip_cents, total_cents,
-                              receipt_url, receipt_number, note, created_by)
-           VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id, created_at`,
-          [sessionId, number, b.appointmentId ?? null, b.ticketId ?? null, clientId, mainStaff, subtotal, discount, b.tipCents, total, b.receiptUrl ?? null, b.receiptNumber ?? null, b.note ?? null, request.user.sub],
+                              receipt_url, receipt_number, note, created_by, client_ref, offline_at, created_at, location_id)
+           VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::timestamptz, COALESCE($16::timestamptz, now()), $17) RETURNING id, created_at`,
+          [sessionId, number, b.appointmentId ?? null, b.ticketId ?? null, clientId, mainStaff, subtotal, discount, b.tipCents, total, b.receiptUrl ?? null, b.receiptNumber ?? null, b.note ?? null, request.user.sub, b.clientRef ?? null, offlineAt, saleLoc],
         );
         const saleId = sale.rows[0].id;
 
@@ -475,6 +510,11 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(201).send({ ok: true, ...result });
     } catch (err) {
       if (err instanceof PosError) return reply.code(err.status).send({ error: err.code, ...err.extra });
+      // Dos reintentos simultáneos de la misma venta offline: gana el primero
+      if ((err as { constraint?: string }).constraint === 'uq_sales_client_ref') {
+        const prev = await withTenant(tenantId, (sql) => sql<{ id: string; number: number; total_cents: number; created_at: Date }>('SELECT id, number, total_cents, created_at FROM sales WHERE client_ref = $1', [b.clientRef]));
+        if (prev.rows[0]) return { saleId: prev.rows[0].id, number: prev.rows[0].number, total: prev.rows[0].total_cents, duplicate: true, createdAt: prev.rows[0].created_at };
+      }
       throw err;
     }
   });
@@ -551,7 +591,7 @@ export const posRoutes: FastifyPluginAsync = async (app) => {
   app.get('/admin/day/report', async (request) => {
     const q = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).parse(request.query);
     const day = q.date ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
-    return dayReport(tid(request), day);
+    return dayReport(tid(request), day, locationParam(request));
   });
 
   // Lo pendiente de cobrar de un turno o una cita (para el cobro express)

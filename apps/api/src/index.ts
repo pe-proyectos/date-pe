@@ -27,8 +27,13 @@ import { queueRoutes } from './routes/queue.js';
 import { posRoutes } from './routes/pos.js';
 import { financeRoutes } from './routes/finance.js';
 import { crmRoutes } from './routes/crm.js';
+import { complaintRoutes } from './routes/complaints.js';
+import { statusRoutes } from './routes/status.js';
+import { setupRoutes } from './routes/setup.js';
 import { tenantSlugByDomain } from './lib/domains.js';
 import { startScheduler } from './lib/scheduler.js';
+import { ZodError } from 'zod';
+import { alert } from './lib/alerts.js';
 
 async function main() {
   const app = Fastify({ logger: { level: env.nodeEnv === 'production' ? 'info' : 'debug' } });
@@ -72,6 +77,18 @@ async function main() {
     }
   });
 
+  // Datos inválidos son 400; cualquier 500 se registra y avisa al equipo de date.pe
+  app.setErrorHandler((err, request, reply) => {
+    if (err instanceof ZodError) return reply.code(400).send({ error: 'datos_invalidos', detail: err.flatten() });
+    const code = (err as { statusCode?: number }).statusCode ?? 500;
+    if (code >= 500) {
+      request.log.error({ err }, 'error no controlado');
+      const route = request.routeOptions?.url ?? request.url.split('?')[0];
+      void alert(`api:${request.method} ${route}`, `error ${code} en ${request.method} ${route}`, err);
+    }
+    return reply.send(err);
+  });
+
   await app.register(websocket);
   await app.register(authPlugin);
   await app.register(tenantPlugin);
@@ -100,6 +117,9 @@ async function main() {
       await api.register(posRoutes);
       await api.register(financeRoutes);
       await api.register(crmRoutes);
+      await api.register(complaintRoutes);
+      await api.register(statusRoutes);
+      await api.register(setupRoutes);
     },
     { prefix: '/api' },
   );
@@ -109,7 +129,10 @@ async function main() {
   app.log.info('Esquema aplicado');
   await startRealtime();
   app.log.info('Realtime (LISTEN/NOTIFY) activo');
-  startScheduler((msg, err) => app.log.error({ err }, msg));
+  startScheduler((msg, err) => {
+    app.log.error({ err }, msg);
+    void alert(`planificador:${msg}`, msg.replace('[planificador] ', 'planificador: '), err);
+  });
 
   await app.listen({ port: env.port, host: '0.0.0.0' });
 }

@@ -12,6 +12,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/search`, lastModified: now, changeFrequency: 'daily', priority: 0.8 },
     { url: `${base}/join`, lastModified: now, changeFrequency: 'monthly', priority: 0.7 },
     { url: `${base}/blog`, lastModified: now, changeFrequency: 'weekly', priority: 0.6 },
+    { url: `${base}/reclamaciones`, lastModified: now, changeFrequency: 'yearly', priority: 0.3 },
+    { url: `${base}/terminos`, lastModified: now, changeFrequency: 'yearly', priority: 0.3 },
+    { url: `${base}/privacidad`, lastModified: now, changeFrequency: 'yearly', priority: 0.3 },
   ];
   const districtRoutes: MetadataRoute.Sitemap = DISTRICTS.map((d) => ({
     url: `${base}/barberias/${d.province}/${d.slug}`,

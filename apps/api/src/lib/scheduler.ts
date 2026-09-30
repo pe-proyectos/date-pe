@@ -9,6 +9,9 @@ import { tenantUrl, ownerEmails } from './notify.js';
 import { callNext } from '../routes/queue.js';
 import { emitTenantEvent } from './realtime.js';
 import { pushToTicket } from './push.js';
+import { backupPass } from './backup.js';
+import { complaintsPass } from './complaints.js';
+import { resourcesPass, setState } from './alerts.js';
 
 // Planificador en proceso: cada 5 minutos envía recordatorios, pide reseñas,
 // invita a volver y administra la suscripción. Un advisory lock evita que dos
@@ -156,7 +159,7 @@ async function marketingPass() {
       const lost = await admin<{ id: string; name: string | null; email: string }>(
         `SELECT c.id, c.name, c.email FROM clients c
           WHERE c.tenant_id = $1 AND c.email IS NOT NULL AND c.marketing_opt_in AND NOT c.blocked
-            AND (SELECT max(starts_at) FROM appointments a WHERE a.client_id = c.id AND a.status = 'completed') BETWEEN now() - make_interval(days => $2 + 7) AND now() - make_interval(days => $2)
+            AND GREATEST((SELECT max(starts_at) FROM appointments a WHERE a.client_id = c.id AND a.status = 'completed'), (c.import_last_visit::timestamp AT TIME ZONE 'America/Lima')) BETWEEN now() - make_interval(days => $2 + 7) AND now() - make_interval(days => $2)
             AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.client_id = c.id AND a.starts_at > now() AND a.status IN ('pending','confirmed'))
           LIMIT 50`,
         [t.id, cfg.winbackDays],
@@ -271,6 +274,9 @@ export async function runSchedulerOnce(log: (msg: string, err?: unknown) => void
         ['marketing', marketingPass],
         ['regalos y fila', giftsAndQueuePass],
         ['resumen del día', dailySummaryPass],
+        ['reclamos', complaintsPass],
+        ['recursos', resourcesPass],
+        ['respaldo', backupPass],
       ] as const) {
         try {
           await fn();
@@ -278,6 +284,7 @@ export async function runSchedulerOnce(log: (msg: string, err?: unknown) => void
           log(`[planificador] fallo en ${name}`, err);
         }
       }
+      await setState('scheduler', { at: new Date().toISOString() }).catch(() => {});
     } finally {
       await client.query('SELECT pg_advisory_unlock($1)', [LOCK_ID]);
     }
@@ -298,29 +305,29 @@ export function startScheduler(log: (msg: string, err?: unknown) => void) {
  * al cumplirse, el turno pasa a "no vino" y se llama al siguiente para ese barbero.
  */
 async function queuePass() {
-  const { rows: recall } = await admin<{ id: string; tenant_id: string; number: number; name: string; staff: string | null }>(
+  const { rows: recall } = await admin<{ id: string; tenant_id: string; number: number; name: string; staff: string | null; location_id: string | null }>(
     `UPDATE queue_tickets q SET recalled_at = now()
        FROM tenant_settings ts
       WHERE ts.tenant_id = q.tenant_id AND COALESCE((ts.queue_config->>'autoNoShow')::boolean, true)
         AND q.status = 'called' AND q.recalled_at IS NULL
         AND q.called_at < now() - make_interval(secs => COALESCE((ts.queue_config->>'noShowMinutes')::int, 10) * 30)
-      RETURNING q.id, q.tenant_id, q.number, q.name, (SELECT name FROM staff WHERE id = q.served_by) AS staff`,
+      RETURNING q.id, q.tenant_id, q.number, q.name, (SELECT name FROM staff WHERE id = q.served_by) AS staff, q.location_id`,
   );
   for (const r of recall) {
     const first = (r.name ?? '').split(' ')[0];
-    await emitTenantEvent(r.tenant_id, 'queue_changed', { announce: { number: r.number, name: first, staff: r.staff ?? '' } });
+    await emitTenantEvent(r.tenant_id, 'queue_changed', { announce: { number: r.number, name: first, staff: r.staff ?? '', locationId: r.location_id } });
     void pushToTicket(r.id, { title: `Te estamos llamando, ${first}`, body: `Turno ${r.number}. ${r.staff ?? 'Tu barbero'} te espera. Si no llegas, pasamos al siguiente.`, urgent: true, tag: 'turno', url: '/turno' });
   }
-  const { rows: gone } = await admin<{ tenant_id: string; served_by: string | null }>(
+  const { rows: gone } = await admin<{ tenant_id: string; served_by: string | null; location_id: string | null }>(
     `UPDATE queue_tickets q SET status = 'no_show', finished_at = now()
        FROM tenant_settings ts
       WHERE ts.tenant_id = q.tenant_id AND COALESCE((ts.queue_config->>'autoNoShow')::boolean, true)
         AND q.status = 'called'
         AND q.called_at < now() - make_interval(mins => COALESCE((ts.queue_config->>'noShowMinutes')::int, 10))
-      RETURNING q.tenant_id, q.served_by`,
+      RETURNING q.tenant_id, q.served_by, q.location_id`,
   );
   for (const g of gone) {
-    const next = g.served_by ? await callNext(g.tenant_id, g.served_by) : null;
+    const next = g.served_by ? await callNext(g.tenant_id, g.served_by, g.location_id) : null;
     if (!next) await emitTenantEvent(g.tenant_id, 'queue_changed');
   }
 }

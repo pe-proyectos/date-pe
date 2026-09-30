@@ -852,6 +852,90 @@ CREATE TABLE IF NOT EXISTS shop_applications (
 );
 CREATE INDEX IF NOT EXISTS idx_shop_apps_status ON shop_applications (status, created_at DESC);
 
+-- ===========================================================================
+-- Libro de Reclamaciones virtual (Código de Protección al Consumidor, Ley 29571)
+-- tenant_id NULL = libro de la propia plataforma date.pe
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS complaints (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id           uuid REFERENCES tenants(id) ON DELETE CASCADE,
+  location_id         uuid REFERENCES locations(id) ON DELETE SET NULL,
+  year                int  NOT NULL,
+  number              int  NOT NULL,
+  code                text NOT NULL,                 -- 2026-000001
+  kind                text NOT NULL CHECK (kind IN ('reclamo','queja')),
+  consumer_name       text NOT NULL,
+  consumer_doc_type   text NOT NULL CHECK (consumer_doc_type IN ('DNI','CE','Pasaporte','RUC')),
+  consumer_doc_number text NOT NULL,
+  consumer_address    text,
+  consumer_phone      text,
+  consumer_email      text NOT NULL,
+  is_minor            boolean NOT NULL DEFAULT false,
+  guardian_name       text,
+  item_type           text NOT NULL CHECK (item_type IN ('servicio','producto')),
+  item_amount_cents   int,
+  item_description    text NOT NULL,
+  detail              text NOT NULL,
+  request             text NOT NULL,                 -- pedido del consumidor
+  status              text NOT NULL DEFAULT 'open' CHECK (status IN ('open','answered')),
+  response            text,
+  responded_at        timestamptz,
+  responded_by        uuid REFERENCES users(id) ON DELETE SET NULL,
+  due_at              timestamptz NOT NULL,          -- 15 días hábiles
+  reminded_at         timestamptz,
+  source_ip           text,
+  created_at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_complaints_number ON complaints (COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid), year, number);
+CREATE INDEX IF NOT EXISTS idx_complaints_tenant ON complaints (tenant_id, created_at DESC);
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS sunat_direccion text;
+
+-- Clientes traídos desde Excel u otro sistema: se guarda su historial previo
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS import_visits int;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS import_last_visit date;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS imported_at timestamptz;
+
+-- Guía de primeros pasos: pasos marcados a mano (compartir link, TV) y si se ocultó
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS setup_state jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+-- Caja sin internet: la venta hecha sin conexión lleva una referencia única del
+-- dispositivo, así al reintentar no se duplica
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS client_ref text;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS offline_at timestamptz;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_client_ref ON sales (tenant_id, client_ref) WHERE client_ref IS NOT NULL;
+
+-- ===========================================================================
+-- Operación de la plataforma: respaldos, alertas y estado (solo adminPool)
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS platform_backups (
+  id           bigserial PRIMARY KEY,
+  object_key   text,
+  size_bytes   bigint,
+  sha256       text,
+  status       text NOT NULL DEFAULT 'running' CHECK (status IN ('running','ok','failed')),
+  error        text,
+  verified_at  timestamptz,
+  verify_note  text,
+  started_at   timestamptz NOT NULL DEFAULT now(),
+  finished_at  timestamptz,
+  deleted_at   timestamptz
+);
+CREATE TABLE IF NOT EXISTS platform_alerts (
+  id           bigserial PRIMARY KEY,
+  kind         text NOT NULL,
+  level        text NOT NULL DEFAULT 'error' CHECK (level IN ('info','warn','error')),
+  message      text NOT NULL,
+  detail       text,
+  emailed      boolean NOT NULL DEFAULT false,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_platform_alerts_time ON platform_alerts (created_at DESC);
+CREATE TABLE IF NOT EXISTS platform_state (
+  key         text PRIMARY KEY,
+  value       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- ---------------------------------------------------------------------------
 -- Índices (tenant_id como primera columna en tablas de negocio)
 -- ---------------------------------------------------------------------------
@@ -883,7 +967,7 @@ DECLARE
     'cash_sessions','cash_movements','sales','sale_items','sale_payments','products','stock_movements',
     'expenses','staff_payouts','staff_advances','queue_tickets',
     'client_photos','packages','client_packages','rewards','reward_redemptions','client_memberships',
-    'campaigns','campaign_sends','push_subscriptions'
+    'campaigns','campaign_sends','push_subscriptions','complaints'
   ];
   public_tables text[] := ARRAY['locations','staff','services','service_staff','reviews','tenant_branding','tenant_settings','membership_plans'];
 BEGIN
@@ -914,3 +998,6 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON users, memberships TO datepe_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO datepe_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO datepe_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO datepe_app;
+
+-- Tablas de operación de la plataforma: nunca visibles para el rol de la app
+REVOKE ALL ON platform_backups, platform_alerts, platform_state FROM datepe_app;

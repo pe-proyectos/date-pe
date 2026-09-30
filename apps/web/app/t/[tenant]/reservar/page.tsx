@@ -1080,6 +1080,12 @@ function ReservarInner() {
                 Puedes {settings?.allow_client_reschedule ? 'cambiar o cancelar' : 'cancelar'} hasta {cancelHours} horas antes desde el enlace de tu reserva.
               </p>
             )}
+            <p className="mt-3 text-center text-[12px] text-soft">
+              Al reservar aceptas la{' '}
+              <a href="https://date.pe/privacidad" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-ink">
+                política de privacidad
+              </a>
+            </p>
           </StepBlock>
         </div>
 

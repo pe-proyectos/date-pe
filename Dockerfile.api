@@ -8,6 +8,8 @@ COPY apps/web/package.json apps/web/package.json
 RUN pnpm install --frozen-lockfile --filter @datepe/api...
 
 FROM node:24-alpine AS run
+# pg_dump y pg_restore para los respaldos diarios (misma versión que la base)
+RUN apk add --no-cache postgresql16-client
 RUN corepack enable && corepack prepare pnpm@12.6.0 --activate
 WORKDIR /app
 ENV NODE_ENV=production

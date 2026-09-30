@@ -1,9 +1,11 @@
 'use client';
 
 import { Solicitudes } from './Solicitudes';
+import { Estado } from './Estado';
+import { Reclamos } from './Reclamos';
 import { Sheet } from '@/components/Sheet';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Search, ExternalLink, LogOut, Loader2, Store, LayoutDashboard, Settings2, Globe, Receipt } from 'lucide-react';
+import { Plus, Search, ExternalLink, LogOut, Loader2, Store, LayoutDashboard, Settings2, Globe, Receipt, Activity, BookOpen } from 'lucide-react';
 import { API_BASE_CLIENT, tenantUrl } from '@/lib/config';
 import { Logo } from '@/components/brand';
 import { Toaster } from '@/components/Toaster';
@@ -102,6 +104,35 @@ interface Overview {
   bookings: { dia: string; n: number }[];
 }
 
+type Tab = 'resumen' | 'estado' | 'reclamos';
+const TABS: Array<{ id: Tab; label: string; icon: typeof Activity }> = [
+  { id: 'resumen', label: 'Resumen', icon: LayoutDashboard },
+  { id: 'estado', label: 'Estado', icon: Activity },
+  { id: 'reclamos', label: 'Reclamos', icon: BookOpen },
+];
+const tabFromHash = (): Tab => {
+  const h = window.location.hash.replace('#', '');
+  return h === 'estado' || h === 'reclamos' ? h : 'resumen';
+};
+
+/** Pestaña activa guardada en el hash de la URL (#estado, #reclamos). */
+function useHashTab(): [Tab, (t: Tab) => void] {
+  const [tab, setTab] = useState<Tab>('resumen');
+  useEffect(() => {
+    const sync = () => setTab(tabFromHash());
+    sync();
+    window.addEventListener('hashchange', sync);
+    return () => window.removeEventListener('hashchange', sync);
+  }, []);
+  const go = useCallback((t: Tab) => {
+    haptic.select();
+    history.replaceState(history.state, '', t === 'resumen' ? window.location.pathname + window.location.search : `#${t}`);
+    setTab(t);
+    window.scrollTo({ top: 0 });
+  }, []);
+  return [tab, go];
+}
+
 export default function SuperadminPage() {
   const [token, setToken] = useState<string | null | undefined>(undefined);
   useEffect(() => setToken(localStorage.getItem(TOKEN_KEY)), []);
@@ -166,6 +197,7 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
   const [creating, setCreating] = useState(false);
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
   const [managingId, setManagingId] = useState<string | null>(null);
+  const [tab, setTab] = useHashTab();
 
   const load = useCallback(async () => {
     const [o, t, i] = await Promise.all([
@@ -209,6 +241,25 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
 
       <main className="mx-auto max-w-[1280px] px-5 py-10 md:px-8">
         <h1 className="text-[28px] font-semibold tracking-[-0.035em]">Plataforma</h1>
+        <nav className="no-scrollbar -mx-5 mt-5 flex gap-1 overflow-x-auto border-b border-line px-5 md:mx-0 md:px-0" aria-label="Secciones">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              aria-current={tab === id ? 'page' : undefined}
+              className={`-mb-px inline-flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-3 text-[15px] font-medium transition-colors ${tab === id ? 'border-ink text-ink' : 'border-transparent text-mute hover:text-ink'}`}
+            >
+              <Icon size={17} strokeWidth={1.75} /> {label}
+            </button>
+          ))}
+        </nav>
+
+        {tab === 'estado' && <Estado headers={headers} />}
+        {tab === 'reclamos' && <Reclamos headers={headers} />}
+
+        {tab === 'resumen' && (
+        <>
         {!overview ? (
           <div className="mt-8 h-32 animate-pulse rounded-xl bg-field" />
         ) : (
@@ -340,6 +391,8 @@ function Dashboard({ token, onLogout }: { token: string; onLogout: () => void })
               </li>
             ))}
           </ul>
+        )}
+        </>
         )}
       </main>
 

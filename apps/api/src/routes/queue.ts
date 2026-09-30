@@ -16,6 +16,32 @@ function tenantOf(request: FastifyRequest) {
   return request.tenant;
 }
 
+// Multi-sede: cada sede tiene su fila, su TV y su numeración. null = todas (una sola sede).
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function locationParam(request: FastifyRequest): string | null {
+  const q = request.query as { sede?: string; locationId?: string } | undefined;
+  const v = (request.headers['x-location-id'] as string | undefined) || q?.sede || q?.locationId || '';
+  return UUID.test(v) ? v : null;
+}
+const inLoc = (col: string, n: number) => `($${n}::uuid IS NULL OR ${col} IS NULL OR ${col} = $${n})`;
+const staffInLoc = (n: number) => `($${n}::uuid IS NULL OR COALESCE(ss.location_id, s.location_id) IS NULL OR COALESCE(ss.location_id, s.location_id) = $${n})`;
+
+async function activeLocations(sql: Sql) {
+  return (await sql<{ id: string; name: string; address: string | null; district: string | null }>('SELECT id, name, address, district FROM locations WHERE is_active ORDER BY created_at')).rows;
+}
+
+/** Sede de un alta: la pedida, la del barbero, o la única que hay. */
+async function resolveLocation(sql: Sql, wanted: string | null | undefined, staffId?: string | null): Promise<{ id: string | null; needsChoice: boolean }> {
+  const locs = await activeLocations(sql);
+  if (wanted && locs.some((l) => l.id === wanted)) return { id: wanted, needsChoice: false };
+  if (staffId) {
+    const st = (await sql<{ location_id: string | null }>('SELECT location_id FROM staff WHERE id = $1', [staffId])).rows[0];
+    if (st?.location_id) return { id: st.location_id, needsChoice: false };
+  }
+  if (locs.length === 1) return { id: locs[0].id, needsChoice: false };
+  return { id: null, needsChoice: locs.length > 1 };
+}
+
 function handleErr(err: unknown, reply: FastifyReply) {
   if (err instanceof FeatureOff) return reply.code(403).send({ error: 'funcion_desactivada', feature: err.feature });
   throw err;
@@ -39,7 +65,7 @@ interface TicketRow {
   delays: number;
 }
 
-async function todayTickets(sql: Sql, statuses = ['waiting', 'called', 'serving']): Promise<TicketRow[]> {
+async function todayTickets(sql: Sql, statuses = ['waiting', 'called', 'serving'], loc: string | null = null): Promise<TicketRow[]> {
   const { rows } = await sql<TicketRow>(
     `SELECT q.id, q.number, q.name, q.status, q.staff_id, q.served_by, q.service_id, sv.name AS service_name, sv.duration_min,
             s.name AS staff_name, sb.name AS served_by_name, q.sort_at, q.called_at, q.started_at, q.delays
@@ -47,52 +73,56 @@ async function todayTickets(sql: Sql, statuses = ['waiting', 'called', 'serving'
        LEFT JOIN services sv ON sv.id = q.service_id
        LEFT JOIN staff s ON s.id = q.staff_id
        LEFT JOIN staff sb ON sb.id = q.served_by
-      WHERE q.day = ${TODAY} AND q.status = ANY($1)
+      WHERE q.day = ${TODAY} AND q.status = ANY($1) AND ${inLoc('q.location_id', 2)}
       ORDER BY q.sort_at`,
-    [statuses],
+    [statuses, loc],
   );
   return rows;
 }
 
 /** Barberos que atienden ahora (o, antes de abrir, los que atienden hoy) para estimar la espera. */
-async function activeBarbers(sql: Sql): Promise<number> {
+async function activeBarbers(sql: Sql, loc: string | null = null): Promise<number> {
   const { rows } = await sql<{ now: number; today: number }>(
     `SELECT count(DISTINCT ss.staff_id) FILTER (WHERE (now() AT TIME ZONE 'America/Lima')::time BETWEEN ss.start_time AND ss.end_time)::int AS now,
             count(DISTINCT ss.staff_id)::int AS today
        FROM staff_schedules ss JOIN staff s ON s.id = ss.staff_id
-      WHERE s.is_bookable AND ss.day_of_week = EXTRACT(DOW FROM now() AT TIME ZONE 'America/Lima')`,
+      WHERE s.is_bookable AND ss.day_of_week = EXTRACT(DOW FROM now() AT TIME ZONE 'America/Lima') AND ${staffInLoc(1)}`,
+    [loc],
   );
   return rows[0]?.now || rows[0]?.today || 0;
 }
 
 /** Abierta si alguien atiende ahora, o si falta poco para abrir (turno anticipado). */
 /** Citas con reserva que se están atendiendo ahora: ese barbero no está libre para la fila. */
-async function appointmentsNow(sql: Sql) {
+async function appointmentsNow(sql: Sql, loc: string | null = null) {
   const { rows } = await sql<{ staff_id: string; ends_at: Date; client_name: string | null }>(
     `SELECT a.staff_id, a.ends_at, c.name AS client_name FROM appointments a LEFT JOIN clients c ON c.id = a.client_id
-      WHERE a.status IN ('confirmed','completed') AND a.staff_id IS NOT NULL AND now() BETWEEN a.starts_at AND a.ends_at`,
+      WHERE a.status IN ('confirmed','completed') AND a.staff_id IS NOT NULL AND now() BETWEEN a.starts_at AND a.ends_at AND ${inLoc('a.location_id', 1)}`,
+    [loc],
   );
   return rows;
 }
 
 /** Barberos de turno ahora (fuera de bloqueos): los que pueden atender a la fila. */
-async function staffOnShift(sql: Sql): Promise<string[]> {
+async function staffOnShift(sql: Sql, loc: string | null = null): Promise<string[]> {
   const { rows } = await sql<{ staff_id: string }>(
     `SELECT DISTINCT ss.staff_id FROM staff_schedules ss JOIN staff s ON s.id = ss.staff_id
       WHERE s.is_bookable AND ss.day_of_week = EXTRACT(DOW FROM now() AT TIME ZONE 'America/Lima')
         AND (now() AT TIME ZONE 'America/Lima')::time BETWEEN ss.start_time AND ss.end_time
-        AND NOT EXISTS (SELECT 1 FROM schedule_exceptions e WHERE e.staff_id = ss.staff_id AND now() BETWEEN e.starts_at AND e.ends_at)`,
+        AND NOT EXISTS (SELECT 1 FROM schedule_exceptions e WHERE e.staff_id = ss.staff_id AND now() BETWEEN e.starts_at AND e.ends_at)
+        AND ${staffInLoc(1)}`,
+    [loc],
   );
   return rows.map((r) => r.staff_id);
 }
 
-async function isOpen(sql: Sql, earlyMinutes = 60): Promise<boolean> {
+async function isOpen(sql: Sql, earlyMinutes = 60, loc: string | null = null): Promise<boolean> {
   const { rows } = await sql<{ total: number; open: number }>(
     `SELECT count(*)::int AS total,
             count(*) FILTER (WHERE ss.day_of_week = EXTRACT(DOW FROM now() AT TIME ZONE 'America/Lima')
               AND (now() AT TIME ZONE 'America/Lima')::time BETWEEN ss.start_time - make_interval(mins => $1) AND ss.end_time - interval '15 minutes')::int AS open
-       FROM staff_schedules ss JOIN staff s ON s.id = ss.staff_id WHERE s.is_bookable`,
-    [earlyMinutes],
+       FROM staff_schedules ss JOIN staff s ON s.id = ss.staff_id WHERE s.is_bookable AND ${staffInLoc(2)}`,
+    [earlyMinutes, loc],
   );
   if ((rows[0]?.total ?? 0) === 0) return true;
   return (rows[0]?.open ?? 0) > 0;
@@ -133,28 +163,32 @@ function estimate(tickets: TicketRow[], staffOnShift: string[], fallback: number
   return { perTicket: out, nextEta };
 }
 
-async function publicState(sql: Sql, cfg: TenantConfig) {
-  const [tickets, barbers, open, appts, branding, staff, services] = await Promise.all([
-    todayTickets(sql),
-    activeBarbers(sql),
-    isOpen(sql, cfg.queue.earlyMinutes),
+async function publicState(sql: Sql, cfg: TenantConfig, loc: string | null = null) {
+  const [tickets, barbers, open, appts, branding, staff, services, locations] = await Promise.all([
+    todayTickets(sql, undefined, loc),
+    activeBarbers(sql, loc),
+    isOpen(sql, cfg.queue.earlyMinutes, loc),
     cfg.tv.showAppointments
       ? sql(
           `SELECT a.starts_at, c.name AS client_name, s.name AS staff_name FROM appointments a
              LEFT JOIN clients c ON c.id = a.client_id LEFT JOIN staff s ON s.id = a.staff_id
-            WHERE a.status = 'confirmed' AND a.starts_at BETWEEN now() - interval '15 minutes' AND now() + interval '3 hours'
+            WHERE a.status = 'confirmed' AND a.starts_at BETWEEN now() - interval '15 minutes' AND now() + interval '3 hours' AND ${inLoc('a.location_id', 1)}
             ORDER BY a.starts_at LIMIT 6`,
+          [loc],
         )
       : Promise.resolve({ rows: [] }),
     sql('SELECT logo_url, cover_url, color_primary, tagline, instagram FROM tenant_branding'),
-    sql('SELECT id, name, photo_url FROM staff WHERE is_bookable ORDER BY sort_order, name'),
+    sql(`SELECT id, name, photo_url FROM staff WHERE is_bookable AND ${inLoc('location_id', 1)} ORDER BY sort_order, name`, [loc]),
     sql('SELECT id, name, duration_min, price_cents FROM services WHERE is_active AND NOT is_addon ORDER BY sort_order, name'),
+    activeLocations(sql),
   ]);
-  const onShift = await staffOnShift(sql);
-  const apptsNowRows = await appointmentsNow(sql);
+  const onShift = await staffOnShift(sql, loc);
+  const apptsNowRows = await appointmentsNow(sql, loc);
   const opens = await sql<{ opens: string | null }>(
     `SELECT to_char(min(ss.start_time), 'HH24:MI') AS opens FROM staff_schedules ss JOIN staff s ON s.id = ss.staff_id
-      WHERE s.is_bookable AND ss.day_of_week = EXTRACT(DOW FROM now() AT TIME ZONE 'America/Lima') AND ss.start_time > (now() AT TIME ZONE 'America/Lima')::time`,
+      WHERE s.is_bookable AND ss.day_of_week = EXTRACT(DOW FROM now() AT TIME ZONE 'America/Lima') AND ss.start_time > (now() AT TIME ZONE 'America/Lima')::time
+        AND ${staffInLoc(1)}`,
+    [loc],
   );
   const sim = estimate(tickets, onShift, cfg.queue.fallbackMinutes, apptsNowRows);
   const est = sim.perTicket;
@@ -162,6 +196,9 @@ async function publicState(sql: Sql, cfg: TenantConfig) {
   const nextEta = sim.nextEta;
   return {
     open,
+    locations,
+    location: locations.find((l) => l.id === loc) ?? (locations.length === 1 ? locations[0] : null),
+    needsLocation: !loc && locations.length > 1,
     pushPublicKey: pushEnabled() ? env.vapidPublicKey : null,
     opensAt: opens.rows[0]?.opens ?? null,
     features: { queue: cfg.features.queue, booking: cfg.features.booking },
@@ -184,13 +221,20 @@ async function publicState(sql: Sql, cfg: TenantConfig) {
   };
 }
 
-interface TicketLite { id: string; name: string; status: string; number: number; day: string; staff_id: string | null; service_id: string | null; delays: number }
+interface TicketLite { id: string; name: string; status: string; number: number; day: string; staff_id: string | null; service_id: string | null; delays: number; location_id: string | null }
 async function ticketByToken(sql: Sql, token: string): Promise<TicketLite | null> {
-  const { rows } = await sql<{ id: string; name: string; status: string; number: number; day: string; staff_id: string | null; service_id: string | null; delays: number }>(
-    `SELECT id, name, status, number, day::text, staff_id, service_id, delays FROM queue_tickets WHERE token = $1`,
+  const { rows } = await sql<TicketLite>(
+    `SELECT id, name, status, number, day::text, staff_id, service_id, delays, location_id FROM queue_tickets WHERE token = $1`,
     [token],
   );
   return rows[0] ?? null;
+}
+
+/** Número del día por sede: se reinicia cada mañana. */
+async function nextNumber(sql: Sql, loc: string | null): Promise<number> {
+  await sql("SELECT pg_advisory_xact_lock(hashtext(current_setting('app.tenant_id') || 'queue' || COALESCE($1::text, '')))", [loc]);
+  const n = await sql<{ n: number }>(`SELECT COALESCE(max(number), 0) + 1 AS n FROM queue_tickets WHERE day = ${TODAY} AND location_id IS NOT DISTINCT FROM $1`, [loc]);
+  return n.rows[0].n;
 }
 
 export const queueRoutes: FastifyPluginAsync = async (app) => {
@@ -200,7 +244,7 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
     return withTenant(t.id, async (sql) => {
       const cfg = await tenantConfig(sql);
       if (!cfg.features.queue && !cfg.features.tv) return reply.code(403).send({ error: 'funcion_desactivada' });
-      return { tenant: { name: t.name, slug: t.slug }, ...(await publicState(sql, cfg)) };
+      return { tenant: { name: t.name, slug: t.slug }, ...(await publicState(sql, cfg, locationParam(request))) };
     });
   });
 
@@ -210,6 +254,7 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
     email: z.string().email().optional(),
     serviceId: z.string().uuid().optional(),
     staffId: z.string().uuid().optional(),
+    locationId: z.string().uuid().optional(),
   });
   app.post('/public/queue/join', async (request, reply) => {
     const t = tenantOf(request);
@@ -218,8 +263,11 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
       const out = await withTenant(t.id, async (sql) => {
         const cfg = await tenantConfig(sql);
         if (!cfg.features.queue) throw new FeatureOff('queue');
-        if (!(await isOpen(sql, cfg.queue.earlyMinutes))) return { error: 'cerrado', message: cfg.queue.closedMessage };
-        const waiting = await sql<{ n: number }>(`SELECT count(*)::int AS n FROM queue_tickets WHERE day = ${TODAY} AND status = 'waiting'`);
+        const where = await resolveLocation(sql, b.locationId ?? locationParam(request), cfg.queue.allowStaffChoice ? b.staffId : null);
+        if (where.needsChoice) return { error: 'elige_la_sede' };
+        const loc = where.id;
+        if (!(await isOpen(sql, cfg.queue.earlyMinutes, loc))) return { error: 'cerrado', message: cfg.queue.closedMessage };
+        const waiting = await sql<{ n: number }>(`SELECT count(*)::int AS n FROM queue_tickets WHERE day = ${TODAY} AND status = 'waiting' AND ${inLoc('location_id', 1)}`, [loc]);
         if ((waiting.rows[0]?.n ?? 0) >= cfg.queue.maxWaiting) return { error: 'fila_llena' };
         if (cfg.queue.askPhone && !b.phone) return { error: 'falta_celular' };
         // Mismo celular hoy: devolvemos su ticket en vez de duplicar
@@ -239,13 +287,11 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
               )
             ).rows[0]
           : null;
-        // Número del día: se reinicia cada mañana
-        await sql("SELECT pg_advisory_xact_lock(hashtext(current_setting('app.tenant_id') || 'queue'))");
-        const n = await sql<{ n: number }>(`SELECT COALESCE(max(number), 0) + 1 AS n FROM queue_tickets WHERE day = ${TODAY}`);
+        const number = await nextNumber(sql, loc);
         const { rows } = await sql<{ token: string; number: number }>(
-          `INSERT INTO queue_tickets (tenant_id, day, number, name, phone, email, service_id, staff_id, source, client_id)
-           VALUES (current_setting('app.tenant_id')::uuid, ${TODAY}, $1, $2, $3, $4, $5, $6, 'qr', $7) RETURNING token, number`,
-          [n.rows[0].n, b.name, b.phone ?? null, b.email ?? null, b.serviceId ?? null, cfg.queue.allowStaffChoice ? (b.staffId ?? null) : null, client?.id ?? null],
+          `INSERT INTO queue_tickets (tenant_id, day, number, name, phone, email, service_id, staff_id, source, client_id, location_id)
+           VALUES (current_setting('app.tenant_id')::uuid, ${TODAY}, $1, $2, $3, $4, $5, $6, 'qr', $7, $8) RETURNING token, number`,
+          [number, b.name, b.phone ?? null, b.email ?? null, b.serviceId ?? null, cfg.queue.allowStaffChoice ? (b.staffId ?? null) : null, client?.id ?? null, loc],
         );
         return rows[0];
       });
@@ -265,8 +311,9 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
       const ticket = await ticketByToken(sql, token);
       if (!ticket) return reply.code(404).send({ error: 'ticket_no_encontrado' });
       const cfg = await tenantConfig(sql);
-      const tickets = await todayTickets(sql, ['waiting', 'called', 'serving', 'done']);
-      const est = estimate(tickets, await staffOnShift(sql), cfg.queue.fallbackMinutes, await appointmentsNow(sql)).perTicket;
+      const loc = ticket.location_id;
+      const tickets = await todayTickets(sql, ['waiting', 'called', 'serving', 'done'], loc);
+      const est = estimate(tickets, await staffOnShift(sql, loc), cfg.queue.fallbackMinutes, await appointmentsNow(sql, loc)).perTicket;
       const me = tickets.find((x) => x.id === ticket.id);
       return {
         ticket: {
@@ -283,7 +330,7 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
           canDelay: ticket.status === 'waiting' && ticket.delays < 2,
         },
         tenant: { name: t.name, slug: t.slug },
-        ...(await publicState(sql, cfg)),
+        ...(await publicState(sql, cfg, loc)),
       };
     });
   });
@@ -306,8 +353,9 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
       if (!me || me.status !== 'waiting' || me.delays >= 2) return { error: 'no_se_puede' };
       const behind = await sql<{ sort_at: Date }>(
         `SELECT sort_at FROM queue_tickets WHERE day = ${TODAY} AND status = 'waiting' AND sort_at > (SELECT sort_at FROM queue_tickets WHERE id = $1)
+            AND location_id IS NOT DISTINCT FROM $2
           ORDER BY sort_at LIMIT 2`,
-        [me.id],
+        [me.id, me.location_id],
       );
       const last = behind.rows[behind.rows.length - 1];
       if (!last) return { error: 'eres_el_ultimo' };
@@ -336,21 +384,24 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
       const t = tenantOf(request);
       return withTenant(t.id, async (sql) => {
         const cfg = await tenantConfig(sql);
+        const loc = locationParam(request);
         const { rows } = await sql(
           `SELECT q.id, q.number, q.name, q.phone, q.email, q.status, q.staff_id, q.served_by, q.service_id, q.source, q.delays,
-                  q.created_at, q.called_at, q.started_at, q.finished_at, q.client_id, q.sale_id,
+                  q.created_at, q.called_at, q.started_at, q.finished_at, q.client_id, q.sale_id, q.location_id,
                   sv.name AS service_name, sv.price_cents, s.name AS staff_name, sb.name AS served_by_name
              FROM queue_tickets q LEFT JOIN services sv ON sv.id = q.service_id LEFT JOIN staff s ON s.id = q.staff_id LEFT JOIN staff sb ON sb.id = q.served_by
-            WHERE q.day = ${TODAY} ORDER BY (q.status IN ('done','cancelled','no_show')), q.sort_at`,
+            WHERE q.day = ${TODAY} AND ${inLoc('q.location_id', 1)} ORDER BY (q.status IN ('done','cancelled','no_show')), q.sort_at`,
+          [loc],
         );
         const key = await sql<{ tv_key: string }>('SELECT tv_key FROM tenant_settings');
         const stats = await sql(
           `SELECT count(*) FILTER (WHERE status = 'done')::int AS atendidos,
                   count(*) FILTER (WHERE status = 'no_show')::int AS no_vinieron,
                   COALESCE(round(avg(EXTRACT(EPOCH FROM started_at - created_at) / 60) FILTER (WHERE started_at IS NOT NULL)), 0)::int AS espera_promedio_min
-             FROM queue_tickets WHERE day = ${TODAY}`,
+             FROM queue_tickets q WHERE day = ${TODAY} AND ${inLoc('q.location_id', 1)}`,
+          [loc],
         );
-        return { tickets: rows, tvKey: key.rows[0]?.tv_key, features: cfg.features, stats: stats.rows[0], estimatedWaitMin: (await publicState(sql, cfg)).estimatedWaitMin };
+        return { tickets: rows, tvKey: key.rows[0]?.tv_key, features: cfg.features, stats: stats.rows[0], estimatedWaitMin: (await publicState(sql, cfg, loc)).estimatedWaitMin };
       });
     });
 
@@ -359,15 +410,17 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
       const t = tenantOf(request);
       const b = joinBody.parse(request.body);
       const out = await withTenant(t.id, async (sql) => {
-        await sql("SELECT pg_advisory_xact_lock(hashtext(current_setting('app.tenant_id') || 'queue'))");
-        const n = await sql<{ n: number }>(`SELECT COALESCE(max(number), 0) + 1 AS n FROM queue_tickets WHERE day = ${TODAY}`);
+        const where = await resolveLocation(sql, b.locationId ?? locationParam(request), b.staffId);
+        if (where.needsChoice) return { error: 'elige_la_sede' as const };
+        const number = await nextNumber(sql, where.id);
         const { rows } = await sql<{ id: string; number: number; token: string }>(
-          `INSERT INTO queue_tickets (tenant_id, day, number, name, phone, service_id, staff_id, source)
-           VALUES (current_setting('app.tenant_id')::uuid, ${TODAY}, $1, $2, $3, $4, $5, 'front') RETURNING id, number, token`,
-          [n.rows[0].n, b.name, b.phone ?? null, b.serviceId ?? null, b.staffId ?? null],
+          `INSERT INTO queue_tickets (tenant_id, day, number, name, phone, service_id, staff_id, source, location_id)
+           VALUES (current_setting('app.tenant_id')::uuid, ${TODAY}, $1, $2, $3, $4, $5, 'front', $6) RETURNING id, number, token`,
+          [number, b.name, b.phone ?? null, b.serviceId ?? null, b.staffId ?? null, where.id],
         );
         return rows[0];
       });
+      if ('error' in out) return reply.code(409).send(out);
       await emitTenantEvent(t.id, 'queue_changed');
       return reply.code(201).send(out);
     });
@@ -378,7 +431,7 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
       const b = z.object({ staffId: z.string().uuid().optional() }).parse(request.body ?? {});
       const staffId = b.staffId ?? request.user.staffId ?? null;
       if (!staffId) return reply.code(400).send({ error: 'elige_el_barbero' });
-      const out = await callNext(t.id, staffId);
+      const out = await callNext(t.id, staffId, locationParam(request));
       if (!out) return reply.code(404).send({ error: 'nadie_esperando' });
       return out;
     });
@@ -420,7 +473,7 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
         return { kind: 'appointment' as const, id: ap.rows[0].id, name: firstName(ap.rows[0].client_name), number: null };
       });
       const charge = finished ? await withTenant(t.id, (sql) => expressCharge(sql, finished.kind === 'ticket' ? { ticketId: finished.id } : { appointmentId: finished.id })) : null;
-      const next = b.callNext ? await callNext(t.id, staffId) : null;
+      const next = b.callNext ? await callNext(t.id, staffId, locationParam(request)) : null;
       if (finished && !next) await emitTenantEvent(t.id, 'queue_changed');
       if (finished?.kind === 'appointment') await emitAvailabilityChange(t.id);
       if (!finished && !next) return reply.code(404).send({ error: 'nada_que_cerrar' });
@@ -431,14 +484,14 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
       const t = tenantOf(request);
       const id = (request.params as { id: string }).id;
       const r = await withTenant(t.id, (sql) =>
-        sql<{ number: number; name: string; staff: string | null }>(
-          `SELECT q.number, q.name, s.name AS staff FROM queue_tickets q LEFT JOIN staff s ON s.id = q.served_by WHERE q.id = $1 AND q.status = 'called'`,
+        sql<{ number: number; name: string; staff: string | null; location_id: string | null }>(
+          `SELECT q.number, q.name, s.name AS staff, q.location_id FROM queue_tickets q LEFT JOIN staff s ON s.id = q.served_by WHERE q.id = $1 AND q.status = 'called'`,
           [id],
         ),
       );
       const row = r.rows[0];
       if (!row) return reply.code(404).send({ error: 'ticket_no_encontrado' });
-      await emitTenantEvent(t.id, 'queue_changed', { announce: { number: row.number, name: firstName(row.name), staff: row.staff ?? '' } });
+      await emitTenantEvent(t.id, 'queue_changed', { announce: { number: row.number, name: firstName(row.name), staff: row.staff ?? '', locationId: row.location_id } });
       void pushToTicket(id, { title: `Te estamos llamando, ${firstName(row.name)}`, body: `Turno ${row.number}. ${row.staff ?? 'Tu barbero'} te espera.`, urgent: true, tag: 'turno', url: '/turno' });
       return { ok: true };
     });
@@ -477,7 +530,8 @@ export const queueRoutes: FastifyPluginAsync = async (app) => {
 export async function notifyNearTickets(tenantId: string) {
   const { rows } = await admin<{ id: string; name: string; number: number }>(
     `UPDATE queue_tickets SET near_notified_at = now()
-      WHERE id IN (SELECT id FROM queue_tickets WHERE tenant_id = $1 AND day = ${TODAY} AND status = 'waiting' ORDER BY sort_at LIMIT 2)
+      WHERE id IN (SELECT id FROM (SELECT id, row_number() OVER (PARTITION BY location_id ORDER BY sort_at) AS rn
+                                     FROM queue_tickets WHERE tenant_id = $1 AND day = ${TODAY} AND status = 'waiting') x WHERE rn <= 2)
         AND near_notified_at IS NULL
       RETURNING id, name, number`,
     [tenantId],
@@ -485,22 +539,27 @@ export async function notifyNearTickets(tenantId: string) {
   for (const r of rows) void pushToTicket(r.id, { title: `Ya casi te toca, ${firstName(r.name)}`, body: `Turno ${r.number}: acércate al local.`, tag: 'turno', url: '/turno' });
 }
 
-/** Llama al siguiente para un barbero: el primero que lo espera a él o a cualquiera. */
-export async function callNext(tenantId: string, staffId: string) {
+/**
+ * Llama al siguiente para un barbero: el primero que lo espera a él o a cualquiera,
+ * en la sede indicada o en la sede fija del barbero (si atiende en todas, cualquiera).
+ */
+export async function callNext(tenantId: string, staffId: string, loc?: string | null) {
   const out = await withTenant(tenantId, async (sql) => {
-    const next = await sql<{ id: string; number: number; name: string }>(
+    const staff = await sql<{ name: string; location_id: string | null }>('SELECT name, location_id FROM staff WHERE id = $1', [staffId]);
+    const where = loc ?? staff.rows[0]?.location_id ?? null;
+    const next = await sql<{ id: string; number: number; name: string; location_id: string | null }>(
       `UPDATE queue_tickets SET status = 'called', served_by = $1, called_at = now(), recalled_at = NULL
         WHERE id = (SELECT id FROM queue_tickets WHERE day = ${TODAY} AND status = 'waiting' AND (staff_id IS NULL OR staff_id = $1)
+                      AND ${inLoc('location_id', 2)}
                     ORDER BY sort_at LIMIT 1 FOR UPDATE SKIP LOCKED)
-        RETURNING id, number, name`,
-      [staffId],
+        RETURNING id, number, name, location_id`,
+      [staffId, where],
     );
-    const staff = await sql<{ name: string }>('SELECT name FROM staff WHERE id = $1', [staffId]);
     return next.rows[0] ? { ...next.rows[0], name: firstName(next.rows[0].name), staffName: staff.rows[0]?.name ?? '' } : null;
   });
   if (!out) return null;
-  // La TV anuncia con voz y el celular del cliente vibra
-  await emitTenantEvent(tenantId, 'queue_changed', { announce: { number: out.number, name: out.name, staff: out.staffName } });
+  // La TV de esa sede anuncia con voz y el celular del cliente vibra
+  await emitTenantEvent(tenantId, 'queue_changed', { announce: { number: out.number, name: out.name, staff: out.staffName, locationId: out.location_id } });
   void pushToTicket(out.id, { title: `Te toca, ${out.name}`, body: `${out.staffName} te espera. Turno ${out.number}.`, urgent: true, tag: 'turno', url: '/turno' });
   void notifyNearTickets(tenantId);
   return out;

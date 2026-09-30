@@ -3,10 +3,16 @@
 import { createContext, useContext } from 'react';
 import { API_BASE_CLIENT } from '@/lib/config';
 
+export interface Sede { id: string; name: string; district?: string | null; address?: string | null }
+
 export interface AdminCtx {
   tenant: string;
   token: string;
   logout: () => void;
+  /** Sede elegida en el panel (null = todas, o barbería de una sola sede) */
+  location?: string | null;
+  locations?: Sede[];
+  setLocation?: (id: string | null) => void;
 }
 
 export const AdminContext = createContext<AdminCtx | null>(null);
@@ -19,7 +25,7 @@ export function useAdmin() {
 
 /** Cliente de API del panel: agrega tenant y sesión, y cierra sesión en 401. */
 export function useApi() {
-  const { tenant, token, logout } = useAdmin();
+  const { tenant, token, logout, location } = useAdmin();
   return async function api<T = unknown>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
     const res = await fetch(`${API_BASE_CLIENT}/api${path}`, {
       method: init.method ?? 'GET',
@@ -27,6 +33,8 @@ export function useApi() {
         ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         'X-Tenant-Slug': tenant,
         Authorization: `Bearer ${token}`,
+        // Con varias sedes, cada pedido va filtrado por la sede elegida
+        ...(location ? { 'X-Location-Id': location } : {}),
       },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
     });

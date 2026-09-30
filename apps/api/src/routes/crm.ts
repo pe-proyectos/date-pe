@@ -44,7 +44,8 @@ export async function clientWallet(sql: Sql, clientId: string) {
 /** Clientes de un segmento de marketing (siempre con correo y aceptando avisos). */
 async function segmentClients(sql: Sql, seg: { type: string; days?: number; serviceId?: string; staffId?: string; tag?: string }) {
   const base = `c.email IS NOT NULL AND c.marketing_opt_in AND NOT c.blocked`;
-  const lastVisit = `(SELECT max(a.starts_at) FROM appointments a WHERE a.client_id = c.id AND a.status = 'completed')`;
+  // Incluye la última visita traída del sistema anterior al importar
+  const lastVisit = `GREATEST((SELECT max(a.starts_at) FROM appointments a WHERE a.client_id = c.id AND a.status = 'completed'), (c.import_last_visit::timestamp AT TIME ZONE 'America/Lima'))`;
   let where = base;
   const params: unknown[] = [];
   if (seg.type === 'inactive') {
@@ -63,7 +64,7 @@ async function segmentClients(sql: Sql, seg: { type: string; days?: number; serv
     params.push(seg.tag);
     where += ` AND $${params.length} = ANY(c.tags)`;
   } else if (seg.type === 'vip') {
-    where += ` AND (SELECT count(*) FROM appointments a WHERE a.client_id = c.id AND a.status = 'completed') >= 5`;
+    where += ` AND (SELECT count(*) FROM appointments a WHERE a.client_id = c.id AND a.status = 'completed') + COALESCE(c.import_visits, 0) >= 5`;
   }
   const { rows } = await sql<{ id: string; name: string | null; email: string; unsubscribe_token: string }>(`SELECT c.id, c.name, c.email, c.unsubscribe_token FROM clients c WHERE ${where} ORDER BY c.created_at`, params);
   return rows;

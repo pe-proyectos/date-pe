@@ -82,7 +82,7 @@ body { overflow: hidden; height: 100%; background: ${bg}; overscroll-behavior: n
 }
 `;
 
-export function TvClient({ tenant, tvKey }: { tenant: string; tvKey: string }) {
+export function TvClient({ tenant, tvKey, sede = null }: { tenant: string; tvKey: string; sede?: string | null }) {
   const [data, setData] = useState<QueueState | null>(null);
   const [disabled, setDisabled] = useState(false);
   const [fetchOk, setFetchOk] = useState(true);
@@ -99,7 +99,7 @@ export function TvClient({ tenant, tvKey }: { tenant: string; tvKey: string }) {
 
   const load = useCallback(async () => {
     try {
-      const d = await publicApi<QueueState>(tenant, '/public/queue');
+      const d = await publicApi<QueueState>(tenant, `/public/queue${sede ? `?sede=${sede}` : ''}`);
       setData(d);
       setDisabled(false);
       setFetchOk(true);
@@ -107,7 +107,7 @@ export function TvClient({ tenant, tvKey }: { tenant: string; tvKey: string }) {
       if (e instanceof ApiError && e.code === 'funcion_desactivada') setDisabled(true);
       else setFetchOk(false);
     }
-  }, [tenant]);
+  }, [tenant, sede]);
 
   // Varios eventos seguidos generan una sola consulta
   const refetch = useCallback(() => {
@@ -117,15 +117,16 @@ export function TvClient({ tenant, tvKey }: { tenant: string; tvKey: string }) {
 
   useEffect(() => {
     load();
-    setOrigin({ url: `${window.location.origin}/fila`, host: window.location.host });
-  }, [load]);
+    setOrigin({ url: `${window.location.origin}/fila${sede ? `?sede=${sede}` : ''}`, host: window.location.host });
+  }, [load, sede]);
 
   const online = useTenantSocket(
     tenant,
     (type, payload) => {
       if (type === 'queue_changed') {
         const a = (payload as { announce?: Announce } | null)?.announce;
-        if (a && typeof a.number === 'number') {
+        // Con varias sedes, esta TV solo anuncia a los de su sede
+        if (a && typeof a.number === 'number' && (!sede || !a.locationId || a.locationId === sede)) {
           const key = `${a.number}:${a.staff}`;
           const t = Date.now();
           if (!lastCall.current || lastCall.current.key !== key || t - lastCall.current.at > 3000) {

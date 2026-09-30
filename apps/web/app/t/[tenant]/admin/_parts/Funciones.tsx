@@ -5,6 +5,7 @@ import {
   CalendarCheck, ListOrdered, Tv, BellRing, MessageCircle, Wallet, HandCoins, Package, Layers, Gift, BadgeCheck, Award, Megaphone, Camera,
   Receipt, Users, Star, Mail, ChevronDown, ImagePlus, Trash2, Plus, X, ExternalLink, Copy, RefreshCw, Loader2, ArrowUp, ArrowDown, Info,
 } from 'lucide-react';
+import { useSede } from './sede';
 import { useAdmin, useApi } from './api';
 import { PageHead, Btn, Switch, Field, inputCls, Skeleton, Segmented, usePanel, type Features } from './ui';
 import { uploadImage } from '@/lib/upload';
@@ -315,7 +316,8 @@ function TvEditor({ value, tvKey, nonce, onSave, onRotate }: { value: TvCfg; tvK
   const [uploading, setUploading] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const target = useRef<'bg' | number>('bg');
-  const tvUrl = tvKey ? tenantUrl(tenant, `/tv?k=${tvKey}`) : null;
+  const { location } = useSede();
+  const tvUrl = tvKey ? tenantUrl(tenant, `/tv?k=${tvKey}${location ? `&sede=${location}` : ''}`) : null;
 
   async function onFile(file: File) {
     const t = target.current;

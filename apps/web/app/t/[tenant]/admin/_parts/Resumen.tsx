@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Copy, ExternalLink, CalendarClock, Scissors, Users, Clock } from 'lucide-react';
+import { Copy, ExternalLink, CalendarClock } from 'lucide-react';
 import { useAdmin, useApi, soles } from './api';
 import { PageHead, Btn, Skeleton } from './ui';
 import { StatTile } from '@/components/charts';
+import { SetupGuide, SedesOverview } from './SetupGuide';
 import { tenantUrl } from '@/lib/config';
 import { toast } from '@/lib/toast';
 
@@ -18,14 +19,10 @@ export function Resumen({ go }: { go: (s: string) => void }) {
   const { tenant } = useAdmin();
   const api = useApi();
   const [data, setData] = useState<Overview | null>(null);
-  const [setup, setSetup] = useState<{ staff: number; services: number } | null>(null);
   const url = tenantUrl(tenant);
 
   useEffect(() => {
     api<Overview>('/admin/overview').then(setData).catch(() => {});
-    Promise.all([api<{ staff: unknown[] }>('/admin/staff'), api<{ services: unknown[] }>('/admin/services')])
-      .then(([s, v]) => setSetup({ staff: s.staff.length, services: v.services.length }))
-      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -49,16 +46,8 @@ export function Resumen({ go }: { go: (s: string) => void }) {
         }
       />
 
-      {setup && (setup.staff === 0 || setup.services === 0) && (
-        <div className="mb-8 rounded-xl bg-field p-5">
-          <p className="text-[16px] font-medium">Termina de configurar tu barbería</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {setup.staff === 0 && <Btn variant="secondary" onClick={() => go('equipo')}><Users size={16} strokeWidth={1.75} /> Agrega a tu equipo</Btn>}
-            {setup.services === 0 && <Btn variant="secondary" onClick={() => go('servicios')}><Scissors size={16} strokeWidth={1.75} /> Carga tus servicios</Btn>}
-            <Btn variant="secondary" onClick={() => go('horarios')}><Clock size={16} strokeWidth={1.75} /> Define horarios</Btn>
-          </div>
-        </div>
-      )}
+      <SetupGuide />
+      <SedesOverview />
 
       {!data ? (
         <Skeleton rows={3} />

@@ -98,6 +98,19 @@ export const opsRoutes: FastifyPluginAsync = async (app) => {
     return r.rows[0]?.id ?? null;
   }
 
+  /**
+   * Al pasar a tener varias sedes, lo que no tenía sede (fila, citas, ventas, caja,
+   * gastos) queda en la sede original para que cada sede vea solo lo suyo.
+   */
+  async function adoptOrphans(sql: import('../db.js').Sql) {
+    const locs = await sql<{ id: string }>('SELECT id FROM locations WHERE is_active ORDER BY created_at');
+    if (locs.rows.length < 2) return;
+    const first = locs.rows[0].id;
+    for (const t of ['queue_tickets', 'appointments', 'sales', 'cash_sessions', 'expenses']) {
+      await sql(`UPDATE ${t} SET location_id = $1 WHERE location_id IS NULL`, [first]);
+    }
+  }
+
   app.post('/admin/locations', async (request, reply) => {
     const b = locationBody.parse(request.body);
     const did = await districtId(b.district);
@@ -107,6 +120,7 @@ export const opsRoutes: FastifyPluginAsync = async (app) => {
          VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
         [b.name, b.address ?? null, b.district ?? null, b.province ?? 'Lima', b.phone ?? null, b.isActive ?? true, did, b.lat ?? null, b.lng ?? null],
       );
+      await adoptOrphans(sql);
       return rows[0];
     });
     return reply.code(201).send(out);
@@ -116,8 +130,8 @@ export const opsRoutes: FastifyPluginAsync = async (app) => {
     const id = (request.params as { id: string }).id;
     const b = locationBody.partial().parse(request.body);
     const did = b.district !== undefined ? await districtId(b.district) : undefined;
-    await withTenant(tid(request), (sql) =>
-      sql(
+    await withTenant(tid(request), async (sql) => {
+      await sql(
         `UPDATE locations SET
            name = COALESCE($2, name),
            address = CASE WHEN $12 THEN $3 ELSE address END,
@@ -129,8 +143,9 @@ export const opsRoutes: FastifyPluginAsync = async (app) => {
            lat = COALESCE($10, lat), lng = COALESCE($11, lng)
          WHERE id = $1`,
         [id, b.name ?? null, b.address ?? null, b.district ?? null, b.province ?? null, b.phone ?? null, b.isActive ?? null, did !== undefined, did ?? null, b.lat ?? null, b.lng ?? null, b.address !== undefined, b.phone !== undefined],
-      ),
-    );
+      );
+      if (b.isActive) await adoptOrphans(sql);
+    });
     await emitAvailabilityChange(tid(request));
     return { ok: true };
   });

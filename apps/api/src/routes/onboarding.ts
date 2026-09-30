@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createHash, randomBytes } from 'node:crypto';
 import { adminPool, admin } from '../db.js';
 import { env } from '../env.js';
+import { platformEmails } from '../lib/alerts.js';
 import { sendEmail, layout } from '../lib/email.js';
 import { tenantUrl } from '../lib/notify.js';
 
@@ -18,11 +19,6 @@ export const OPTIONS = {
   yearsOpen: ['Por abrir', 'Menos de 1 año', '1 a 3 años', '3 a 10 años', 'Más de 10 años'],
 };
 
-async function platformEmails(): Promise<string[]> {
-  if (env.platformNotifyEmail) return env.platformNotifyEmail.split(',').map((e) => e.trim()).filter(Boolean);
-  const { rows } = await admin<{ email: string }>('SELECT email FROM users WHERE is_platform_admin');
-  return rows.map((r) => r.email);
-}
 
 export const onboardingRoutes: FastifyPluginAsync = async (app) => {
   // ¿Está libre el subdominio?

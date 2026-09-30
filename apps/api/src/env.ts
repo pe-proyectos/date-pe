@@ -79,4 +79,10 @@ export const env = {
   whatsappPhoneId: process.env.WHATSAPP_PHONE_ID ?? '',
   // A quién avisar de nuevas solicitudes de barberías (si está vacío: a los superadmin)
   platformNotifyEmail: process.env.PLATFORM_NOTIFY_EMAIL ?? '',
+  // Llave de cifrado de los respaldos (64 caracteres hex). Guardar copia fuera del servidor.
+  backupKey: process.env.BACKUP_KEY ?? '',
+  // Datos legales de date.pe para su propio Libro de Reclamaciones
+  platformLegalName: process.env.PLATFORM_LEGAL_NAME ?? '',
+  platformRuc: process.env.PLATFORM_RUC ?? '',
+  platformAddress: process.env.PLATFORM_ADDRESS ?? '',
 };

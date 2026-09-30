@@ -6,7 +6,8 @@ import {
   UserX, Undo2, Armchair, ListOrdered, Loader2, Plus, CircleCheck, WifiOff, X, ChevronDown, Timer,
 } from 'lucide-react';
 import { useAdmin, useApi, soles } from './api';
-import { PageHead, Btn, Drawer, Field, inputCls, Empty, Skeleton } from './ui';
+import { PageHead, Btn, Drawer, Field, inputCls, Empty, Skeleton, usePanel } from './ui';
+import { useSede, SedeGate } from './sede';
 import { StatTile } from '@/components/charts';
 import { API_BASE_CLIENT, tenantUrl } from '@/lib/config';
 import { toast } from '@/lib/toast';
@@ -45,6 +46,8 @@ const STATUS: Record<AdminTicket['status'], [string, string]> = {
 
 export function Fila() {
   const { tenant } = useAdmin();
+  const sede = useSede();
+  const panelRole = usePanel().me?.role;
   const api = useApi();
   const [q, setQ] = useState<AdminQueue | null>(null);
   const [pub, setPub] = useState<QueueState | null>(null);
@@ -68,7 +71,7 @@ export function Fila() {
     } catch (e) {
       if ((e as Error).message !== 'no_autenticado') setError(true);
     }
-    fetch(`${API_BASE_CLIENT}/api/public/queue`, { headers: { 'X-Tenant-Slug': tenant } })
+    fetch(`${API_BASE_CLIENT}/api/public/queue${sede.location ? `?sede=${sede.location}` : ''}`, { headers: { 'X-Tenant-Slug': tenant } })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: QueueState | null) => d && setPub(d))
       .catch(() => {});
@@ -164,6 +167,7 @@ export function Fila() {
   }
 
   // ---------------------------- Estados ----------------------------
+  if (sede.multi && !sede.location && panelRole !== 'staff') return (<><PageHead title="Fila" /><SedeGate what="fila, su TV y su QR" /></>);
   if (error && !q) {
     return (
       <>
@@ -194,8 +198,9 @@ export function Fila() {
     );
   }
 
-  const tvUrl = tenantUrl(tenant, `/tv?k=${q.tvKey}`);
-  const filaUrl = tenantUrl(tenant, '/fila');
+  // Cada sede tiene su TV y su QR
+  const tvUrl = tenantUrl(tenant, `/tv?k=${q.tvKey}${sede.location ? `&sede=${sede.location}` : ''}`);
+  const filaUrl = tenantUrl(tenant, `/fila${sede.location ? `?sede=${sede.location}` : ''}`);
 
   return (
     <>

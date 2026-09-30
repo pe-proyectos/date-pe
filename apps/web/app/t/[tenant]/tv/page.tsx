@@ -27,8 +27,8 @@ export const viewport: Viewport = {
   viewportFit: 'cover',
 };
 
-export default async function TvPage({ params, searchParams }: { params: Promise<{ tenant: string }>; searchParams: Promise<{ k?: string }> }) {
+export default async function TvPage({ params, searchParams }: { params: Promise<{ tenant: string }>; searchParams: Promise<{ k?: string; sede?: string }> }) {
   const { tenant } = await params;
-  const { k } = await searchParams;
-  return <TvClient tenant={tenant} tvKey={typeof k === 'string' ? k : ''} />;
+  const { k, sede } = await searchParams;
+  return <TvClient tenant={tenant} tvKey={typeof k === 'string' ? k : ''} sede={typeof sede === 'string' && /^[0-9a-f-]{36}$/i.test(sede) ? sede : null} />;
 }

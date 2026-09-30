@@ -75,3 +75,20 @@ Panel:
 
 ## Retirado de la interfaz
 - Emitir boleta/factura (SUNAT/Nubefact): se quita de la agenda y de Ajustes. En su lugar, cada venta acepta adjuntar el comprobante que la barbería emitió (foto o PDF) y su número.
+
+## Varias sedes
+- Panel: el header `X-Location-Id: <uuid>` (o `?sede=`) filtra fila, caja, catálogo de caja, cierre del día y sesiones de caja. Sin header = todas (o barbería de una sola sede).
+- `GET /admin/locations/overview` -> `{ locations: [{ id, name, ventas, total_cents, en_fila, atendiendo, citas_pendientes, citas_completadas, barberos_ahora, caja_abierta }] }`
+- `GET /admin/day/report` con sede elegida filtra por sede; sin sede y con 2+ sedes agrega `byLocation`.
+- Público: `GET /public/queue?sede=` agrega `locations`, `location`, `needsLocation`. `POST /public/queue/join { ..., locationId }` (409 `elige_la_sede`). TV: `/tv?k=<tvKey>&sede=<id>`; el `announce` trae `locationId`.
+- Al crear la segunda sede, lo que no tenía sede (fila, citas, ventas, caja, gastos) pasa a la sede original.
+
+## Arranque y caja sin internet
+- `POST /admin/clients/import { rows: [{ name, phone, email, birthday, notes, tags, visits, lastVisit }], marketingOptIn, dryRun }` -> `{ total, created, updated, skipped: [{ row, reason }] }`
+- `GET /admin/setup` -> `{ steps: [{ id, title, body, done, href, optional }], done, total, complete, dismissed }` · `PATCH /admin/setup { share?, clients?, team?, dismissed? }`
+- `POST /admin/pos/checkout` acepta `clientRef` (idempotente: repetir devuelve la misma venta con `duplicate: true`) y `offlineAt` (hora real, hasta 3 días atrás).
+
+## Libro de Reclamaciones
+- Público: `GET /public/complaints/info` · `POST /public/complaints` (sin tenant = libro de date.pe)
+- Panel: `GET /admin/complaints` · `POST /admin/complaints/:id/respond { response }`
+- Superadmin: `GET /platform/complaints` · `POST /platform/complaints/:id/respond` · `GET /platform/status` · `POST /platform/backups/run`

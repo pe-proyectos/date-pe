@@ -21,6 +21,7 @@ services:
       retries: 15
 
   api:
+    image: datepe-api
     build:
       context: ..
       dockerfile: Dockerfile.api
@@ -55,6 +56,22 @@ services:
       - traefik.http.routers.datepe-api-http.rule=Host(`date.pe`) && PathPrefix(`/api`)
       - traefik.http.routers.datepe-api-http.priority=100
       - traefik.http.services.datepe-api.loadbalancer.server.port=3001
+
+  # Vigía: revisa cada minuto que date.pe responda y avisa por correo si se cae
+  watchdog:
+    image: datepe-api
+    container_name: datepe-watchdog
+    restart: unless-stopped
+    env_file: ../.env
+    command: ["pnpm", "--filter", "@datepe/api", "watchdog"]
+    environment:
+      NODE_ENV: production
+      APP_BASE_DOMAIN: date.pe
+      APP_PUBLIC_URL: https://date.pe
+      DATABASE_URL: postgres://datepe:${POSTGRES_PASSWORD:-datepe}@datepe-db:5432/datepe
+      DATABASE_APP_URL: postgres://datepe_app:datepe_app@datepe-db:5432/datepe
+    depends_on: [api]
+    networks: [datepe-internal, coolify]
 
   web:
     build:

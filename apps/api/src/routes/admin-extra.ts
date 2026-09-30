@@ -164,10 +164,10 @@ export const adminExtraRoutes: FastifyPluginAsync = async (app) => {
       clients: (
         await sql(
           `SELECT c.id, c.name, c.phone, c.email, c.loyalty_points, c.created_at, c.referral_code,
-                  count(a.*) FILTER (WHERE a.status = 'completed') AS visitas,
+                  count(a.*) FILTER (WHERE a.status = 'completed') + COALESCE(c.import_visits, 0) AS visitas,
                   count(a.*) FILTER (WHERE a.status = 'no_show') AS ausencias,
                   COALESCE(sum(a.price_cents) FILTER (WHERE a.status = 'completed'), 0) AS gastado_cents,
-                  max(a.starts_at) FILTER (WHERE a.status = 'completed' AND a.starts_at < now()) AS ultima_cita,
+                  GREATEST(max(a.starts_at) FILTER (WHERE a.status = 'completed' AND a.starts_at < now()), (c.import_last_visit::timestamp AT TIME ZONE 'America/Lima')) AS ultima_cita,
                   min(a.starts_at) FILTER (WHERE a.status IN ('pending','confirmed') AND a.starts_at >= now()) AS proxima_cita
              FROM clients c LEFT JOIN appointments a ON a.client_id = c.id
             WHERE ($1 = '' OR c.name ILIKE '%'||$1||'%' OR c.phone ILIKE '%'||$1||'%')

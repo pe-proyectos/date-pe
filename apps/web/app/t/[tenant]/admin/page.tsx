@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {
   LayoutDashboard, CalendarDays, Users, Clock, Scissors, Contact, TicketPercent, Star, ChartColumn, Settings, LogOut, ExternalLink, Loader2, Eye, EyeOff, House, Menu, ChevronRight, CreditCard, CirclePause, CalendarClock, MailCheck, ArrowLeft,
-  Sun, ListOrdered, Wallet, Package, Megaphone, Landmark, ToggleRight, KeyRound, Radio, BellRing, X,
+  Sun, ListOrdered, Wallet, Package, Megaphone, Landmark, ToggleRight, KeyRound, Radio, BellRing, X, BookOpenText,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { API_BASE_CLIENT, tenantUrl } from '@/lib/config';
@@ -14,7 +14,8 @@ import { toast } from '@/lib/toast';
 import { haptic } from '@/lib/haptics';
 import { pushSupported, subscribePush } from '@/lib/push';
 import { Sheet } from '@/components/Sheet';
-import { AdminContext, useAdmin, useApi } from './_parts/api';
+import { AdminContext, useAdmin, useApi, type Sede } from './_parts/api';
+import { SedeSwitcher } from './_parts/sede';
 import { PanelContext, featureOn, ROLE_LABEL, type Features, type PanelMe, type Role } from './_parts/ui';
 import { Resumen } from './_parts/Resumen';
 import { MiDia } from './_parts/MiDia';
@@ -35,6 +36,7 @@ import { Funciones } from './_parts/Funciones';
 import { Accesos } from './_parts/Accesos';
 import { Difusion } from './_parts/Difusion';
 import { Ajustes } from './_parts/Ajustes';
+import { Reclamos } from './_parts/Reclamos';
 import { Facturacion, BILLING_EVENT, diasTexto, type Billing } from './_parts/Facturacion';
 
 type GroupId = 'hoy' | 'clientes' | 'negocio' | 'config';
@@ -60,6 +62,7 @@ const SECTIONS = [
   { id: 'accesos', label: 'Accesos', icon: KeyRound, group: 'config' },
   { id: 'difusion', label: 'Difusión', icon: Radio, group: 'config' },
   { id: 'ajustes', label: 'Ajustes', icon: Settings, group: 'config' },
+  { id: 'reclamos', label: 'Reclamaciones', icon: BookOpenText, group: 'config' },
   { id: 'facturacion', label: 'Facturación', icon: CreditCard, group: 'config' },
 ] as const satisfies readonly { id: string; label: string; icon: LucideIcon; group: GroupId }[];
 type SectionId = (typeof SECTIONS)[number]['id'];
@@ -117,14 +120,43 @@ export default function AdminPage() {
   const key = `datepe_token_${tenant}`;
   const [token, setToken] = useState<string | null | undefined>(undefined);
   const [shopName, setShopName] = useState(tenant);
+  // Varias sedes: la elegida se recuerda por dispositivo
+  const sedeKey = `datepe_sede_${tenant}`;
+  const [locations, setLocations] = useState<Sede[]>([]);
+  const [location, setLocationState] = useState<string | null>(null);
 
   useEffect(() => {
     setToken(localStorage.getItem(key));
+    setLocationState(localStorage.getItem(sedeKey));
+    // Sin internet se usa lo último que se vio (nombre y sedes), para que la caja siga funcionando
+    const siteKey = `datepe_site_${tenant}`;
+    try {
+      const c = JSON.parse(localStorage.getItem(siteKey) ?? 'null') as { name?: string; locations?: Sede[] } | null;
+      if (c?.name) setShopName(c.name);
+      if (c?.locations) setLocations(c.locations);
+    } catch { /* sin caché */ }
     fetch(`${API_BASE_CLIENT}/api/public/site`, { headers: { 'X-Tenant-Slug': tenant } })
       .then((r) => r.json())
-      .then((d) => d?.tenant?.name && setShopName(d.tenant.name))
+      .then((d) => {
+        try { localStorage.setItem(siteKey, JSON.stringify({ name: d?.tenant?.name, locations: (d?.locations ?? []).map((l: Sede) => ({ id: l.id, name: l.name, district: l.district ?? null, address: l.address ?? null })) })); } catch { /* sin espacio */ }
+        if (d?.tenant?.name) setShopName(d.tenant.name);
+        const locs = (d?.locations ?? []) as Sede[];
+        setLocations(locs);
+        // Una sede borrada o una sola sede: sin filtro
+        const saved = localStorage.getItem(sedeKey);
+        if (locs.length < 2 || (saved && !locs.some((l) => l.id === saved))) {
+          localStorage.removeItem(sedeKey);
+          setLocationState(null);
+        }
+      })
       .catch(() => {});
-  }, [key, tenant]);
+  }, [key, tenant, sedeKey]);
+
+  const setLocation = useCallback((id: string | null) => {
+    if (id) localStorage.setItem(sedeKey, id);
+    else localStorage.removeItem(sedeKey);
+    setLocationState(id);
+  }, [sedeKey]);
 
   // Vuelta del pago del plan: ?pago=ok o ?pago=error (llega con #facturacion)
   useEffect(() => {
@@ -152,7 +184,7 @@ export default function AdminPage() {
   if (!token) return <Login tenant={tenant} shopName={shopName} onLogin={(t) => { localStorage.setItem(key, t); setToken(t); }} />;
 
   return (
-    <AdminContext.Provider value={{ tenant, token, logout }}>
+    <AdminContext.Provider value={{ tenant, token, logout, location: locations.length > 1 ? location : null, locations, setLocation }}>
       <Toaster />
       <Panel shopName={shopName} />
     </AdminContext.Provider>
@@ -163,7 +195,7 @@ interface MeResponse { me: PanelMe | null; features: Features; pushPublicKey: st
 
 /** Panel con sesión: arma el menú según el rol y las funciones activas de la barbería. */
 function Panel({ shopName }: { shopName: string }) {
-  const { tenant, logout } = useAdmin();
+  const { tenant, logout, location } = useAdmin();
   const api = useApi();
   const [info, setInfo] = useState<MeResponse | null>(null);
   const [section, setSection] = useState<SectionId | null>(null);
@@ -202,6 +234,18 @@ function Panel({ shopName }: { shopName: string }) {
     window.scrollTo({ top: 0 });
   }, []);
 
+  // Guarda el panel en el dispositivo para que la caja abra aunque se caiga el internet
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.ready
+      .then((reg) => {
+        const urls = performance.getEntriesByType('resource').map((e) => e.name).filter((u) => u.includes('/_next/static/'));
+        reg.active?.postMessage({ type: 'precache', urls });
+      })
+      .catch(() => {});
+  }, []);
+
   const setFeatures = useCallback((f: Features) => setInfo((p) => (p ? { ...p, features: { ...p.features, ...f } } : p)), []);
   const panelValue = useMemo(() => ({ me: info?.me ?? null, features, pushPublicKey: info?.pushPublicKey ?? null, setFeatures }), [info, features, setFeatures]);
 
@@ -216,7 +260,7 @@ function Panel({ shopName }: { shopName: string }) {
   const Views: Record<Exclude<SectionId, 'resumen'>, React.ComponentType> = {
     'mi-dia': MiDia, agenda: Agenda, fila: Fila, caja: Caja, clientes: Clientes, promociones: Promociones, marketing: Marketing, resenas: Resenas,
     servicios: Servicios, productos: Productos, equipo: Equipo, horarios: Horarios, finanzas: Finanzas, reportes: Reportes,
-    funciones: Funciones, accesos: Accesos, difusion: Difusion, ajustes: Ajustes, facturacion: Facturacion,
+    funciones: Funciones, accesos: Accesos, difusion: Difusion, ajustes: Ajustes, reclamos: Reclamos, facturacion: Facturacion,
   };
   const View = current === 'resumen' ? null : Views[current];
   const tabLabel = (s: SectionDef) => (s.id === 'resumen' ? 'Hoy' : s.label);
@@ -235,6 +279,7 @@ function Panel({ shopName }: { shopName: string }) {
                 <div className="truncate text-[12px] text-soft">{tenant}.date.pe</div>
               </div>
             </div>
+            {role !== 'staff' && <div className="mt-4 px-1"><SedeSwitcher /></div>}
             <nav className="no-scrollbar -mx-1 mt-6 flex-1 space-y-5 overflow-y-auto px-1 pb-4" aria-label="Secciones del panel">
               {GROUPS.map(([g, title]) => {
                 const items = visible.filter((s) => s.group === g);
@@ -284,6 +329,7 @@ function Panel({ shopName }: { shopName: string }) {
               <PoleMark size={22} className="shrink-0" />
               <div className="truncate text-[16px] font-semibold tracking-[-0.02em]">{shopName}</div>
             </div>
+            {role !== 'staff' && <SedeSwitcher compact />}
             <a href={tenantUrl(tenant)} target="_blank" rel="noopener noreferrer" className="flex h-10 w-10 items-center justify-center rounded-full active:bg-field" aria-label="Ver mi página">
               <ExternalLink size={19} strokeWidth={1.75} />
             </a>
@@ -356,7 +402,8 @@ function Panel({ shopName }: { shopName: string }) {
         <main className="min-w-0 px-4 pb-[calc(96px+env(safe-area-inset-bottom))] pt-6 md:px-10 lg:py-10">
           {/* El plan solo lo ve (y lo paga) el dueño */}
           {role === 'owner' && <BillingBanner go={go} section={current} />}
-          <div key={current} className="rise-in mx-auto max-w-[1100px]">
+          {/* Al cambiar de sede la sección se vuelve a cargar con sus datos */}
+          <div key={`${current}:${location ?? 'todas'}`} className="rise-in mx-auto max-w-[1100px]">
             {View ? <View /> : <Resumen go={go} />}
           </div>
         </main>

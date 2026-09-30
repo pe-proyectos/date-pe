@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Clock, Users, CalendarOff, CalendarClock, Loader2, Ticket, ChevronRight, Check, WifiOff, Info, BellRing } from 'lucide-react';
+import { Clock, Users, CalendarOff, CalendarClock, Loader2, Ticket, ChevronRight, Check, WifiOff, Info, BellRing, MapPin } from 'lucide-react';
 import { onColor } from '@/lib/color';
 import { soles } from '@/lib/api';
 import { Toaster } from '@/components/Toaster';
@@ -28,16 +28,41 @@ export function FilaClient({ tenant, logoUrl }: { tenant: string; logoUrl: strin
   const [staffId, setStaffId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [phoneError, setPhoneError] = useState(false);
+  // Varias sedes: la del QR (?sede=) o la última elegida en este celular
+  const [sede, setSede] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('sede');
+    setSede(fromUrl || localStorage.getItem(`datepe_fila_sede_${tenant}`) || null);
+  }, [tenant]);
+  const chooseSede = (id: string | null) => {
+    haptic.tap();
+    if (id) localStorage.setItem(`datepe_fila_sede_${tenant}`, id);
+    else localStorage.removeItem(`datepe_fila_sede_${tenant}`);
+    const u = new URL(window.location.href);
+    if (id) u.searchParams.set('sede', id);
+    else u.searchParams.delete('sede');
+    window.history.replaceState(null, '', u.toString());
+    setData(null);
+    setSede(id);
+  };
 
   const load = useCallback(async () => {
+    if (sede === undefined) return;
     try {
-      setData(await publicApi<QueueState>(tenant, '/public/queue'));
+      const d = await publicApi<QueueState>(tenant, `/public/queue${sede ? `?sede=${sede}` : ''}`);
+      // Sede guardada que ya no existe: se vuelve a elegir
+      if (sede && d.locations && !d.locations.some((l) => l.id === sede)) {
+        localStorage.removeItem(`datepe_fila_sede_${tenant}`);
+        setSede(null);
+        return;
+      }
+      setData(d);
       setLoadError(false);
     } catch (e) {
       if (e instanceof ApiError && e.code === 'funcion_desactivada') setOff(true);
       else setLoadError(true);
     }
-  }, [tenant]);
+  }, [tenant, sede]);
 
   useEffect(() => {
     load();
@@ -89,7 +114,7 @@ export function FilaClient({ tenant, logoUrl }: { tenant: string; logoUrl: strin
     try {
       const out = await publicApi<{ token: string; number: number; existing?: boolean }>(tenant, '/public/queue/join', {
         method: 'POST',
-        body: { name, ...(digits ? { phone: `+51${digits.slice(-9)}` } : {}), ...(serviceId ? { serviceId } : {}), ...(staffId ? { staffId } : {}) },
+        body: { name, ...(digits ? { phone: `+51${digits.slice(-9)}` } : {}), ...(serviceId ? { serviceId } : {}), ...(staffId ? { staffId } : {}), ...(sede ? { locationId: sede } : {}) },
       });
       saveTicket(tenant, out);
       try {
@@ -137,6 +162,30 @@ export function FilaClient({ tenant, logoUrl }: { tenant: string; logoUrl: strin
 
   const shop = data.tenant.name;
   const logo = logoUrl ?? data.branding?.logo_url;
+  const multiSede = (data.locations?.length ?? 0) > 1;
+
+  if (data.needsLocation && data.locations) {
+    return (
+      <main className="mx-auto min-h-dvh max-w-md px-5 pb-12 pt-[calc(2.5rem+env(safe-area-inset-top))]">
+        <Toaster />
+        <p className="text-[15px] text-mute">{shop}</p>
+        <h1 className="mt-1 text-[30px] font-semibold leading-[1.1] tracking-[-0.035em]">¿En qué sede estás?</h1>
+        <p className="mt-2 text-[16px] text-mute">Cada sede tiene su propia fila.</p>
+        <div className="mt-6 grid gap-2">
+          {data.locations.map((l) => (
+            <button key={l.id} type="button" onClick={() => chooseSede(l.id)} className="flex min-h-16 items-center gap-3 rounded-xl border border-line px-4 text-left active:bg-field">
+              <MapPin size={20} strokeWidth={1.75} className="shrink-0 text-mute" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[17px] font-medium">{l.name}</span>
+                {(l.address || l.district) && <span className="block truncate text-[14px] text-mute">{l.address && l.district && l.address.includes(l.district) ? l.address : [l.address, l.district].filter(Boolean).join(', ')}</span>}
+              </span>
+              <ChevronRight size={18} strokeWidth={1.75} className="text-soft" />
+            </button>
+          ))}
+        </div>
+      </main>
+    );
+  }
   const full = data.waitingCount >= data.queueConfig.maxWaiting;
   const closed = !data.open;
   const canJoin = data.features.queue && !closed && !full;
@@ -154,8 +203,14 @@ export function FilaClient({ tenant, logoUrl }: { tenant: string; logoUrl: strin
             ) : (
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[15px] font-semibold" style={{ background: accent, color: onAccent }}>{initialOf(shop)}</span>
             )}
-            <span className="truncate text-[16px] font-semibold tracking-[-0.02em]">{shop}</span>
+            <span className="min-w-0">
+              <span className="block truncate text-[16px] font-semibold tracking-[-0.02em]">{shop}</span>
+              {multiSede && data.location && <span className="block truncate text-[13px] text-mute">{data.location.name}</span>}
+            </span>
           </Link>
+          {multiSede && (
+            <button type="button" onClick={() => chooseSede(null)} className="min-h-10 shrink-0 rounded-full px-3 text-[14px] font-medium text-mute active:bg-field">Cambiar sede</button>
+          )}
           <span className={`inline-flex items-center gap-1.5 text-[13px] ${online ? 'text-mute' : 'text-soft'}`}>
             {online ? <span className="h-2 w-2 rounded-full bg-ok" aria-hidden /> : <WifiOff size={14} strokeWidth={1.75} />}
             {online ? 'En vivo' : 'Reconectando'}

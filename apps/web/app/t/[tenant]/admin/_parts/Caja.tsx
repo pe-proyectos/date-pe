@@ -5,7 +5,7 @@ import {
   Wallet, Search, Plus, Minus, X, Scissors, ShoppingBag, Package, BadgeCheck, Gift, PenLine, User, UserPlus, UserX,
   Banknote, Smartphone, CreditCard, Landmark, Award, CalendarCheck, Camera, FileText, Paperclip, ChevronLeft, ChevronRight,
   Lock, LockOpen, ArrowDownLeft, ArrowUpRight, Receipt, Clock, TriangleAlert, Ban, Percent, History, Loader2, Ticket as TicketIcon,
-  Coins, Check, SplitSquareHorizontal, Printer, MessageCircle, CalendarDays,
+  Coins, Check, SplitSquareHorizontal, Printer, MessageCircle, CalendarDays, WifiOff, CloudUpload,
 } from 'lucide-react';
 import { useAdmin, soles } from './api';
 import { PageHead, Btn, Field, inputCls, Empty, Skeleton } from './ui';
@@ -15,6 +15,8 @@ import { toast } from '@/lib/toast';
 import { haptic } from '@/lib/haptics';
 import { uploadImage } from '@/lib/upload';
 import { API_BASE_CLIENT } from '@/lib/config';
+import { enqueueSale, flushOutbox, isNetworkError, newRef, readOutbox, dropSale, OUTBOX_EVENT, type OutboxSale } from '@/lib/outbox';
+import { useSede, SedeGate } from './sede';
 
 /* ------------------------------ Tipos ------------------------------ */
 
@@ -106,13 +108,19 @@ class ApiError extends Error {
  * permiso del rol) se muestra como aviso en lugar de cerrar la sesión.
  */
 function usePanel() {
-  const { tenant, token, logout } = useAdmin();
+  const { tenant, token, logout, location = null } = useAdmin();
   return useMemo(() => {
-    const auth = { 'X-Tenant-Slug': tenant, Authorization: `Bearer ${token}` };
-    async function api<T = unknown>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+    const auth: Record<string, string> = { 'X-Tenant-Slug': tenant, Authorization: `Bearer ${token}`, ...(location ? { 'X-Location-Id': location } : {}) };
+    async function api<T = unknown>(path: string, init: { method?: string; body?: unknown; location?: string | null } = {}): Promise<T> {
+      const headers: Record<string, string> = { ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...auth };
+      // Una venta guardada sin conexión se sube con la sede en la que se hizo
+      if (init.location !== undefined) {
+        delete headers['X-Location-Id'];
+        if (init.location) headers['X-Location-Id'] = init.location;
+      }
       const res = await fetch(`${API_BASE_CLIENT}/api${path}`, {
         method: init.method ?? 'GET',
-        headers: { ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...auth },
+        headers,
         body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
       });
       if (res.status === 401) {
@@ -123,8 +131,8 @@ function usePanel() {
       if (!res.ok) throw new ApiError(String(data.error ?? 'error'), res.status, data);
       return data as T;
     }
-    return { api, uploadHeaders: { 'Content-Type': 'application/json', ...auth }, tenant };
-  }, [tenant, token, logout]);
+    return { api, uploadHeaders: { 'Content-Type': 'application/json', ...auth }, tenant, location };
+  }, [tenant, token, logout, location]);
 }
 
 /** Soles escritos por la persona a céntimos ("32.5" o "32,50"). */
@@ -279,8 +287,19 @@ function Row({ label, value, strong, muted }: { label: React.ReactNode; value: R
 
 type View = 'cobrar' | 'hoy' | 'caja' | 'cierre';
 
+/* Última caja y catálogo vistos, para seguir cobrando si se cae el internet */
+const cacheKey = (tenant: string, loc: string | null, what: string) => `datepe_caja_${what}_${tenant}_${loc ?? 'todas'}`;
+function saveCache(k: string, v: unknown) {
+  try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sin espacio */ }
+}
+function loadCache<T>(k: string): T | null {
+  try { return JSON.parse(localStorage.getItem(k) ?? 'null') as T | null; } catch { return null; }
+}
+
 export function Caja() {
-  const { api, tenant, uploadHeaders } = usePanel();
+  const { api, tenant, uploadHeaders, location } = usePanel();
+  const sede = useSede();
+  const [offline, setOffline] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
   const [state, setState] = useState<PosState | null>(null);
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -292,11 +311,32 @@ export function Caja() {
   const [moveSheet, setMoveSheet] = useState<'in' | 'out' | null>(null);
   const [closeSheet, setCloseSheet] = useState(false);
 
-  const loadState = useCallback(() => api<PosState>('/admin/pos/state').then(setState).catch((e) => { if (!(e instanceof ApiError && e.status === 403)) setFailed(true); }), [api]);
-  const loadCatalog = useCallback(() => api<Catalog>('/admin/pos/catalog').then(setCatalog).catch(() => {}), [api]);
+  const loadState = useCallback(
+    () =>
+      api<PosState>('/admin/pos/state')
+        .then((d) => { setState(d); setOffline(false); saveCache(cacheKey(tenant, location, 'state'), d); })
+        .catch((e) => {
+          const cached = isNetworkError(e) ? loadCache<PosState>(cacheKey(tenant, location, 'state')) : null;
+          if (cached) { setState(cached); setOffline(true); return; }
+          if (!(e instanceof ApiError && e.status === 403)) setFailed(true);
+        }),
+    [api, tenant, location],
+  );
+  const loadCatalog = useCallback(
+    () =>
+      api<Catalog>('/admin/pos/catalog')
+        .then((d) => { setCatalog(d); saveCache(cacheKey(tenant, location, 'catalog'), d); })
+        .catch((e) => {
+          const cached = isNetworkError(e) ? loadCache<Catalog>(cacheKey(tenant, location, 'catalog')) : null;
+          if (cached) setCatalog(cached);
+        }),
+    [api, tenant, location],
+  );
 
   useEffect(() => {
-    api<{ me: Me }>('/admin/me').then((d) => setMe(d.me)).catch(() => setMe({ id: '', name: '', role: 'owner', staffId: null }));
+    api<{ me: Me }>('/admin/me')
+      .then((d) => { setMe(d.me); saveCache(cacheKey(tenant, null, 'me'), d.me); })
+      .catch(() => setMe(loadCache<Me>(cacheKey(tenant, null, 'me')) ?? { id: '', name: '', role: 'owner', staffId: null }));
     loadState();
     loadCatalog();
   }, [api, loadState, loadCatalog]);
@@ -376,6 +416,7 @@ export function Caja() {
   const canCash = me?.role !== 'staff';
   const session = state?.session ?? null;
 
+  if (sede.multi && !sede.location) return (<><PageHead title="Caja" /><SedeGate what="caja" /></>);
   if (failed) return (<><PageHead title="Caja" /><Empty icon={Wallet} title="No pudimos cargar la caja" body="Revisa tu conexión e intenta de nuevo." action={<Btn onClick={() => { setFailed(false); loadState(); loadCatalog(); }}>Reintentar</Btn>} /></>);
   if (!state || !me) return (<><PageHead title="Caja" /><Skeleton rows={5} /></>);
   if (!state.features.pos) {
@@ -422,6 +463,8 @@ export function Caja() {
         }
       />
 
+      <OfflineBar api={api} tenant={tenant} offline={offline} onSynced={refreshAll} />
+
       <div className="mb-6">
         <Segmented value={view} onChange={setView} options={views} label="Vista de la caja" />
       </div>
@@ -458,6 +501,93 @@ export function Caja() {
 }
 
 type Api = ReturnType<typeof usePanel>['api'];
+
+const SALE_ERR: Record<string, string> = {
+  cita_ya_cobrada: 'La cita ya se había cobrado en otro dispositivo.',
+  pagos_no_cuadran: 'Los pagos no cuadran con el total.',
+  sin_stock: 'No había stock del producto.',
+  gift_card_sin_saldo: 'La gift card no tenía saldo.',
+  paquete_sin_usos: 'El paquete ya no tenía usos.',
+  puntos_insuficientes: 'Al cliente no le alcanzaban los puntos.',
+};
+
+/**
+ * Aviso de conexión y ventas por subir. Sube lo pendiente al volver el internet,
+ * cada 20 segundos y al entrar a la caja.
+ */
+function OfflineBar({ api, tenant, offline, onSynced }: { api: Api; tenant: string; offline: boolean; onSynced: () => void }) {
+  const [online, setOnline] = useState(true);
+  const [items, setItems] = useState<OutboxSale[]>([]);
+  const [syncing, setSyncing] = useState(false);
+
+  const sync = useCallback(async (manual = false) => {
+    if (!readOutbox(tenant).some((s) => !s.error)) return;
+    setSyncing(true);
+    const r = await flushOutbox(tenant, (body, location) => api('/admin/pos/checkout', { method: 'POST', body, location }));
+    setSyncing(false);
+    if (r.sent) {
+      toast.success(r.sent === 1 ? 'Se subió 1 venta hecha sin conexión.' : `Se subieron ${r.sent} ventas hechas sin conexión.`);
+      onSynced();
+    }
+    if (r.failed) toast.error('Una venta sin conexión no se pudo registrar. Revísala en la caja.');
+    if (manual && !r.sent && !r.failed) toast.info('Todavía no hay conexión.');
+  }, [api, tenant, onSynced]);
+
+  useEffect(() => {
+    const read = () => setItems(readOutbox(tenant));
+    // Al volver la red, la primera conexión a veces aún falla: se intenta al segundo y a los 5
+    const on = () => { setOnline(true); setTimeout(() => void sync(), 1200); setTimeout(() => void sync(), 5000); };
+    const off = () => setOnline(false);
+    setOnline(navigator.onLine);
+    read();
+    void sync();
+    window.addEventListener(OUTBOX_EVENT, read);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    const t = setInterval(() => void sync(), 20000);
+    return () => {
+      window.removeEventListener(OUTBOX_EVENT, read);
+      window.removeEventListener('online', on);
+      window.removeEventListener('offline', off);
+      clearInterval(t);
+    };
+  }, [tenant, sync]);
+
+  const pending = items.filter((s) => !s.error);
+  const failed = items.filter((s) => s.error);
+  if (online && !offline && !items.length) return null;
+
+  return (
+    <div className="mb-5 space-y-2" role="status">
+      {(!online || offline) && (
+        <div className="flex items-start gap-3 rounded-xl bg-[#fff4e0] px-4 py-3 text-[#8a5300]">
+          <WifiOff size={18} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+          <p className="text-[14px]"><span className="font-medium">Sin conexión.</span> Puedes seguir cobrando: las ventas se guardan en este dispositivo y se suben solas.</p>
+        </div>
+      )}
+      {pending.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line px-4 py-3">
+          <CloudUpload size={18} strokeWidth={1.75} className="shrink-0 text-mute" />
+          <p className="min-w-0 flex-1 text-[14px]">
+            {pending.length === 1 ? '1 venta por subir' : `${pending.length} ventas por subir`}
+            <span className="block truncate text-mute">{pending.map((s) => s.label).join(' · ')}</span>
+          </p>
+          <Btn variant="secondary" onClick={() => void sync(true)} disabled={syncing}>{syncing ? <Loader2 size={16} className="animate-spin" /> : <CloudUpload size={16} strokeWidth={1.75} />} Subir ahora</Btn>
+        </div>
+      )}
+      {failed.map((s) => (
+        <div key={s.ref} className="flex flex-wrap items-center gap-3 rounded-xl bg-red-tint px-4 py-3 text-red-deep">
+          <TriangleAlert size={18} strokeWidth={1.75} className="shrink-0" />
+          <p className="min-w-0 flex-1 text-[14px]">
+            <span className="font-medium">No se registró: {s.label}</span>
+            <span className="block">{SALE_ERR[s.error ?? ''] ?? 'El servidor la rechazó.'} Cóbrala de nuevo si corresponde.</span>
+          </p>
+          <Btn variant="secondary" onClick={() => dropSale(tenant, s.ref)}>Descartar</Btn>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /* ------------------------------ Cobrar ------------------------------ */
 
@@ -502,7 +632,8 @@ function Register({
   const [sheet, setSheet] = useState(false);
   const [clientSheet, setClientSheet] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<(CheckoutResult & { change: number; giftCode: string | null; hadReceipt: boolean }) | null>(null);
+  const [result, setResult] = useState<(CheckoutResult & { change: number; giftCode: string | null; hadReceipt: boolean; offline?: boolean }) | null>(null);
+  const { tenant, location = null } = useAdmin();
 
   const staffName = (id: string | null | undefined) => catalog.staff.find((s) => s.id === id)?.name ?? null;
   const lineStaff = (l: Line) => (l.kind === 'gift_card' ? null : l.staffId === undefined ? mainStaff : l.staffId);
@@ -723,7 +854,9 @@ function Register({
     for (const r of rows.slice(1)) if (toCents(r.amount) > 0) payments.push({ method: r.method, amountCents: toCents(r.amount) });
     if (!payments.length) payments.push({ method: rows[0]?.method ?? 'cash', amountCents: 0 });
 
+    const ref = newRef();
     const body = {
+      clientRef: ref,
       appointmentId: origin?.type === 'cita' ? origin.id : undefined,
       ticketId: origin?.type === 'turno' ? origin.id : undefined,
       clientId: client?.id,
@@ -761,7 +894,19 @@ function Register({
       toast.success(`Venta ${r.number} cobrada`);
       onDone();
     } catch (e) {
-      toast.error(errMsg(e));
+      if (isNetworkError(e)) {
+        // Sin internet: la venta queda guardada en este dispositivo y se sube sola
+        const total = lines.reduce((s2, l) => s2 + l.unit * l.qty, 0) - (discountCents || 0) + (tipCents || 0);
+        enqueueSale(tenant, { ref, body: body as Record<string, unknown>, at: new Date().toISOString(), label: `${lines.map((l) => l.name).slice(0, 2).join(', ')}, ${soles(total)}`, location });
+        haptic.success();
+        setResult({ saleId: '', number: 0, total, pointsAwarded: 0, lowStock: [], change: Math.max(0, change), giftCode: null, hadReceipt: true, offline: true });
+        setStep('done');
+        setSheet(true);
+        toast.info('Sin internet. La venta quedó guardada y se sube sola cuando vuelva la conexión.');
+        onDone();
+      } else {
+        toast.error(errMsg(e));
+      }
     } finally {
       setBusy(false);
     }
@@ -1214,6 +1359,7 @@ function ExpressSheet({
 }) {
   const cfg = state.config;
   const tipsOn = !!state.features.tips;
+  const { tenant, location = null } = useAdmin();
   const [info, setInfo] = useState<ExpressInfo | null>(null);
   const [method, setMethod] = useState('cash');
   const [svc, setSvc] = useState<string | null>(null);
@@ -1262,8 +1408,12 @@ function ExpressSheet({
   async function submit() {
     if (!target || !ready || busy) return;
     setBusy(true);
+    let ref = '';
+    let body: Record<string, unknown> = {};
     try {
-      const body = {
+      ref = newRef();
+      body = {
+        clientRef: ref,
         ticketId: target.kind === 'ticket' ? target.id : undefined,
         appointmentId: target.kind === 'appointment' ? target.id : undefined,
         payWith: method,
@@ -1278,6 +1428,14 @@ function ExpressSheet({
       onDone(target.id);
       onClose();
     } catch (e) {
+      if (isNetworkError(e) && ref) {
+        enqueueSale(tenant, { ref, body, at: new Date().toISOString(), label: `${info?.clientName ?? target.name ?? 'Cobro rápido'}, ${soles(charge)}`, location });
+        haptic.success();
+        toast.info(`Sin internet. ${soles(charge)} con ${label} quedó guardado y se sube solo.`);
+        onDone(target.id);
+        onClose();
+        return;
+      }
       haptic.error();
       toast.error(errMsg(e));
       if (e instanceof ApiError && (e.message === 'cita_ya_cobrada' || e.message === 'nada_por_cobrar')) { onDone(target.id); onClose(); }
@@ -1764,7 +1922,7 @@ function ReceiptPicker({ receipt, uploading, onFile, onClear }: { receipt: Recei
 
 /* ---------- Pantalla final ---------- */
 
-function DoneView({ result, api, uploadHeaders }: { result: CheckoutResult & { change: number; giftCode: string | null; hadReceipt: boolean }; api: Api; uploadHeaders: Record<string, string> }) {
+function DoneView({ result, api, uploadHeaders }: { result: CheckoutResult & { change: number; giftCode: string | null; hadReceipt: boolean; offline?: boolean }; api: Api; uploadHeaders: Record<string, string> }) {
   const [attach, setAttach] = useState(false);
   const [receipt, setReceipt] = useState<ReceiptFile | null>(null);
   const [num, setNum] = useState('');
@@ -1795,7 +1953,7 @@ function DoneView({ result, api, uploadHeaders }: { result: CheckoutResult & { c
       <span className="flex h-16 w-16 items-center justify-center rounded-full bg-ok-tint text-ok">
         <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="draw-check" aria-hidden><path d="M5 12.5l4.2 4.2L19 7" /></svg>
       </span>
-      <p className="mt-4 text-[15px] text-mute">Venta {result.number} cobrada</p>
+      <p className="mt-4 text-[15px] text-mute">{result.offline ? 'Cobrada sin conexión. Se sube sola cuando vuelva el internet.' : `Venta ${result.number} cobrada`}</p>
       <p className="tnum mt-1 text-[40px] font-semibold leading-none tracking-[-0.035em]">{soles(result.total)}</p>
       {result.change > 0 && (
         <div className="mt-6 w-full rounded-xl bg-ink px-5 py-4 text-white">

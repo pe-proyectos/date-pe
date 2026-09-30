@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Search, Contact, MessageCircle, Award, Copy, Gift, Phone, Trash2, Hourglass, CircleAlert, Camera, ImagePlus, Plus, X, Star, Layers, BadgeCheck, CalendarClock, Repeat, Scissors, Receipt,
+  Search, Contact, MessageCircle, Award, Copy, Gift, Phone, Trash2, Hourglass, CircleAlert, Camera, ImagePlus, Plus, X, Star, Layers, BadgeCheck, CalendarClock, Repeat, Scissors, Receipt, FileSpreadsheet,
 } from 'lucide-react';
 import { useAdmin, useApi, soles } from './api';
-import { PageHead, Empty, Skeleton, Field, inputCls, Btn, Switch, StatusPill, usePanel, featureOn } from './ui';
+import { PageHead, Empty, Skeleton, Field, inputCls, Btn, Switch, StatusPill, usePanel, featureOn, canManage } from './ui';
+import { ImportarClientes, IMPORT_HASHES } from './ImportarClientes';
 import { Sheet } from '@/components/Sheet';
 import { Lightbox } from '@/components/Lightbox';
 import { uploadImage } from '@/lib/upload';
@@ -56,6 +57,16 @@ export function Clientes() {
   const [open, setOpen] = useState<Client | null>(null);
   const [tab, setTab] = useState<Tab>('clientes');
   const [wait, setWait] = useState<Wait[] | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [reload, setReload] = useState(0);
+  const canImport = canManage(me?.role);
+
+  // La guía de primeros pasos enlaza aquí con #clientes?importar: se abre el importador
+  useEffect(() => {
+    if (!canImport || !IMPORT_HASHES.includes(window.location.hash)) return;
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#clientes`);
+    setImportOpen(true);
+  }, [canImport]);
 
   const loadWait = useCallback(() => api<{ waitlist: Wait[] }>('/admin/waitlist').then((d) => setWait(d.waitlist)).catch(() => setWait([])), []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (tab === 'espera' && canWaitlist) loadWait(); }, [tab, loadWait, canWaitlist]);
@@ -78,7 +89,7 @@ export function Clientes() {
     }, 200);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
+  }, [q, reload]);
 
   const onSaved = (id: string, patch: Partial<Client>) => setList((p) => p?.map((c) => (c.id === id ? { ...c, ...patch } : c)) ?? null);
 
@@ -87,6 +98,7 @@ export function Clientes() {
       <PageHead
         title="Clientes"
         sub={tab === 'clientes' ? 'Cada reserva crea o actualiza la ficha del cliente. Toca a alguien para ver su ficha completa.' : 'Quienes esperan un horario libre. Les avisamos por correo si alguien cancela ese día.'}
+        actions={canImport && tab === 'clientes' ? <Btn variant="secondary" onClick={() => setImportOpen(true)}><FileSpreadsheet size={16} strokeWidth={1.75} /> Importar</Btn> : undefined}
       />
       {canWaitlist && (
         <div className="mb-6 flex w-full max-w-md rounded-full border border-line p-1 sm:w-auto" role="tablist" aria-label="Vista">
@@ -117,7 +129,16 @@ export function Clientes() {
       {!list ? (
         <Skeleton />
       ) : list.length === 0 ? (
-        <Empty icon={Contact} title={q ? 'Sin resultados' : 'Aún no tienes clientes'} body={q ? 'Prueba con otro nombre o número.' : 'Aparecen aquí apenas alguien reserva.'} />
+        q || !canImport ? (
+          <Empty icon={Contact} title={q ? 'Sin resultados' : 'Aún no tienes clientes'} body={q ? 'Prueba con otro nombre o número.' : 'Aparecen aquí apenas alguien reserva.'} />
+        ) : (
+          <Empty
+            icon={Contact}
+            title="Aún no tienes clientes"
+            body="Trae tu lista desde Excel o desde tu sistema anterior en un par de minutos. También aparecen aquí apenas alguien reserva."
+            action={<Btn onClick={() => setImportOpen(true)} className="min-h-11"><FileSpreadsheet size={16} strokeWidth={1.75} /> Importar desde Excel</Btn>}
+          />
+        )
       ) : (
         <>
         <ul className="divide-y divide-line border-y border-line md:hidden">
@@ -177,6 +198,7 @@ export function Clientes() {
       )}
 
       <ClientFile row={open} onClose={() => setOpen(null)} onSaved={onSaved} />
+      {canImport && <ImportarClientes open={importOpen} onClose={() => setImportOpen(false)} onDone={() => setReload((n) => n + 1)} />}
     </>
   );
 }

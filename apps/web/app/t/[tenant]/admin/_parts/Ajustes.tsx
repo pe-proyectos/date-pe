@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ImagePlus, Loader2, ExternalLink, Palette, CalendarCheck, BellRing, Gift, MapPin, Wallet, Globe, Plus, Trash2, Copy, RefreshCw, Eye, EyeOff, ArrowUp, ArrowDown, GripVertical, Images,
+  ImagePlus, Loader2, ExternalLink, Palette, CalendarCheck, BellRing, Gift, MapPin, Wallet, Globe, Plus, Trash2, Copy, RefreshCw, Eye, EyeOff, ArrowUp, ArrowDown, GripVertical, Images, Scale,
 } from 'lucide-react';
 import { useAdmin, useApi } from './api';
 import { PageHead, Btn, Switch, Field, inputCls, Skeleton, Drawer, Empty } from './ui';
@@ -24,6 +24,7 @@ interface Settings {
   require_verification: boolean; allow_client_reschedule: boolean;
   referral_enabled: boolean; referral_discount_percent: number; referral_reward_points: number;
   mp_public_key: string | null; mp_access_token_set: boolean;
+  sunat_razon_social?: string | null; sunat_ruc?: string | null; sunat_direccion?: string | null;
 }
 interface Location { id: string; name: string; address: string | null; district: string | null; province: string | null; phone: string | null; is_active: boolean; barberos: number }
 interface DomainInfo { domain: string | null; status: null | 'pending' | 'active' | 'error'; dns?: { ok: boolean; found: string[] }; serverIp: string }
@@ -38,12 +39,22 @@ const INDEX = [
   { id: 'referidos', label: 'Referidos', icon: Gift },
   { id: 'sedes', label: 'Sedes', icon: MapPin },
   { id: 'adelanto', label: 'Cobro del adelanto', icon: Wallet },
+  { id: 'legales', label: 'Datos legales', icon: Scale },
   { id: 'dominio', label: 'Dominio propio', icon: Globe },
 ] as const;
 type IndexId = (typeof INDEX)[number]['id'];
 
 const num = (v: string) => Number(v.replace(/\D/g, '')) || 0;
 const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+
+/** RUC peruano: 11 dígitos, prefijo válido y dígito verificador de SUNAT. */
+function isRuc(v: string) {
+  if (!/^(10|15|16|17|20)\d{9}$/.test(v)) return false;
+  const w = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
+  const sum = w.reduce((acc, n, i) => acc + n * Number(v[i]), 0);
+  const check = (11 - (sum % 11)) % 10;
+  return check === Number(v[10]);
+}
 
 export function Ajustes() {
   const { tenant, token } = useAdmin();
@@ -154,6 +165,15 @@ export function Ajustes() {
     save('referral', { referralEnabled: s.referral_enabled, referralDiscountPercent: s.referral_discount_percent, referralRewardPoints: s.referral_reward_points }, 'Referidos guardados');
   }
 
+  function saveLegal() {
+    if (!s) return;
+    const ruc = (s.sunat_ruc ?? '').trim();
+    if (ruc && !isRuc(ruc)) return toast.error('Revisa el RUC: son 11 dígitos y empieza con 10 o 20.');
+    save('legal', {
+      sunatRazonSocial: (s.sunat_razon_social ?? '').trim(), sunatRuc: ruc, sunatDireccion: (s.sunat_direccion ?? '').trim(),
+    }, 'Datos legales guardados');
+  }
+
   async function saveMp() {
     if (!s) return;
     const body: Record<string, unknown> = { mpPublicKey: (s.mp_public_key ?? '').trim() };
@@ -182,6 +202,21 @@ export function Ajustes() {
       toast.error('No se pudo guardar.');
     }
   }
+
+  // Llegada desde otro lado del panel con #ajustes?legales: salta a esa sección
+  const jumped = useRef(false);
+  useEffect(() => {
+    if (!s || jumped.current) return;
+    const want = window.location.hash.split('?')[1];
+    if (!want || !INDEX.some((x) => x.id === want)) return;
+    jumped.current = true;
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#ajustes`);
+    setTimeout(() => jump(want as IndexId), 150);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s]);
+
+  const rucDigits = (s?.sunat_ruc ?? '').trim();
+  const rucBad = rucDigits.length === 11 && !isRuc(rucDigits);
 
   const rebookOptions = s && !REBOOK.includes(s.rebook_days) ? [...REBOOK, s.rebook_days].sort((x, y) => x - y) : REBOOK;
 
@@ -387,6 +422,31 @@ export function Ajustes() {
                   <input value={s.mp_public_key ?? ''} onChange={(e) => setS({ ...s, mp_public_key: e.target.value })} maxLength={200} autoComplete="off" spellCheck={false} className={`font-mono ${inputCls}`} placeholder="APP_USR-..." />
                 </Field>
                 <Btn onClick={saveMp} busy={busy === 'mp'}>Guardar MercadoPago</Btn>
+              </div>
+            )}
+          </Section>
+
+          {/* ---------------------------- Datos legales ---------------------------- */}
+          <Section id="legales" title="Datos legales" sub="Se muestran en tu Libro de Reclamaciones y en tus comprobantes. date.pe no emite boletas.">
+            {!s ? <Skeleton rows={2} /> : (
+              <div className="space-y-4">
+                <Field label="Razón social" hint="Tal como figura en SUNAT. Si eres persona natural, tu nombre completo.">
+                  <input value={s.sunat_razon_social ?? ''} onChange={(e) => setS({ ...s, sunat_razon_social: e.target.value })} maxLength={200} autoComplete="organization" className={inputCls} placeholder="Barbería Los Olivos S.A.C." />
+                </Field>
+                <Field label="RUC" hint={rucBad ? 'Este RUC no es válido. Revisa los números.' : '11 dígitos. Empieza con 10 si eres persona natural o con 20 si es empresa.'}>
+                  <input
+                    value={s.sunat_ruc ?? ''}
+                    onChange={(e) => setS({ ...s, sunat_ruc: e.target.value.replace(/\D/g, '').slice(0, 11) })}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    className={`tnum ${inputCls} ${rucBad ? 'border-red' : ''}`}
+                    placeholder="20123456789"
+                  />
+                </Field>
+                <Field label="Dirección fiscal">
+                  <input value={s.sunat_direccion ?? ''} onChange={(e) => setS({ ...s, sunat_direccion: e.target.value })} maxLength={300} autoComplete="street-address" className={inputCls} placeholder="Av. José Larco 123, Miraflores, Lima" />
+                </Field>
+                <Btn onClick={saveLegal} busy={busy === 'legal'} disabled={rucBad || (rucDigits.length > 0 && rucDigits.length < 11)}>Guardar datos legales</Btn>
               </div>
             )}
           </Section>

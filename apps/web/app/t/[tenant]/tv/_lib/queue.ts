@@ -45,6 +45,10 @@ export interface QueueState {
   serving: Array<{ id?: string; number: number; name: string; status: 'called' | 'serving'; staff: string | null; calledAt?: string | null }>;
   waiting: Array<{ id?: string; number: number; name: string; service: string | null; staff: string | null; etaMin: number | null }>;
   appointments: Array<{ at: string; name: string; staff: string | null }>;
+  locations?: QueueLocation[];
+  location?: QueueLocation | null;
+  /** Varias sedes y ninguna elegida */
+  needsLocation?: boolean;
 }
 
 export type TicketStatus = 'waiting' | 'called' | 'serving' | 'done' | 'cancelled' | 'no_show';
@@ -69,7 +73,11 @@ export interface Announce {
   number: number;
   name: string;
   staff: string;
+  /** Sede donde se llamó (con varias sedes, cada TV anuncia solo lo suyo) */
+  locationId?: string | null;
 }
+
+export interface QueueLocation { id: string; name: string; address: string | null; district: string | null }
 
 export const TZ = 'America/Lima';
 
@@ -288,6 +296,8 @@ export function queueError(code: string, data?: Record<string, unknown>) {
   switch (code) {
     case 'cerrado':
       return typeof data?.message === 'string' && data.message ? data.message : 'La fila está cerrada en este momento.';
+    case 'elige_la_sede':
+      return 'Elige la sede donde estás.';
     case 'fila_llena':
       return 'La fila está llena por ahora. Intenta en unos minutos.';
     case 'falta_celular':
