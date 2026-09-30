@@ -42,7 +42,7 @@ export const onboardingRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const tenant = await client.query<{ id: string }>(
-        "INSERT INTO tenants (slug, name, status, plan) VALUES ($1, $2, 'trial', 'suite') RETURNING id",
+        "INSERT INTO tenants (slug, name, status, plan, trial_ends_at) VALUES ($1, $2, 'trial', 'suite', now() + interval '14 days') RETURNING id",
         [b.slug, b.shopName],
       );
       const tenantId = tenant.rows[0].id;

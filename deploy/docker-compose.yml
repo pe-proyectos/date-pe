@@ -38,6 +38,9 @@ services:
     depends_on:
       datepe-db:
         condition: service_healthy
+    # Dominios propios: la API escribe rutas en el proveedor de archivos de Traefik (Coolify)
+    volumes:
+      - /data/coolify/proxy/dynamic:/traefik-dynamic
     networks: [datepe-internal, coolify]
     labels:
       - traefik.enable=true

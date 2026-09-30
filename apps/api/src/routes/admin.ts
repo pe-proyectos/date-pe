@@ -2,6 +2,7 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { withTenant } from '../db.js';
 import { emitAvailabilityChange } from '../lib/realtime.js';
+import { processWaitlist } from '../lib/notify.js';
 
 function tid(request: FastifyRequest): string {
   if (!request.tenant) throw new Error('tenant_no_resuelto');
@@ -16,7 +17,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   app.get('/admin/staff', async (request) =>
     withTenant(tid(request), async (sql) => {
       const { rows } = await sql(
-        'SELECT id, location_id, name, photo_url, bio, specialties, is_bookable, rating_avg, rating_count, sort_order FROM staff ORDER BY sort_order, name',
+        'SELECT id, location_id, name, photo_url, bio, specialties, is_bookable, rating_avg, rating_count, sort_order, commission_percent FROM staff ORDER BY sort_order, name',
       );
       return { staff: rows };
     }),
@@ -30,15 +31,16 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     specialties: z.array(z.string()).optional(),
     isBookable: z.boolean().optional(),
     sortOrder: z.number().int().optional(),
+    commissionPercent: z.number().int().min(0).max(100).optional(),
   });
 
   app.post('/admin/staff', async (request, reply) => {
     const b = staffBody.parse(request.body);
     const out = await withTenant(tid(request), async (sql) => {
       const { rows } = await sql<{ id: string }>(
-        `INSERT INTO staff (tenant_id, location_id, name, photo_url, bio, specialties, is_bookable, sort_order)
-         VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-        [b.locationId ?? null, b.name, b.photoUrl ?? null, b.bio ?? null, b.specialties ?? [], b.isBookable ?? true, b.sortOrder ?? 0],
+        `INSERT INTO staff (tenant_id, location_id, name, photo_url, bio, specialties, is_bookable, sort_order, commission_percent)
+         VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+        [b.locationId ?? null, b.name, b.photoUrl ?? null, b.bio ?? null, b.specialties ?? [], b.isBookable ?? true, b.sortOrder ?? 0, b.commissionPercent ?? 0],
       );
       return rows[0];
     });
@@ -53,14 +55,15 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       const { rows } = await sql(
         `UPDATE staff SET
            name = COALESCE($2, name),
-           location_id = COALESCE($3, location_id),
+           location_id = CASE WHEN $10 THEN $3::uuid ELSE location_id END,
            photo_url = COALESCE($4, photo_url),
            bio = COALESCE($5, bio),
            specialties = COALESCE($6, specialties),
            is_bookable = COALESCE($7, is_bookable),
-           sort_order = COALESCE($8, sort_order)
+           sort_order = COALESCE($8, sort_order),
+           commission_percent = COALESCE($9, commission_percent)
          WHERE id = $1 RETURNING id, name, is_bookable`,
-        [id, b.name ?? null, b.locationId ?? null, b.photoUrl ?? null, b.bio ?? null, b.specialties ?? null, b.isBookable ?? null, b.sortOrder ?? null],
+        [id, b.name ?? null, b.locationId ?? null, b.photoUrl ?? null, b.bio ?? null, b.specialties ?? null, b.isBookable ?? null, b.sortOrder ?? null, b.commissionPercent ?? null, b.locationId !== undefined],
       );
       return rows[0];
     });
@@ -122,7 +125,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   app.get('/admin/services', async (request) =>
     withTenant(tid(request), async (sql) => {
       const { rows } = await sql(
-        'SELECT id, category, name, description, photo_url, duration_min, buffer_min, price_cents, is_active, sort_order FROM services ORDER BY sort_order, name',
+        'SELECT id, category, name, description, photo_url, duration_min, buffer_min, price_cents, is_active, sort_order, is_addon FROM services ORDER BY is_addon, sort_order, name',
       );
       return { services: rows };
     }),
@@ -138,15 +141,16 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     priceCents: z.number().int().min(0),
     isActive: z.boolean().optional(),
     sortOrder: z.number().int().optional(),
+    isAddon: z.boolean().optional(),
   });
 
   app.post('/admin/services', async (request, reply) => {
     const b = serviceBody.parse(request.body);
     const out = await withTenant(tid(request), async (sql) => {
       const { rows } = await sql<{ id: string }>(
-        `INSERT INTO services (tenant_id, category, name, description, photo_url, duration_min, buffer_min, price_cents, is_active, sort_order)
-         VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-        [b.category ?? null, b.name, b.description ?? null, b.photoUrl ?? null, b.durationMin, b.bufferMin ?? 0, b.priceCents, b.isActive ?? true, b.sortOrder ?? 0],
+        `INSERT INTO services (tenant_id, category, name, description, photo_url, duration_min, buffer_min, price_cents, is_active, sort_order, is_addon)
+         VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+        [b.category ?? null, b.name, b.description ?? null, b.photoUrl ?? null, b.durationMin, b.bufferMin ?? 0, b.priceCents, b.isActive ?? true, b.sortOrder ?? 0, b.isAddon ?? false],
       );
       return rows[0];
     });
@@ -163,9 +167,9 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
            description = COALESCE($4, description), photo_url = COALESCE($5, photo_url),
            duration_min = COALESCE($6, duration_min), buffer_min = COALESCE($7, buffer_min),
            price_cents = COALESCE($8, price_cents), is_active = COALESCE($9, is_active),
-           sort_order = COALESCE($10, sort_order)
+           sort_order = COALESCE($10, sort_order), is_addon = COALESCE($11, is_addon)
          WHERE id = $1 RETURNING id`,
-        [id, b.name ?? null, b.category ?? null, b.description ?? null, b.photoUrl ?? null, b.durationMin ?? null, b.bufferMin ?? null, b.priceCents ?? null, b.isActive ?? null, b.sortOrder ?? null],
+        [id, b.name ?? null, b.category ?? null, b.description ?? null, b.photoUrl ?? null, b.durationMin ?? null, b.bufferMin ?? null, b.priceCents ?? null, b.isActive ?? null, b.sortOrder ?? null, b.isAddon ?? null],
       );
       return rows[0] ?? { error: 'no_encontrado' };
     });
@@ -187,9 +191,11 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     return withTenant(tid(request), async (sql) => {
       const { rows } = await sql(
         `SELECT a.id, a.staff_id, a.location_id, a.starts_at, a.ends_at, a.status, a.price_cents, a.source, a.note,
-                c.name AS client_name, c.phone AS client_phone,
-                (SELECT sv.name FROM appointment_services aps JOIN services sv ON sv.id = aps.service_id
-                  WHERE aps.appointment_id = a.id LIMIT 1) AS service_name
+                c.name AS client_name, c.phone AS client_phone, c.email AS client_email,
+                (SELECT string_agg(sv.name, ' + ' ORDER BY sv.is_addon, sv.name) FROM appointment_services aps JOIN services sv ON sv.id = aps.service_id
+                  WHERE aps.appointment_id = a.id) AS service_name,
+                (SELECT json_build_object('id', r.id, 'kind', r.kind, 'serie', r.serie, 'numero', r.numero, 'status', r.status, 'pdf_url', r.pdf_url)
+                   FROM receipts r WHERE r.appointment_id = a.id AND r.status <> 'void' ORDER BY r.created_at DESC LIMIT 1) AS receipt
            FROM appointments a
            LEFT JOIN clients c ON c.id = a.client_id
           WHERE a.starts_at < $2 AND a.ends_at > $1
@@ -229,6 +235,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         );
         if (clash.rows.length > 0) return { error: 'slot_ocupado' as const };
       }
+      const prev = await sql<{ starts_at: Date; status: string }>('SELECT starts_at, status FROM appointments WHERE id = $1', [id]);
       const { rows } = await sql<{ location_id: string | null }>(
         `UPDATE appointments SET
            starts_at = COALESCE($2, starts_at), ends_at = COALESCE($3, ends_at),
@@ -244,11 +251,22 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
           [id],
         );
         await sql('UPDATE appointments SET points_awarded = true WHERE id = $1', [id]);
+        // Referidos: quien invitó suma puntos cuando su amigo completa la primera visita
+        await sql(
+          `UPDATE clients c SET loyalty_points = c.loyalty_points + COALESCE((SELECT referral_reward_points FROM tenant_settings LIMIT 1), 50)
+             FROM appointments a WHERE a.id = $1 AND a.referred_by_client_id = c.id AND a.referral_rewarded = false`,
+          [id],
+        );
+        await sql('UPDATE appointments SET referral_rewarded = true WHERE id = $1 AND referred_by_client_id IS NOT NULL', [id]);
       }
-      return { location_id: rows[0]?.location_id ?? null };
+      const p0 = prev.rows[0];
+      // Si se libera un horario (cancelada o movida a otra hora), avisamos a la lista de espera
+      const freed = p0 && ((b.status === 'cancelled' && p0.status !== 'cancelled') || (b.startsAt && new Date(b.startsAt).getTime() !== new Date(p0.starts_at).getTime()));
+      return { location_id: rows[0]?.location_id ?? null, freedAt: freed ? p0.starts_at : null };
     });
     if ('error' in out) return reply.code(out.error === 'no_encontrado' ? 404 : 409).send({ error: out.error });
     await emitAvailabilityChange(tid(request), out.location_id);
+    if (out.freedAt) void processWaitlist(tid(request), out.freedAt);
     return { ok: true };
   });
 

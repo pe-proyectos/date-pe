@@ -6,7 +6,13 @@ export interface IntentInput {
   amountCents: number; // en céntimos de sol (PEN)
   description: string;
   email?: string;
-  externalReference: string; // paymentId
+  externalReference: string; // paymentId, o "sub:<invoiceId>" para la suscripción
+  /** URLs de retorno propias (suscripción vuelve al panel de la barbería) */
+  returnUrls?: { success: string; failure: string };
+  /** Token de MercadoPago de la barbería: el adelanto llega directo a su cuenta */
+  mpAccessToken?: string | null;
+  /** Se agrega al webhook para saber con qué token consultar el pago */
+  tenantSlug?: string;
 }
 
 export interface IntentResult {
@@ -21,11 +27,14 @@ const soles = (cents: number) => cents / 100;
 
 // --------------------------- MercadoPago ---------------------------
 async function mercadopagoIntent(input: IntentInput): Promise<IntentResult> {
-  if (!env.mercadopagoAccessToken) return { provider: 'mercadopago', devSimulated: true };
+  const token = input.mpAccessToken || env.mercadopagoAccessToken;
+  if (!token) return { provider: 'mercadopago', devSimulated: true };
+  const hook = new URL(`${env.appPublicUrl}/api/payments/webhook/mercadopago`);
+  if (input.mpAccessToken && input.tenantSlug) hook.searchParams.set('tenant', input.tenantSlug);
   const res = await fetch('https://api.mercadopago.com/checkout/preferences', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${env.mercadopagoAccessToken}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -40,12 +49,12 @@ async function mercadopagoIntent(input: IntentInput): Promise<IntentResult> {
       external_reference: input.externalReference,
       payer: input.email ? { email: input.email } : undefined,
       back_urls: {
-        success: `${env.appPublicUrl}/pago/ok`,
-        failure: `${env.appPublicUrl}/pago/error`,
-        pending: `${env.appPublicUrl}/pago/pendiente`,
+        success: input.returnUrls?.success ?? `${env.appPublicUrl}/pago/ok`,
+        failure: input.returnUrls?.failure ?? `${env.appPublicUrl}/pago/error`,
+        pending: input.returnUrls?.success ?? `${env.appPublicUrl}/pago/ok`,
       },
       auto_return: 'approved',
-      notification_url: `${env.appPublicUrl}/api/payments/webhook/mercadopago`,
+      notification_url: hook.toString(),
     }),
   });
   if (!res.ok) throw new Error(`mercadopago ${res.status}: ${await res.text()}`);
@@ -86,8 +95,8 @@ async function paypalIntent(input: IntentInput): Promise<IntentResult> {
         },
       ],
       application_context: {
-        return_url: `${env.appPublicUrl}/pago/ok`,
-        cancel_url: `${env.appPublicUrl}/pago/error`,
+        return_url: input.returnUrls?.success ?? `${env.appPublicUrl}/pago/ok`,
+        cancel_url: input.returnUrls?.failure ?? `${env.appPublicUrl}/pago/error`,
       },
     }),
   });
@@ -95,6 +104,15 @@ async function paypalIntent(input: IntentInput): Promise<IntentResult> {
   const data = (await res.json()) as { id: string; links: Array<{ rel: string; href: string }> };
   const approve = data.links.find((l) => l.rel === 'approve')?.href;
   return { provider: 'paypal', redirectUrl: approve, providerRef: data.id };
+}
+
+/** Consulta un pago de MercadoPago (con el token de la barbería si cobra directo). */
+export async function mercadopagoPayment(id: string, accessToken?: string | null): Promise<{ status: string; external_reference: string } | null> {
+  const token = accessToken || env.mercadopagoAccessToken;
+  if (!token) return null;
+  const res = await fetch(`https://api.mercadopago.com/v1/payments/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return null;
+  return (await res.json()) as { status: string; external_reference: string };
 }
 
 export async function paypalCapture(orderId: string): Promise<boolean> {

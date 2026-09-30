@@ -6,14 +6,15 @@ import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import luxonPlugin from '@fullcalendar/luxon3';
 import listPlugin from '@fullcalendar/list';
-import type { EventDropArg, EventClickArg, DateSelectArg } from '@fullcalendar/core';
+import type { EventDropArg, EventClickArg, DateSelectArg, EventInput } from '@fullcalendar/core';
 import type { EventResizeDoneArg } from '@fullcalendar/interaction';
-import { Check, UserX, XCircle, Link2, Phone, MessageCircle, Plus, CalendarClock } from 'lucide-react';
+import { Check, UserX, XCircle, Link2, Phone, MessageCircle, Plus, CalendarClock, Receipt, FileText } from 'lucide-react';
 import { useAdmin, useApi, soles } from './api';
 import { PageHead, Btn, Drawer, Field, inputCls, StatusPill } from './ui';
 import { staffColor } from '@/components/charts';
 import { API_BASE_CLIENT, tenantUrl } from '@/lib/config';
 import { toast } from '@/lib/toast';
+import { haptic } from '@/lib/haptics';
 
 interface Staff { id: string; name: string; is_bookable: boolean }
 
@@ -35,8 +36,24 @@ function dayLabel(arg: { date: { marker: Date } }) {
 }
 interface Appt {
   id: string; staff_id: string | null; starts_at: string; ends_at: string; status: string; price_cents: number;
-  client_name: string | null; client_phone: string | null; service_name: string | null; source: string; note: string | null;
+  client_name: string | null; client_phone: string | null; client_email?: string | null; service_name: string | null; source: string; note: string | null;
+  receipt?: ReceiptInfo | null;
 }
+interface ReceiptInfo { id?: string; serie: string; numero: number | string; status: string; pdf_url: string | null }
+interface TimeOff { id: string; staff_id: string; staff_name: string; starts_at: string; ends_at: string; reason: string | null }
+
+/** "Boleta B001-12", o "de prueba" si se emitió sin Nubefact. */
+function receiptLabel(r: ReceiptInfo) {
+  const serie = r.serie.replace(/^PRUEBA-/, '');
+  const kind = serie.startsWith('F') ? 'Factura' : 'Boleta';
+  return `${kind} ${serie}-${r.numero}${r.status === 'simulated' ? ' de prueba' : ''}`;
+}
+
+// Bloqueos en la vista de día y semana: franjas grises, sin robarle color a las citas
+const OFF_CSS = `
+.fc .dp-off { opacity: 1; background-color: #f4f4f5; background-image: repeating-linear-gradient(135deg, rgb(10 10 10 / 0.07) 0 6px, transparent 6px 12px); box-shadow: none; border-radius: 0; }
+.fc .dp-off .fc-event-title { font-style: normal; font-size: 12px; font-weight: 500; color: #5f5f66; margin: 6px; }
+`;
 
 export function Agenda() {
   const { tenant } = useAdmin();
@@ -45,6 +62,9 @@ export function Agenda() {
   const [staff, setStaff] = useState<Staff[]>([]);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [appts, setAppts] = useState<Appt[]>([]);
+  const [timeOff, setTimeOff] = useState<TimeOff[]>([]);
+  const [viewType, setViewType] = useState('');
+  const [receiptFor, setReceiptFor] = useState<Appt | null>(null);
   const [open, setOpen] = useState<Appt | null>(null);
   const [walkIn, setWalkIn] = useState<ApptDraft | null>(null);
   const [isMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches);
@@ -61,10 +81,12 @@ export function Agenda() {
     const view = calRef.current?.getApi().view;
     const from = (view?.activeStart ?? new Date()).toISOString();
     const to = (view?.activeEnd ?? new Date(Date.now() + 7 * 864e5)).toISOString();
-    try {
-      const d = await api<{ appointments: Appt[] }>(`/admin/appointments?from=${from}&to=${to}`);
-      setAppts(d.appointments);
-    } catch { /* */ }
+    const [a, off] = await Promise.allSettled([
+      api<{ appointments: Appt[] }>(`/admin/appointments?from=${from}&to=${to}`),
+      api<{ timeOff: TimeOff[] }>(`/admin/time-off?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+    ]);
+    if (a.status === 'fulfilled') setAppts(a.value.appointments);
+    if (off.status === 'fulfilled') setTimeOff(off.value.timeOff);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -80,11 +102,11 @@ export function Agenda() {
     return () => ws.close();
   }, [tenant, load]);
 
-  const events = useMemo(
+  const events = useMemo<EventInput[]>(
     () =>
       appts
         .filter((a) => a.status !== 'cancelled' && !(a.staff_id && hidden.has(a.staff_id)))
-        .map((a) => ({
+        .map((a): EventInput => ({
           id: a.id,
           title: `${a.client_name ?? 'Cliente sin cita'}${a.service_name ? `, ${a.service_name}` : ''}`,
           start: a.starts_at,
@@ -92,8 +114,19 @@ export function Agenda() {
           backgroundColor: a.status === 'no_show' ? '#a1a1aa' : colorOf(a.staff_id),
           textColor: '#ffffff',
           classNames: a.status === 'pending' ? ['opacity-70'] : [],
-        })),
-    [appts, hidden, colorOf],
+        }))
+        .concat(
+          timeOff
+            .filter((o) => !hidden.has(o.staff_id))
+            .map((o): EventInput => {
+              const label = `${o.staff_name}, ${o.reason || 'No atiende'}`;
+              // La lista no dibuja eventos de fondo: ahí el bloqueo va como una fila gris
+              return viewType.startsWith('list')
+                ? { id: `off:${o.id}`, title: `Bloqueo: ${label}`, start: o.starts_at, end: o.ends_at, backgroundColor: '#d4d4d8', textColor: '#0a0a0a', classNames: ['text-mute'], editable: false }
+                : { id: `off:${o.id}`, title: label, start: o.starts_at, end: o.ends_at, display: 'background', classNames: ['dp-off'] };
+            }),
+        ),
+    [appts, timeOff, viewType, hidden, colorOf],
   );
 
   async function move(info: EventDropArg | EventResizeDoneArg) {
@@ -125,6 +158,7 @@ export function Agenda() {
 
   return (
     <>
+      <style>{OFF_CSS}</style>
       <PageHead
         title="Agenda"
         sub={isMobile ? 'Toca una cita para verla o cambiarla. Usa + para anotar a un cliente sin cita.' : 'Arrastra una cita para moverla. Selecciona un espacio vacío para anotar a un cliente sin cita.'}
@@ -197,10 +231,13 @@ export function Agenda() {
           selectable
           selectMirror
           events={events}
-          datesSet={() => load()}
+          datesSet={(arg) => { setViewType(arg.view.type); load(); }}
           eventDrop={move}
           eventResize={move}
-          eventClick={(info: EventClickArg) => setOpen(appts.find((a) => a.id === info.event.id) ?? null)}
+          eventClick={(info: EventClickArg) => {
+            if (info.event.id.startsWith('off:')) return toast.info('Bloqueo de horario. Puedes quitarlo en Horarios.');
+            setOpen(appts.find((a) => a.id === info.event.id) ?? null);
+          }}
           select={(sel: DateSelectArg) => setWalkIn({ start: sel.start, end: sel.end })}
         />
       </div>
@@ -232,6 +269,19 @@ export function Agenda() {
               <div className="flex justify-between py-3"><dt className="text-mute">Precio</dt><dd className="tnum">{soles(open.price_cents)}</dd></div>
               <div className="flex justify-between py-3"><dt className="text-mute">Origen</dt><dd>{open.source === 'walk_in' ? 'Sin cita, en el local' : 'Reserva online'}</dd></div>
               {open.note && <div className="py-3"><dt className="text-mute">Nota</dt><dd className="mt-1">{open.note}</dd></div>}
+              {open.receipt && (
+                <div className="flex items-center justify-between gap-4 py-3">
+                  <dt className="text-mute">Comprobante</dt>
+                  <dd className="flex items-center gap-3 text-right">
+                    <span className="tnum">{receiptLabel(open.receipt)}</span>
+                    {open.receipt.pdf_url && (
+                      <a href={open.receipt.pdf_url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1.5 font-medium underline underline-offset-2">
+                        <FileText size={15} strokeWidth={1.75} /> PDF
+                      </a>
+                    )}
+                  </dd>
+                </div>
+              )}
             </dl>
 
             {open.client_phone && (
@@ -260,6 +310,18 @@ export function Agenda() {
                   <ActionRow icon={XCircle} label="Cancelar cita" danger onClick={() => setStatus(open, 'cancelled')} />
                 </>
               )}
+              {['confirmed', 'completed'].includes(open.status) && !open.receipt && (
+                <ActionRow
+                  icon={Receipt}
+                  label="Emitir comprobante"
+                  onClick={() => {
+                    const a = open;
+                    haptic.tap();
+                    setOpen(null);
+                    setTimeout(() => setReceiptFor(a), 60);
+                  }}
+                />
+              )}
               {open.status === 'completed' && open.client_phone && (
                 <ActionRow
                   icon={Link2}
@@ -276,6 +338,15 @@ export function Agenda() {
       </Drawer>
 
       <WalkInDrawer range={walkIn} staff={staff} onClose={() => setWalkIn(null)} onDone={() => { setWalkIn(null); load(); }} />
+      <ReceiptDrawer
+        appt={receiptFor}
+        onClose={() => setReceiptFor(null)}
+        onDone={(id, r) => {
+          setReceiptFor(null);
+          setAppts((p) => p.map((x) => (x.id === id ? { ...x, receipt: r } : x)));
+          load();
+        }}
+      />
     </>
   );
 }
@@ -412,6 +483,163 @@ function WalkInDrawer({ range, staff, onClose, onDone }: { range: ApptDraft | nu
               <input value={name} onChange={(e) => setName(e.target.value)} autoCapitalize="words" className={inputCls} />
             </Field>
           )}
+        </div>
+      )}
+    </Drawer>
+  );
+}
+
+/* ------------------------------ Comprobante electrónico ------------------------------ */
+
+const RECEIPT_ERRORS: Record<string, string> = {
+  factura_requiere_ruc: 'Para emitir una factura necesitas un RUC de 11 dígitos.',
+  dni_invalido: 'El DNI debe tener 8 dígitos.',
+  ya_emitido: 'Esta cita ya tiene un comprobante emitido.',
+  cita_no_atendida: 'Solo puedes emitir comprobantes de citas confirmadas o completadas.',
+  sin_configuracion: 'Primero configura los comprobantes electrónicos en Ajustes.',
+  monto_cero: 'La cita no tiene monto para emitir un comprobante.',
+};
+
+type DocType = '-' | '1' | '6';
+
+function ReceiptDrawer({ appt, onClose, onDone }: { appt: Appt | null; onClose: () => void; onDone: (id: string, r: ReceiptInfo) => void }) {
+  const api = useApi();
+  const [kind, setKind] = useState<'boleta' | 'factura'>('boleta');
+  const [docType, setDocType] = useState<DocType>('-');
+  const [doc, setDoc] = useState('');
+  const [name, setName] = useState('');
+  const [address, setAddress] = useState('');
+  const [email, setEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!appt) return;
+    setKind('boleta');
+    setDocType('-');
+    setDoc('');
+    setName(appt.client_name ?? '');
+    setAddress('');
+    setEmail(appt.client_email ?? '');
+  }, [appt]);
+
+  const docLen = docType === '1' ? 8 : docType === '6' ? 11 : 0;
+  const docOk = docType === '-' || doc.length === docLen;
+  const emailOk = !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const valid = docOk && emailOk && (kind === 'boleta' || name.trim().length > 1);
+
+  function pickKind(k: 'boleta' | 'factura') {
+    haptic.select();
+    setKind(k);
+    // La factura siempre va a un RUC
+    if (k === 'factura') setDocType('6');
+    else if (docType === '6') setDocType('-');
+  }
+
+  async function save() {
+    if (!appt || !valid) return;
+    setBusy(true);
+    try {
+      const d = await api<{ ok: boolean; receipt: ReceiptInfo & { sunat_message?: string | null } }>(`/admin/appointments/${appt.id}/receipt`, {
+        method: 'POST',
+        body: {
+          kind,
+          docType,
+          doc: docType === '-' ? undefined : doc,
+          name: name.trim() || undefined,
+          address: kind === 'factura' && address.trim() ? address.trim() : undefined,
+          email: email.trim() || undefined,
+        },
+      });
+      toast.success(`${receiptLabel(d.receipt)} emitida${email.trim() && d.receipt.status === 'issued' ? '. Le llegará al correo del cliente.' : ''}`);
+      onDone(appt.id, d.receipt);
+    } catch (e) {
+      toast.error(RECEIPT_ERRORS[(e as Error).message] ?? 'No se pudo emitir el comprobante. Revisa los datos.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const seg = (on: boolean, disabled = false) =>
+    `min-h-11 rounded-full px-4 text-[15px] transition-colors ${on ? 'bg-ink text-white' : 'bg-field hover:bg-line'} ${disabled ? 'cursor-not-allowed opacity-40' : ''}`;
+
+  return (
+    <Drawer
+      open={!!appt}
+      onClose={onClose}
+      title="Emitir comprobante"
+      footer={<><Btn variant="ghost" onClick={onClose}>Cancelar</Btn><Btn onClick={save} busy={busy} disabled={!valid}>Emitir {kind}</Btn></>}
+    >
+      {appt && (
+        <div className="space-y-5">
+          <p className="flex items-center justify-between gap-4 rounded-xl bg-field px-4 py-3 text-[15px]">
+            <span className="min-w-0">
+              <span className="block font-medium">{appt.service_name ?? 'Servicio'}</span>
+              <span className="block text-mute">{appt.client_name ?? 'Cliente sin cita'}</span>
+            </span>
+            <span className="tnum shrink-0 font-medium">{soles(appt.price_cents)}</span>
+          </p>
+
+          <div>
+            <span className="mb-2 block text-[14px] font-medium">Tipo</span>
+            <div className="flex gap-2" role="radiogroup" aria-label="Tipo de comprobante">
+              {(['boleta', 'factura'] as const).map((k) => (
+                <button key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => pickKind(k)} className={seg(kind === k)}>
+                  {k === 'boleta' ? 'Boleta' : 'Factura'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <span className="mb-2 block text-[14px] font-medium">Documento del cliente</span>
+            <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Tipo de documento">
+              {([['-', 'Sin documento'], ['1', 'DNI'], ['6', 'RUC']] as const).map(([v, label]) => {
+                const disabled = kind === 'factura' && v !== '6';
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    role="radio"
+                    aria-checked={docType === v}
+                    disabled={disabled}
+                    onClick={() => { haptic.select(); setDocType(v); setDoc(''); }}
+                    className={seg(docType === v, disabled)}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            {kind === 'factura' && <span className="mt-1.5 block text-[13px] text-soft">La factura siempre lleva el RUC de la empresa.</span>}
+          </div>
+
+          {docType !== '-' && (
+            <Field label={docType === '1' ? 'Número de DNI' : 'Número de RUC'} hint={doc && !docOk ? `Debe tener ${docLen} dígitos.` : undefined}>
+              <input
+                inputMode="numeric"
+                autoComplete="off"
+                value={doc}
+                maxLength={docLen}
+                onChange={(e) => setDoc(e.target.value.replace(/\D/g, '').slice(0, docLen))}
+                className={`tnum ${inputCls}`}
+                placeholder={docType === '1' ? '12345678' : '20123456789'}
+              />
+            </Field>
+          )}
+
+          <Field label={kind === 'factura' ? 'Razón social' : 'Nombre'}>
+            <input value={name} onChange={(e) => setName(e.target.value)} autoCapitalize="words" className={inputCls} />
+          </Field>
+
+          {kind === 'factura' && (
+            <Field label="Dirección fiscal (opcional)">
+              <input value={address} onChange={(e) => setAddress(e.target.value)} className={inputCls} />
+            </Field>
+          )}
+
+          <Field label="Correo (opcional)" hint={emailOk ? 'Con Nubefact configurado, el comprobante le llega a este correo.' : 'Revisa el correo.'}>
+            <input type="email" inputMode="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} />
+          </Field>
         </div>
       )}
     </Drawer>

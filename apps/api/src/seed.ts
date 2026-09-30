@@ -75,8 +75,8 @@ async function seed() {
   const staffIds: string[] = [];
   for (const [i, b] of barbers.entries()) {
     const s = await one(
-      `INSERT INTO staff (tenant_id, location_id, name, photo_url, bio, specialties, is_bookable, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6, true, $7) RETURNING id`,
+      `INSERT INTO staff (tenant_id, location_id, name, photo_url, bio, specialties, is_bookable, sort_order, commission_percent)
+       VALUES ($1, $2, $3, $4, $5, $6, true, $7, 40) RETURNING id`,
       [tenantId, locationId, b.name, b.photo, b.bio, b.spec, i],
     );
     staffIds.push(s.id);
@@ -104,6 +104,19 @@ async function seed() {
     );
     serviceIds.push(s.id);
   }
+  // Extras que se suman a cualquier servicio
+  const addons: Array<[string, string, number, number]> = [
+    ['Lavado y masaje', 'Champú, acondicionador y masaje capilar', 10, 800],
+    ['Diseño o líneas', 'Rayas o figura a navaja', 10, 500],
+    ['Perfilado de cejas', 'Con navaja o pinza', 10, 700],
+  ];
+  for (const [i, [name, desc, dur, price]] of addons.entries()) {
+    await q(
+      `INSERT INTO services (tenant_id, category, name, description, duration_min, buffer_min, price_cents, is_active, sort_order, is_addon)
+       VALUES ($1, 'Extras', $2, $3, $4, 0, $5, true, $6, true)`,
+      [tenantId, name, desc, dur, price, 10 + i],
+    );
+  }
 
   await q(
     `INSERT INTO membership_plans (tenant_id, name, description, price_cents, period, perks, sort_order) VALUES
@@ -124,8 +137,8 @@ async function seed() {
   const clientIds: string[] = [];
   for (const [i, [name, phone, staffIdx, svcIdx, stars, comment]] of history.entries()) {
     const c = await one(
-      `INSERT INTO clients (tenant_id, phone, name, loyalty_points) VALUES ($1, $2, $3, 10) RETURNING id`,
-      [tenantId, phone, name],
+      `INSERT INTO clients (tenant_id, phone, name, loyalty_points, referral_code, email) VALUES ($1, $2, $3, 10, $4, $5) RETURNING id`,
+      [tenantId, phone, name, `${name.split(' ')[0].normalize('NFD').replace(/[^A-Za-z]/g, '').toUpperCase()}${1000 + i * 1111}`, null],
     );
     clientIds.push(c.id);
     const price = services[svcIdx][3];

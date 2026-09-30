@@ -305,6 +305,146 @@ CREATE TABLE IF NOT EXISTS blog_posts (
   created_at   timestamptz NOT NULL DEFAULT now()
 );
 
+
+-- ===========================================================================
+-- Suscripción de la barbería a date.pe (S/50 al mes)
+-- ===========================================================================
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS trial_ends_at timestamptz;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS paid_until timestamptz;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS monthly_price_cents int NOT NULL DEFAULT 5000;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS domain_status text;   -- pending | active | error
+UPDATE tenants SET trial_ends_at = created_at + interval '14 days' WHERE trial_ends_at IS NULL;
+
+-- Cobros de date.pe a cada barbería (global, sin RLS: se consulta por tenant_id en la API)
+CREATE TABLE IF NOT EXISTS subscription_invoices (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id     uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  amount_cents  int NOT NULL,
+  months        int NOT NULL DEFAULT 1,
+  status        text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','paid','void')),
+  provider      text,
+  provider_ref  text,
+  paid_at       timestamptz,
+  period_start  timestamptz,
+  period_end    timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sub_inv_tenant ON subscription_invoices (tenant_id, created_at DESC);
+
+-- Registro de avisos enviados (evita duplicados del planificador)
+CREATE TABLE IF NOT EXISTS notification_log (
+  key        text PRIMARY KEY,
+  tenant_id  uuid REFERENCES tenants(id) ON DELETE CASCADE,
+  sent_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- Recuperación de contraseña
+CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash text PRIMARY KEY,
+  user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  tenant_slug text,
+  expires_at timestamptz NOT NULL,
+  used_at    timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Códigos de verificación del cliente (por correo; WhatsApp cuando se active)
+CREATE TABLE IF NOT EXISTS otp_codes (
+  key        text PRIMARY KEY,         -- tenant_id|destino
+  code_hash  text NOT NULL,
+  attempts   int NOT NULL DEFAULT 0,
+  expires_at timestamptz NOT NULL,
+  verified_at timestamptz
+);
+
+-- ===========================================================================
+-- Operación de la barbería
+-- ===========================================================================
+-- Avisos automáticos y reglas
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS reminders_enabled boolean NOT NULL DEFAULT true;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS review_requests_enabled boolean NOT NULL DEFAULT true;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS rebook_days int NOT NULL DEFAULT 21;       -- 0 = apagado
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS notify_owner_email text;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS require_verification boolean NOT NULL DEFAULT false;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS allow_client_reschedule boolean NOT NULL DEFAULT true;
+-- Referidos
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS referral_enabled boolean NOT NULL DEFAULT true;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS referral_discount_percent int NOT NULL DEFAULT 10 CHECK (referral_discount_percent BETWEEN 0 AND 100);
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS referral_reward_points int NOT NULL DEFAULT 50;
+-- Comprobantes electrónicos (SUNAT vía Nubefact)
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS sunat_enabled boolean NOT NULL DEFAULT false;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS sunat_ruc text;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS sunat_razon_social text;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS sunat_direccion text;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS sunat_serie_boleta text NOT NULL DEFAULT 'B001';
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS sunat_serie_factura text NOT NULL DEFAULT 'F001';
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS nubefact_url text;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS nubefact_token text;
+-- Cobro directo del adelanto a la cuenta de MercadoPago de la barbería
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS mp_access_token text;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS mp_public_key text;
+
+-- Citas: avisos enviados, enlace de gestión, referidos
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS manage_token text NOT NULL DEFAULT replace(gen_random_uuid()::text, '-', '');
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminder_24h_at timestamptz;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminder_2h_at timestamptz;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS review_requested_at timestamptz;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS rebook_sent_at timestamptz;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS referral_code text;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS referred_by_client_id uuid REFERENCES clients(id) ON DELETE SET NULL;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS referral_rewarded boolean NOT NULL DEFAULT false;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_appt_manage_token ON appointments (manage_token);
+
+-- Clientes: código para invitar amigos
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS referral_code text;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_clients_referral ON clients (tenant_id, referral_code) WHERE referral_code IS NOT NULL;
+
+-- Servicios: extras que se suman a un servicio principal
+ALTER TABLE services ADD COLUMN IF NOT EXISTS is_addon boolean NOT NULL DEFAULT false;
+
+-- Barberos: comisión sobre lo que atienden
+ALTER TABLE staff ADD COLUMN IF NOT EXISTS commission_percent int NOT NULL DEFAULT 0 CHECK (commission_percent BETWEEN 0 AND 100);
+
+-- Pagos: la barbería puede cobrar en efectivo o por transferencia en el local
+ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_method_check;
+ALTER TABLE payments ADD CONSTRAINT payments_method_check CHECK (method IN ('yape','plin','card','cash','transfer'));
+
+-- Lista de espera: avisar si se libera un horario ese día
+CREATE TABLE IF NOT EXISTS waitlist (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  service_id  uuid REFERENCES services(id) ON DELETE CASCADE,
+  staff_id    uuid REFERENCES staff(id) ON DELETE SET NULL,
+  day         date NOT NULL,
+  name        text NOT NULL,
+  phone       text NOT NULL,
+  email       text,
+  notified_at timestamptz,
+  booked      boolean NOT NULL DEFAULT false,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_waitlist_day ON waitlist (tenant_id, day);
+
+-- Comprobantes emitidos (boletas y facturas)
+CREATE TABLE IF NOT EXISTS receipts (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id      uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  appointment_id uuid REFERENCES appointments(id) ON DELETE SET NULL,
+  kind           text NOT NULL DEFAULT 'boleta' CHECK (kind IN ('boleta','factura')),
+  serie          text NOT NULL,
+  numero         int NOT NULL,
+  customer_doc_type text,            -- 1 DNI, 6 RUC, - sin documento
+  customer_doc   text,
+  customer_name  text,
+  total_cents    int NOT NULL,
+  status         text NOT NULL DEFAULT 'issued' CHECK (status IN ('issued','simulated','error','void')),
+  pdf_url        text,
+  sunat_message  text,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, serie, numero)
+);
+CREATE INDEX IF NOT EXISTS idx_receipts_tenant ON receipts (tenant_id, created_at DESC);
+
 -- ---------------------------------------------------------------------------
 -- Índices (tenant_id como primera columna en tablas de negocio)
 -- ---------------------------------------------------------------------------
@@ -331,7 +471,8 @@ DECLARE
   tenant_tables text[] := ARRAY[
     'tenant_branding','tenant_settings','locations','staff','staff_schedules',
     'schedule_exceptions','services','service_staff','clients','appointments',
-    'appointment_services','payments','reviews','promotions','gift_cards','membership_plans'
+    'appointment_services','payments','reviews','promotions','gift_cards','membership_plans',
+    'waitlist','receipts'
   ];
   public_tables text[] := ARRAY['locations','staff','services','service_staff','reviews','tenant_branding','tenant_settings','membership_plans'];
 BEGIN

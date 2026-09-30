@@ -14,10 +14,12 @@ const LABELS = ['', 'Mala', 'Regular', 'Buena', 'Muy buena', 'Excelente'];
 
 function ResenaInner() {
   const tenant = useParams().tenant as string;
-  const citaId = useSearchParams().get('cita') ?? '';
+  const search = useSearchParams();
+  const citaId = search.get('cita') ?? '';
   const headers = { 'Content-Type': 'application/json', 'X-Tenant-Slug': tenant };
 
-  const [phone, setPhone] = useState('');
+  // El correo de reseña trae ?tel= con los 9 dígitos: el cliente solo toca "Continuar".
+  const [phone, setPhone] = useState(() => (search.get('tel') ?? '').replace(/\D/g, '').slice(-9));
   const [appt, setAppt] = useState<Appt | null>(null);
   const [stars, setStars] = useState(0);
   const [hover, setHover] = useState(0);

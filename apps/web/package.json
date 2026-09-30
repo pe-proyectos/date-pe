@@ -19,6 +19,7 @@
     "@fullcalendar/timegrid": "^6.1.15",
     "lucide-react": "^1.48.0",
     "luxon": "^3.7.2",
+    "maplibre-gl": "^5.24.0",
     "next": "^15.1.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

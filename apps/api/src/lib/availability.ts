@@ -15,6 +15,8 @@ interface AvailabilityParams {
   durationMin: number;
   timezone: string;
   slotIntervalMin: number;
+  /** Al reprogramar, la cita que se mueve no se bloquea a sí misma */
+  excludeAppointmentId?: string | null;
 }
 
 /**
@@ -40,7 +42,8 @@ export async function computeSlots(sql: Sql, p: AvailabilityParams): Promise<Slo
        JOIN staff s ON s.id = ss.staff_id
       WHERE ss.day_of_week = $1
         AND s.is_bookable = true
-        AND ($2::uuid IS NULL OR ss.location_id = $2)
+        -- Sede: la del turno, o la del barbero; sin ninguna, atiende en todas
+        AND ($2::uuid IS NULL OR COALESCE(ss.location_id, s.location_id) = $2 OR COALESCE(ss.location_id, s.location_id) IS NULL)
         AND ($3::uuid IS NULL OR ss.staff_id = $3)`,
     [dow, p.locationId ?? null, p.staffId ?? null],
   );
@@ -55,8 +58,9 @@ export async function computeSlots(sql: Sql, p: AvailabilityParams): Promise<Slo
   const appts = await sql<{ staff_id: string; starts_at: string | Date; ends_at: string | Date }>(
     `SELECT staff_id, starts_at, ends_at FROM appointments
       WHERE staff_id = ANY($1) AND status <> 'cancelled'
-        AND starts_at < $3 AND ends_at > $2`,
-    [staffIds, dayStart, dayEnd],
+        AND starts_at < $3 AND ends_at > $2
+        AND ($4::uuid IS NULL OR id <> $4)`,
+    [staffIds, dayStart, dayEnd, p.excludeAppointmentId ?? null],
   );
   const exceptions = await sql<{ staff_id: string; starts_at: string | Date; ends_at: string | Date }>(
     `SELECT staff_id, starts_at, ends_at FROM schedule_exceptions
@@ -81,7 +85,12 @@ export async function computeSlots(sql: Sql, p: AvailabilityParams): Promise<Slo
   const slots: Slot[] = [];
   const seenStart = new Set<string>();
 
-  for (const sch of schedules.rows) {
+  // "Cualquiera disponible": ante empate, el barbero con menos citas ese día
+  const load = new Map<string, number>();
+  for (const r of appts.rows) load.set(r.staff_id, (load.get(r.staff_id) ?? 0) + 1);
+  const ordered = p.staffId ? schedules.rows : [...schedules.rows].sort((a, b) => (load.get(a.staff_id) ?? 0) - (load.get(b.staff_id) ?? 0));
+
+  for (const sch of ordered) {
     const [sh, sm] = sch.start_time.split(':').map(Number);
     const [eh, em] = sch.end_time.split(':').map(Number);
     let cursor = day.set({ hour: sh, minute: sm, second: 0, millisecond: 0 });

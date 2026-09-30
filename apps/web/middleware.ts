@@ -1,35 +1,34 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { isPlatformHost, slugFromCustomHost, tenantFromHost } from '@/lib/host';
 
-const BASE = process.env.NEXT_PUBLIC_BASE_DOMAIN ?? 'date.pe';
-
-// Extrae el subdominio del tenant a partir del Host.
-function tenantOf(host: string): string | null {
-  const clean = host.split(':')[0].toLowerCase();
-  if (clean === BASE || clean === `www.${BASE}`) return null;
-  if (clean.endsWith(`.${BASE}`)) {
-    const sub = clean.slice(0, -(BASE.length + 1)).split('.')[0];
-    if (!sub || ['www', 'api', 'r2'].includes(sub)) return null;
-    return sub;
-  }
-  // dev
-  if (clean.endsWith('.lvh.me')) return clean.split('.')[0];
-  if (clean.endsWith('.localhost')) return clean.split('.')[0];
-  return null;
-}
-
-export function middleware(req: NextRequest) {
+/**
+ * Reescribe las visitas de una barbería a /t/<slug>/... manteniendo la URL visible:
+ * - subdominio: barberiajuana.date.pe
+ * - dominio propio: barberiajuana.com (se resuelve con la API y se guarda 60 s)
+ * El slug también viaja en la cabecera x-tenant-slug para los componentes de servidor.
+ */
+export async function middleware(req: NextRequest) {
   const host = req.headers.get('host') ?? '';
-  const tenant = tenantOf(host);
   const url = req.nextUrl;
 
-  // Sin subdominio => sitio principal date.pe (landing, search, blog, join)
-  if (!tenant) return NextResponse.next();
+  let tenant = tenantFromHost(host);
+  if (!tenant && !isPlatformHost(host)) tenant = await slugFromCustomHost(host);
 
-  // Con subdominio => reescribe a /t/<tenant>/... manteniendo la URL visible
-  if (url.pathname.startsWith('/t/')) return NextResponse.next();
-  const rewritten = new URL(`/t/${tenant}${url.pathname}`, req.url);
+  // Nadie de afuera debe poder fijar esta cabecera
+  const reqHeaders = new Headers(req.headers);
+  reqHeaders.delete('x-tenant-slug');
+
+  // Sin barbería => sitio principal date.pe (landing, search, blog, join).
+  // Un dominio propio desconocido cae aquí y muestra lo que corresponda (o la página 404).
+  if (!tenant) return NextResponse.next({ request: { headers: reqHeaders } });
+
+  reqHeaders.set('x-tenant-slug', tenant);
+
+  if (url.pathname.startsWith('/t/')) return NextResponse.next({ request: { headers: reqHeaders } });
+
+  const rewritten = new URL(`/t/${tenant}${url.pathname === '/' ? '' : url.pathname}`, req.url);
   rewritten.search = url.search;
-  const res = NextResponse.rewrite(rewritten);
+  const res = NextResponse.rewrite(rewritten, { request: { headers: reqHeaders } });
   res.headers.set('x-tenant-slug', tenant);
   return res;
 }

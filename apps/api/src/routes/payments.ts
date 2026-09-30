@@ -2,9 +2,10 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { withTenant, adminPool } from '../db.js';
 import { env } from '../env.js';
-import { createIntent, culqiCharge, paypalCapture, type Provider } from '../lib/payments.js';
+import { createIntent, culqiCharge, paypalCapture, mercadopagoPayment, type Provider } from '../lib/payments.js';
+import { markInvoicePaid } from '../lib/billing.js';
+import { sendBookingConfirmation, notifyOwnerNewBooking } from '../lib/notify.js';
 import { emitAvailabilityChange } from '../lib/realtime.js';
-import { sendEmail, bookingConfirmationHtml } from '../lib/email.js';
 
 // Marca un pago como capturado y confirma la cita (contexto de webhook: admin pool).
 async function confirmCaptured(paymentId: string, providerRef?: string): Promise<void> {
@@ -22,51 +23,20 @@ async function confirmCaptured(paymentId: string, providerRef?: string): Promise
     }
     const { tenant_id, appointment_id } = pay.rows[0];
     let locationId: string | null = null;
-    let emailInfo: { email: string; tenant: string; client: string; service: string; staff: string; when: string } | null = null;
+    let confirmedAppt: string | null = null;
     if (appointment_id) {
       const upd = await client.query<{ location_id: string | null }>(
         "UPDATE appointments SET status='confirmed' WHERE id=$1 AND status='pending' RETURNING location_id",
         [appointment_id],
       );
       locationId = upd.rows[0]?.location_id ?? null;
-      const det = await client.query(
-        `SELECT c.email, c.name AS client_name, t.name AS tenant_name, s.name AS staff_name,
-                a.starts_at, sv.name AS service_name
-           FROM appointments a
-           JOIN tenants t ON t.id = a.tenant_id
-           LEFT JOIN clients c ON c.id = a.client_id
-           LEFT JOIN staff s ON s.id = a.staff_id
-           LEFT JOIN appointment_services aps ON aps.appointment_id = a.id
-           LEFT JOIN services sv ON sv.id = aps.service_id
-          WHERE a.id = $1 LIMIT 1`,
-        [appointment_id],
-      );
-      const r = det.rows[0];
-      if (r?.email) {
-        emailInfo = {
-          email: r.email,
-          tenant: r.tenant_name,
-          client: r.client_name ?? 'Cliente',
-          service: r.service_name ?? 'Servicio',
-          staff: r.staff_name ?? '',
-          when: new Date(r.starts_at).toLocaleString('es-PE', { timeZone: 'America/Lima' }),
-        };
-      }
+      if (upd.rows.length > 0) confirmedAppt = appointment_id;
     }
     await client.query('COMMIT');
     await emitAvailabilityChange(tenant_id, locationId);
-    if (emailInfo) {
-      void sendEmail({
-        to: emailInfo.email,
-        subject: `Reserva confirmada en ${emailInfo.tenant}`,
-        html: bookingConfirmationHtml({
-          tenantName: emailInfo.tenant,
-          clientName: emailInfo.client,
-          serviceName: emailInfo.service,
-          staffName: emailInfo.staff,
-          whenText: emailInfo.when,
-        }),
-      });
+    if (confirmedAppt) {
+      void sendBookingConfirmation(confirmedAppt);
+      void notifyOwnerNewBooking(confirmedAppt);
     }
   } catch (err) {
     await client.query('ROLLBACK');
@@ -96,8 +66,8 @@ export const paymentRoutes: FastifyPluginAsync = async (app) => {
         [b.appointmentId],
       );
       if (appt.rows.length === 0) return null;
-      const settings = await sql<{ deposit_percent: number; require_deposit: boolean }>(
-        'SELECT deposit_percent, require_deposit FROM tenant_settings',
+      const settings = await sql<{ deposit_percent: number; require_deposit: boolean; mp_access_token: string | null }>(
+        'SELECT deposit_percent, require_deposit, mp_access_token FROM tenant_settings',
       );
       const pct = settings.rows[0]?.require_deposit ? settings.rows[0].deposit_percent : 0;
       const amount = Math.max(0, Math.round((appt.rows[0].price_cents * pct) / 100));
@@ -107,7 +77,7 @@ export const paymentRoutes: FastifyPluginAsync = async (app) => {
          RETURNING id`,
         [b.appointmentId, b.provider === 'culqi' ? 'card' : b.provider === 'paypal' ? 'card' : 'yape', amount, b.provider],
       );
-      return { paymentId: pay.rows[0].id, amount, email: appt.rows[0].email ?? undefined };
+      return { paymentId: pay.rows[0].id, amount, email: appt.rows[0].email ?? undefined, mpToken: settings.rows[0]?.mp_access_token ?? null };
     });
 
     if (!prepared) return reply.code(404).send({ error: 'cita_no_encontrada' });
@@ -123,6 +93,8 @@ export const paymentRoutes: FastifyPluginAsync = async (app) => {
       description: `Adelanto reserva ${request.tenant.name}`,
       email: prepared.email,
       externalReference: prepared.paymentId,
+      mpAccessToken: provider === 'mercadopago' ? prepared.mpToken : null,
+      tenantSlug: request.tenant.slug,
     });
 
     // Guarda ref de la pasarela
@@ -153,9 +125,18 @@ export const paymentRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // Culqi: cobro con el token generado por Culqi.js en el frontend
-  const culqiBody = z.object({ paymentId: z.string().uuid(), token: z.string(), email: z.string().email() });
+  const culqiBody = z.object({ paymentId: z.string().uuid().optional(), invoiceId: z.string().uuid().optional(), token: z.string(), email: z.string().email() });
   app.post('/payments/culqi/charge', async (request, reply) => {
     const b = culqiBody.parse(request.body);
+    if (b.invoiceId) {
+      const inv = await adminPool.query<{ amount_cents: number }>("SELECT amount_cents FROM subscription_invoices WHERE id=$1 AND status='pending'", [b.invoiceId]);
+      if (inv.rows.length === 0) return reply.code(404).send({ error: 'cobro_no_encontrado' });
+      const r = await culqiCharge({ token: b.token, amountCents: inv.rows[0].amount_cents, email: b.email });
+      if (!r.ok) return reply.code(402).send({ error: 'pago_rechazado' });
+      await markInvoicePaid(b.invoiceId, r.ref, 'culqi');
+      return { ok: true };
+    }
+    if (!b.paymentId) return reply.code(400).send({ error: 'falta_pago' });
     const pay = await adminPool.query<{ amount_cents: number }>('SELECT amount_cents FROM payments WHERE id=$1', [b.paymentId]);
     if (pay.rows.length === 0) return reply.code(404).send({ error: 'pago_no_encontrado' });
     const result = await culqiCharge({ token: b.token, amountCents: pay.rows[0].amount_cents, email: b.email });
@@ -177,6 +158,15 @@ export const paymentRoutes: FastifyPluginAsync = async (app) => {
     if (!paymentId && orderId) {
       const pay = await adminPool.query<{ id: string }>('SELECT id FROM payments WHERE provider_ref=$1', [orderId]);
       paymentId = pay.rows[0]?.id;
+      if (!paymentId) {
+        const inv = await adminPool.query<{ id: string }>('SELECT id FROM subscription_invoices WHERE provider_ref=$1', [orderId]);
+        if (inv.rows[0]) {
+          const ok = await paypalCapture(orderId);
+          if (!ok) return reply.code(402).send({ error: 'captura_fallida' });
+          await markInvoicePaid(inv.rows[0].id, orderId, 'paypal');
+          return { ok: true, subscription: true };
+        }
+      }
     }
     if (!orderId || !paymentId) return reply.code(404).send({ error: 'orden_no_encontrada' });
     const ok = await paypalCapture(orderId);
@@ -187,20 +177,25 @@ export const paymentRoutes: FastifyPluginAsync = async (app) => {
 
   // MercadoPago: webhook de notificación
   app.post('/payments/webhook/mercadopago', async (request, reply) => {
-    const q = request.query as { type?: string; 'data.id'?: string };
+    const q = request.query as { type?: string; topic?: string; 'data.id'?: string; id?: string; tenant?: string };
     const body = (request.body ?? {}) as { type?: string; data?: { id?: string } };
-    const type = q.type ?? body.type;
-    const paymentId = q['data.id'] ?? body.data?.id;
-    if (type !== 'payment' || !paymentId) return reply.send({ ok: true });
+    const type = q.type ?? q.topic ?? body.type;
+    const mpId = q['data.id'] ?? body.data?.id ?? q.id;
+    if (type !== 'payment' || !mpId) return reply.send({ ok: true });
     try {
-      const res = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-        headers: { Authorization: `Bearer ${env.mercadopagoAccessToken}` },
-      });
-      if (res.ok) {
-        const data = (await res.json()) as { status: string; external_reference: string };
-        if (data.status === 'approved' && data.external_reference) {
-          await confirmCaptured(data.external_reference, String(paymentId));
-        }
+      // Si la barbería cobra con su propia cuenta, consultamos con su token
+      let token: string | null = null;
+      if (q.tenant) {
+        const t = await adminPool.query<{ mp_access_token: string | null }>(
+          'SELECT ts.mp_access_token FROM tenant_settings ts JOIN tenants t ON t.id = ts.tenant_id WHERE t.slug = $1',
+          [q.tenant],
+        );
+        token = t.rows[0]?.mp_access_token ?? null;
+      }
+      const data = await mercadopagoPayment(String(mpId), token);
+      if (data?.status === 'approved' && data.external_reference) {
+        if (data.external_reference.startsWith('sub:')) await markInvoicePaid(data.external_reference.slice(4), String(mpId), 'mercadopago');
+        else await confirmCaptured(data.external_reference, String(mpId));
       }
     } catch (err) {
       request.log.error(err);
@@ -214,6 +209,18 @@ export const paymentRoutes: FastifyPluginAsync = async (app) => {
     const id = (request.params as { id: string }).id;
     await confirmCaptured(id, 'dev-simulated');
     return { ok: true, devSimulated: true };
+  });
+
+  // Dev: confirmar un cobro de suscripción simulado
+  app.post('/billing/:id/dev-confirm', { preHandler: [app.authenticate] }, async (request, reply) => {
+    if (!env.paymentsDevMode) return reply.code(403).send({ error: 'dev_mode_off' });
+    const id = (request.params as { id: string }).id;
+    // Solo el dueño de esa barbería (o el superadmin) puede simular su pago
+    const inv = await adminPool.query<{ tenant_id: string }>('SELECT tenant_id FROM subscription_invoices WHERE id = $1', [id]);
+    if (!inv.rows[0]) return reply.code(404).send({ error: 'cobro_no_encontrado' });
+    if (!request.user.isPlatformAdmin && request.user.tenantId !== inv.rows[0].tenant_id) return reply.code(403).send({ error: 'sin_acceso' });
+    const ok = await markInvoicePaid(id, 'dev-simulated');
+    return ok ? { ok: true, devSimulated: true } : reply.code(404).send({ error: 'cobro_no_encontrado' });
   });
 
   app.get('/payments/:id/status', async (request) => {

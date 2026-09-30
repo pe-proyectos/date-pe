@@ -2,6 +2,7 @@ import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { admin } from '../db.js';
 import { env } from '../env.js';
+import { tenantSlugByDomain } from '../lib/domains.js';
 
 export interface TenantContext {
   id: string;
@@ -67,7 +68,13 @@ export function tenantSlugOf(request: FastifyRequest): string | null {
 const plugin: FastifyPluginAsync = async (app) => {
   app.decorateRequest('tenant', null);
   app.addHook('onRequest', async (request) => {
-    const slug = tenantSlugOf(request);
+    let slug = tenantSlugOf(request);
+    // Dominio propio: la web envía X-Tenant-Host con el host del navegador
+    if (!slug) {
+      const h = request.headers['x-tenant-host'];
+      const host = (typeof h === 'string' && h ? h : '').split(':')[0];
+      if (host) slug = await tenantSlugByDomain(host);
+    }
     request.tenant = slug ? await resolveSlug(slug) : null;
   });
 };

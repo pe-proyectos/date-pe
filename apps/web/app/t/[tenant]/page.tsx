@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { Star, MapPin, Clock, Navigation, ArrowRight, Check, Info } from 'lucide-react';
+import { Star, MapPin, Clock, Navigation, ArrowRight, Check, Info, Plus, CalendarOff } from 'lucide-react';
 import { apiFetch, soles, type TenantSite } from '@/lib/api';
 import { onColor, DAY_NAMES } from '@/lib/color';
 import { TenantGallery } from '@/components/TenantGallery';
@@ -57,7 +57,16 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
   const loc = site.locations[0];
   const rating = site.rating?.avg ? Number(site.rating.avg) : null;
   const reviewCount = Number(site.rating?.count ?? 0);
-  const from = site.services.length ? Math.min(...site.services.map((s) => s.price_cents)) : null;
+  // Los extras (lavado, diseño...) se suman a un servicio principal; no se reservan solos.
+  const mainServices = site.services.filter((s) => !s.is_addon);
+  const extras = site.services.filter((s) => s.is_addon);
+  const available = site.tenant.available !== false;
+  const multiLoc = site.locations.length >= 2;
+  const mapsFor = (l: TenantSite['locations'][number]) =>
+    l.lat != null && l.lng != null
+      ? `https://www.google.com/maps/search/?api=1&query=${l.lat},${l.lng}`
+      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${site.tenant.name} ${l.address ?? l.name}`)}`;
+  const from = mainServices.length ? Math.min(...mainServices.map((s) => s.price_cents)) : null;
   const hours = hoursSummary(site.hours);
   const mapsUrl = loc?.lat && loc?.lng
     ? `https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lng}`
@@ -109,11 +118,27 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
             {reviewCount > 0 && <a href="#opiniones" className="hover:text-ink">Opiniones</a>}
             <a href="#ubicacion" className="hover:text-ink">Ubicación</a>
           </nav>
-          <Link href="/reservar" className="rounded-full px-5 py-2.5 text-[15px] font-medium transition-opacity hover:opacity-90" style={{ background: accent, color: onAccent }}>
-            Reservar
-          </Link>
+          {available ? (
+            <Link href="/reservar" className="rounded-full px-5 py-2.5 text-[15px] font-medium transition-opacity hover:opacity-90" style={{ background: accent, color: onAccent }}>
+              Reservar
+            </Link>
+          ) : (
+            <span className="rounded-full bg-field px-4 py-2 text-[13px] font-medium text-mute">Reservas en pausa</span>
+          )}
         </div>
       </header>
+
+      {!available && (
+        <div className="border-b border-line bg-field">
+          <div className="mx-auto flex max-w-[1180px] items-start gap-3 px-5 py-4 text-[15px] md:px-8">
+            <CalendarOff size={18} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+            <p>
+              <span className="font-medium">Esta barbería no está recibiendo reservas por ahora.</span>{' '}
+              <span className="text-mute">{site.branding?.whatsapp ? 'Escríbeles por WhatsApp para coordinar tu cita.' : 'Vuelve a intentarlo pronto.'}</span>
+            </p>
+          </div>
+        </div>
+      )}
 
       <main id="inicio" className="mx-auto max-w-[1180px] px-5 pb-28 pt-8 md:px-8 md:pb-20">
         {/* Encabezado tipo ficha */}
@@ -152,9 +177,9 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
             <section id="servicios" className="scroll-mt-24 border-b border-line py-10">
               <h2 className="text-[26px] font-semibold tracking-[-0.03em]">Servicios</h2>
               <ul className="mt-4">
-                {site.services.map((s) => (
-                  <li key={s.id}>
-                    <Link href={`/reservar?servicio=${s.id}`} className="group flex items-center justify-between gap-6 border-b border-line py-5 last:border-0">
+                {mainServices.map((s) => {
+                  const body = (
+                    <>
                       <div className="min-w-0">
                         <div className="text-[17px] font-medium tracking-[-0.01em]">{s.name}</div>
                         {s.description && <div className="mt-0.5 text-[15px] text-mute">{s.description}</div>}
@@ -164,14 +189,44 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
                       </div>
                       <div className="flex shrink-0 items-center gap-4">
                         <span className="tnum text-[17px] font-medium">{soles(s.price_cents)}</span>
-                        <span className="flex h-9 w-9 items-center justify-center rounded-full border border-line transition-colors group-hover:border-ink">
-                          <ArrowRight size={16} strokeWidth={1.75} className="nudge-x" />
-                        </span>
+                        {available && (
+                          <span className="flex h-9 w-9 items-center justify-center rounded-full border border-line transition-colors group-hover:border-ink">
+                            <ArrowRight size={16} strokeWidth={1.75} className="nudge-x" />
+                          </span>
+                        )}
                       </div>
-                    </Link>
-                  </li>
-                ))}
+                    </>
+                  );
+                  return (
+                    <li key={s.id} className="border-b border-line last:border-0">
+                      {available ? (
+                        <Link href={`/reservar?servicio=${s.id}`} className="group flex items-center justify-between gap-6 py-5">{body}</Link>
+                      ) : (
+                        <div className="flex items-center justify-between gap-6 py-5">{body}</div>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
+              {extras.length > 0 && (
+                <div className="mt-6 rounded-xl bg-field p-5">
+                  <h3 className="text-[15px] font-semibold">Extras</h3>
+                  <p className="mt-0.5 text-[14px] text-mute">Agrégalos a tu servicio al reservar.</p>
+                  <ul className="mt-3 divide-y divide-line">
+                    {extras.map((x) => (
+                      <li key={x.id} className="flex items-center justify-between gap-4 py-2.5 text-[15px]">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <Plus size={15} strokeWidth={1.75} className="shrink-0 text-mute" />
+                          <span className="truncate">{x.name}</span>
+                        </span>
+                        <span className="tnum shrink-0 text-mute">
+                          +{soles(x.price_cents)}, +{x.duration_min} min
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </section>
 
             {/* Equipo */}
@@ -179,7 +234,7 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
               <h2 className="text-[26px] font-semibold tracking-[-0.03em]">Equipo</h2>
               <div className="no-scrollbar -mx-5 mt-6 flex snap-x snap-mandatory scroll-px-5 gap-4 overflow-x-auto px-5 pb-2 sm:mx-0 sm:grid sm:grid-cols-3 sm:gap-6 sm:overflow-visible sm:px-0">
                 {site.staff.map((b) => (
-                  <Link key={b.id} href={`/reservar?barbero=${b.id}`} className="group block w-[62%] shrink-0 snap-start sm:w-auto">
+                  <Link key={b.id} href={available ? `/reservar?barbero=${b.id}` : '#equipo'} className="group block w-[62%] shrink-0 snap-start sm:w-auto">
                     <div className="zoom-media aspect-square rounded-xl bg-field">
                       {b.photo_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -269,20 +324,40 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
 
             {/* Ubicación */}
             <section id="ubicacion" className="scroll-mt-24 py-10">
-              <h2 className="text-[26px] font-semibold tracking-[-0.03em]">Ubicación y horario</h2>
+              <h2 className="text-[26px] font-semibold tracking-[-0.03em]">{multiLoc ? 'Sedes y horario' : 'Ubicación y horario'}</h2>
               <div className="mt-6 grid gap-8 sm:grid-cols-2">
-                <div>
-                  <div className="flex items-start gap-2 text-[16px]">
-                    <MapPin size={18} strokeWidth={1.75} className="mt-0.5 shrink-0" />
-                    <span>
-                      {loc?.address ?? loc?.name}
-                      {loc?.district ? <span className="block text-mute">{loc.district}, {loc.province ?? 'Lima'}</span> : null}
-                    </span>
+                {multiLoc ? (
+                  <ul className="space-y-3">
+                    {site.locations.map((l) => (
+                      <li key={l.id} className="rounded-xl border border-line p-4">
+                        <div className="flex items-start gap-2 text-[16px]">
+                          <MapPin size={18} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+                          <span className="min-w-0">
+                            <span className="block font-medium">{l.name}</span>
+                            {l.address && <span className="block text-[15px] text-mute">{l.address}</span>}
+                            {l.district && <span className="block text-[15px] text-mute">{l.district}, {l.province ?? 'Lima'}</span>}
+                          </span>
+                        </div>
+                        <a href={mapsFor(l)} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-[44px] items-center gap-2 rounded-full border border-line px-4 text-[15px] font-medium hover:border-ink">
+                          <Navigation size={16} strokeWidth={1.75} /> Cómo llegar
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div>
+                    <div className="flex items-start gap-2 text-[16px]">
+                      <MapPin size={18} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+                      <span>
+                        {loc?.address ?? loc?.name}
+                        {loc?.district ? <span className="block text-mute">{loc.district}, {loc.province ?? 'Lima'}</span> : null}
+                      </span>
+                    </div>
+                    <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex items-center gap-2 rounded-full border border-line px-4 py-2.5 text-[15px] font-medium hover:border-ink">
+                      <Navigation size={16} strokeWidth={1.75} /> Cómo llegar
+                    </a>
                   </div>
-                  <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex items-center gap-2 rounded-full border border-line px-4 py-2.5 text-[15px] font-medium hover:border-ink">
-                    <Navigation size={16} strokeWidth={1.75} /> Cómo llegar
-                  </a>
-                </div>
+                )}
                 {hours.length > 0 && (
                   <dl className="space-y-2 text-[15px]">
                     {hours.map((h) => (
@@ -305,24 +380,36 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
                   Desde {soles(from)}
                 </div>
               )}
-              <p className="mt-1 text-[15px] text-mute">
-                {site.settings?.require_deposit && site.settings.deposit_percent > 0
-                  ? `Reservas con un adelanto del ${site.settings.deposit_percent}% por Yape, tarjeta o PayPal.`
-                  : 'Reservas sin adelanto. Pagas en el local.'}
-              </p>
-              <div className="mt-5 space-y-2">
-                {site.services.slice(0, 4).map((s) => (
-                  <Link key={s.id} href={`/reservar?servicio=${s.id}`} className="flex items-center justify-between rounded-lg border border-line px-4 py-3 text-[15px] transition-colors hover:border-ink">
-                    <span>{s.name}</span>
-                    <span className="tnum text-mute">{soles(s.price_cents)}</span>
+              {available ? (
+                <>
+                  <p className="mt-1 text-[15px] text-mute">
+                    {site.settings?.require_deposit && site.settings.deposit_percent > 0
+                      ? `Reservas con un adelanto del ${site.settings.deposit_percent}% por Yape, tarjeta o PayPal.`
+                      : 'Reservas sin adelanto. Pagas en el local.'}
+                  </p>
+                  <div className="mt-5 space-y-2">
+                    {mainServices.slice(0, 4).map((s) => (
+                      <Link key={s.id} href={`/reservar?servicio=${s.id}`} className="flex items-center justify-between rounded-lg border border-line px-4 py-3 text-[15px] transition-colors hover:border-ink">
+                        <span>{s.name}</span>
+                        <span className="tnum text-mute">{soles(s.price_cents)}</span>
+                      </Link>
+                    ))}
+                  </div>
+                  <Link href="/reservar" className="mt-5 block rounded-lg py-3.5 text-center text-[16px] font-medium transition-opacity hover:opacity-90" style={{ background: accent, color: onAccent }}>
+                    Ver horarios disponibles
                   </Link>
-                ))}
-              </div>
-              <Link href="/reservar" className="mt-5 block rounded-lg py-3.5 text-center text-[16px] font-medium transition-opacity hover:opacity-90" style={{ background: accent, color: onAccent }}>
-                Ver horarios disponibles
-              </Link>
-              {site.settings && site.settings.cancel_window_hours > 0 && (
-                <p className="mt-3 text-center text-[13px] text-soft">Puedes cancelar hasta {site.settings.cancel_window_hours} horas antes.</p>
+                  {site.settings && site.settings.cancel_window_hours > 0 && (
+                    <p className="mt-3 text-center text-[13px] text-soft">Puedes cancelar hasta {site.settings.cancel_window_hours} horas antes.</p>
+                  )}
+                </>
+              ) : (
+                <div className="mt-4 rounded-lg bg-field p-4 text-[15px]">
+                  <p className="flex items-start gap-2 font-medium">
+                    <CalendarOff size={18} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+                    Esta barbería no está recibiendo reservas por ahora.
+                  </p>
+                  {site.branding?.whatsapp && <p className="mt-1 pl-[26px] text-mute">Escríbeles por WhatsApp para coordinar tu cita.</p>}
+                </div>
               )}
             </div>
           </aside>
@@ -341,12 +428,18 @@ export default async function TenantHome({ params }: { params: Promise<{ tenant:
         {from != null && (
           <div>
             <div className="tnum text-[16px] font-semibold">Desde {soles(from)}</div>
-            <div className="text-[13px] text-mute">{site.services.length} servicios</div>
+            <div className="text-[13px] text-mute">{mainServices.length} servicios</div>
           </div>
         )}
-        <Link href="/reservar" className="rounded-lg px-6 py-3 text-[16px] font-medium" style={{ background: accent, color: onAccent }}>
-          Reservar
-        </Link>
+        {available ? (
+          <Link href="/reservar" className="rounded-lg px-6 py-3 text-[16px] font-medium" style={{ background: accent, color: onAccent }}>
+            Reservar
+          </Link>
+        ) : (
+          <span className="flex items-center gap-2 text-right text-[14px] text-mute">
+            <CalendarOff size={16} strokeWidth={1.75} className="shrink-0" /> Reservas en pausa
+          </span>
+        )}
       </div>
 
       {site.branding?.whatsapp && (

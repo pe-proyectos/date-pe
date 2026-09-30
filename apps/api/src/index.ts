@@ -19,6 +19,11 @@ import { platformRoutes } from './routes/platform.js';
 import { paymentRoutes } from './routes/payments.js';
 import { uploadRoutes } from './routes/uploads.js';
 import { wsRoutes } from './routes/ws.js';
+import { billingRoutes } from './routes/billing.js';
+import { opsRoutes } from './routes/ops.js';
+import { clientRoutes } from './routes/client.js';
+import { tenantSlugByDomain } from './lib/domains.js';
+import { startScheduler } from './lib/scheduler.js';
 
 async function main() {
   const app = Fastify({ logger: { level: env.nodeEnv === 'production' ? 'info' : 'debug' } });
@@ -40,7 +45,9 @@ async function main() {
           host.endsWith('.localhost') ||
           host.endsWith('.lvh.me') ||
           host === 'lvh.me';
-        cb(null, ok);
+        if (ok) return cb(null, true);
+        // Dominios propios de las barberías
+        tenantSlugByDomain(host).then((slug) => cb(null, !!slug), () => cb(null, false));
       } catch {
         cb(null, false);
       }
@@ -80,6 +87,9 @@ async function main() {
       await api.register(paymentRoutes);
       await api.register(uploadRoutes);
       await api.register(wsRoutes);
+      await api.register(billingRoutes);
+      await api.register(opsRoutes);
+      await api.register(clientRoutes);
     },
     { prefix: '/api' },
   );
@@ -89,6 +99,7 @@ async function main() {
   app.log.info('Esquema aplicado');
   await startRealtime();
   app.log.info('Realtime (LISTEN/NOTIFY) activo');
+  startScheduler((msg, err) => app.log.error({ err }, msg));
 
   await app.listen({ port: env.port, host: '0.0.0.0' });
 }

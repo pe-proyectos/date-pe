@@ -2,7 +2,9 @@ import type { Sql } from '../db.js';
 
 export interface Quote {
   listPriceCents: number;
-  promo: { code: string; valid: boolean; reason?: string; discountCents: number } | null;
+  promo: { code: string; valid: boolean; reason?: string; discountCents: number; referrerClientId?: string } | null;
+  addons: Array<{ id: string; name: string; priceCents: number; durationMin: number }>;
+  durationMin: number;
   giftCard: { code: string; valid: boolean; reason?: string; appliedCents: number; balanceCents: number } | null;
   discountCents: number;
   finalCents: number;
@@ -16,14 +18,23 @@ export interface Quote {
  */
 export async function quote(
   sql: Sql,
-  p: { serviceId: string; staffId?: string | null; promoCode?: string | null; giftCardCode?: string | null },
+  p: {
+    serviceId: string;
+    addonIds?: string[];
+    staffId?: string | null;
+    promoCode?: string | null;
+    giftCardCode?: string | null;
+    /** Celular del cliente: los códigos de amigo solo valen para clientes nuevos */
+    phone?: string | null;
+  },
 ): Promise<Quote | null> {
-  const svc = await sql<{ price_cents: number }>(
-    'SELECT price_cents FROM services WHERE id = $1 AND is_active',
+  const svc = await sql<{ price_cents: number; duration_min: number }>(
+    'SELECT price_cents, duration_min FROM services WHERE id = $1 AND is_active AND NOT is_addon',
     [p.serviceId],
   );
   if (svc.rows.length === 0) return null;
   let list = svc.rows[0].price_cents;
+  let durationMin = svc.rows[0].duration_min;
 
   // Precio específico del barbero, si existe
   if (p.staffId) {
@@ -32,6 +43,20 @@ export async function quote(
       [p.serviceId, p.staffId],
     );
     if (ov.rows[0]?.price_cents != null) list = ov.rows[0].price_cents;
+  }
+
+  // Extras (lavado, diseño, cejas...) que se suman al servicio principal
+  const addons: Quote['addons'] = [];
+  if (p.addonIds?.length) {
+    const r = await sql<{ id: string; name: string; price_cents: number; duration_min: number }>(
+      'SELECT id, name, price_cents, duration_min FROM services WHERE id = ANY($1) AND is_active AND is_addon',
+      [p.addonIds],
+    );
+    for (const a of r.rows) {
+      addons.push({ id: a.id, name: a.name, priceCents: a.price_cents, durationMin: a.duration_min });
+      list += a.price_cents;
+      durationMin += a.duration_min;
+    }
   }
 
   let remaining = list;
@@ -43,7 +68,10 @@ export async function quote(
       [code],
     );
     const row = r.rows[0];
-    if (!row) promo = { code, valid: false, reason: 'Código no encontrado', discountCents: 0 };
+    if (!row) promo = await referralPromo(sql, code, remaining, p.phone ?? null);
+    if (promo) {
+      if (promo.valid) remaining -= promo.discountCents;
+    } else if (!row) promo = { code, valid: false, reason: 'Código no encontrado', discountCents: 0 };
     else if (!row.active) promo = { code, valid: false, reason: 'Código inactivo', discountCents: 0 };
     else if (row.expires_at && new Date(row.expires_at) < new Date()) promo = { code, valid: false, reason: 'Código vencido', discountCents: 0 };
     else if (row.max_uses != null && row.used_count >= row.max_uses) promo = { code, valid: false, reason: 'Código agotado', discountCents: 0 };
@@ -79,6 +107,8 @@ export async function quote(
 
   return {
     listPriceCents: list,
+    addons,
+    durationMin,
     promo,
     giftCard,
     discountCents: list - remaining,
@@ -86,4 +116,26 @@ export async function quote(
     depositCents: deposit,
     depositPercent: pct,
   };
+}
+
+const lastDigits = (v: string) => v.replace(/\D/g, '').slice(-9);
+
+/** Código de amigo: descuento para quien llega recomendado por un cliente. */
+async function referralPromo(sql: Sql, code: string, amount: number, phone: string | null): Promise<Quote['promo']> {
+  const st = await sql<{ referral_enabled: boolean; referral_discount_percent: number }>('SELECT referral_enabled, referral_discount_percent FROM tenant_settings');
+  if (!st.rows[0]?.referral_enabled) return null;
+  const ref = await sql<{ id: string; phone: string }>('SELECT id, phone FROM clients WHERE upper(referral_code) = $1', [code]);
+  const referrer = ref.rows[0];
+  if (!referrer) return null;
+  if (phone) {
+    if (lastDigits(referrer.phone) === lastDigits(phone)) return { code, valid: false, reason: 'No puedes usar tu propio código', discountCents: 0 };
+    const prior = await sql(
+      `SELECT 1 FROM appointments a JOIN clients c ON c.id = a.client_id
+        WHERE regexp_replace(c.phone, '[^0-9]', '', 'g') LIKE '%' || $1 AND a.status <> 'cancelled' LIMIT 1`,
+      [lastDigits(phone)],
+    );
+    if (prior.rows.length > 0) return { code, valid: false, reason: 'El código de amigo es para tu primera visita', discountCents: 0 };
+  }
+  const pct = st.rows[0].referral_discount_percent;
+  return { code, valid: true, discountCents: Math.round((amount * pct) / 100), referrerClientId: referrer.id };
 }

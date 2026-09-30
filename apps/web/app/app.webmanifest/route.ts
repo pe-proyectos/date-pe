@@ -1,5 +1,5 @@
 import { headers } from 'next/headers';
-import { tenantFromHost } from '@/lib/host';
+import { slugFromCustomHost, tenantFromHost } from '@/lib/host';
 import { apiFetch, type TenantSite } from '@/lib/api';
 
 export const dynamic = 'force-dynamic';
@@ -10,10 +10,12 @@ const POLE_ICONS = [
   { src: '/icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
 ];
 
-/** Manifiesto instalable: date.pe o, en un subdominio, la barbería con su nombre y color. */
+/** Manifiesto instalable: date.pe o, en un subdominio o dominio propio, la barbería con su nombre y color. */
 export async function GET() {
-  const host = (await headers()).get('host') ?? '';
-  const slug = tenantFromHost(host);
+  const h = await headers();
+  const host = h.get('host') ?? '';
+  // El middleware no pasa por este archivo (.webmanifest), así que el dominio propio se resuelve aquí
+  const slug = h.get('x-tenant-slug') || tenantFromHost(host) || (await slugFromCustomHost(host));
 
   let manifest: Record<string, unknown> = {
     name: 'date.pe',

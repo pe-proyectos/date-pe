@@ -163,7 +163,7 @@ export const adminExtraRoutes: FastifyPluginAsync = async (app) => {
     return withTenant(tid(request), async (sql) => ({
       clients: (
         await sql(
-          `SELECT c.id, c.name, c.phone, c.email, c.loyalty_points, c.created_at,
+          `SELECT c.id, c.name, c.phone, c.email, c.loyalty_points, c.created_at, c.referral_code,
                   count(a.*) FILTER (WHERE a.status = 'completed') AS visitas,
                   count(a.*) FILTER (WHERE a.status = 'no_show') AS ausencias,
                   COALESCE(sum(a.price_cents) FILTER (WHERE a.status = 'completed'), 0) AS gastado_cents,
@@ -219,8 +219,14 @@ export const adminExtraRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // ----------------------------- AJUSTES -----------------------------
+  // Las claves (Nubefact, MercadoPago) nunca vuelven al navegador: solo si están configuradas
   app.get('/admin/settings', async (request) =>
-    withTenant(tid(request), async (sql) => (await sql('SELECT * FROM tenant_settings')).rows[0] ?? null),
+    withTenant(tid(request), async (sql) => {
+      const row = (await sql('SELECT * FROM tenant_settings')).rows[0] as Record<string, unknown> | undefined;
+      if (!row) return null;
+      const { nubefact_token, mp_access_token, ...rest } = row;
+      return { ...rest, nubefact_token_set: !!nubefact_token, mp_access_token_set: !!mp_access_token };
+    }),
   );
   const settingsBody = z.object({
     depositPercent: z.number().int().min(0).max(100).optional(),
@@ -228,18 +234,49 @@ export const adminExtraRoutes: FastifyPluginAsync = async (app) => {
     cancelWindowHours: z.number().int().min(0).max(168).optional(),
     slotIntervalMin: z.number().int().refine((v) => [5, 10, 15, 20, 30, 60].includes(v)).optional(),
     loyaltyPointsPerVisit: z.number().int().min(0).max(1000).optional(),
+    remindersEnabled: z.boolean().optional(),
+    reviewRequestsEnabled: z.boolean().optional(),
+    rebookDays: z.number().int().min(0).max(120).optional(),
+    notifyOwnerEmail: z.string().email().or(z.literal('')).optional(),
+    requireVerification: z.boolean().optional(),
+    allowClientReschedule: z.boolean().optional(),
+    referralEnabled: z.boolean().optional(),
+    referralDiscountPercent: z.number().int().min(0).max(100).optional(),
+    referralRewardPoints: z.number().int().min(0).max(10000).optional(),
+    sunatEnabled: z.boolean().optional(),
+    sunatRuc: z.string().regex(/^\d{11}$/).or(z.literal('')).optional(),
+    sunatRazonSocial: z.string().max(200).optional(),
+    sunatDireccion: z.string().max(300).optional(),
+    sunatSerieBoleta: z.string().regex(/^B[A-Z0-9]{3}$/).optional(),
+    sunatSerieFactura: z.string().regex(/^F[A-Z0-9]{3}$/).optional(),
+    nubefactUrl: z.string().url().or(z.literal('')).optional(),
+    nubefactToken: z.string().max(200).optional(),
+    mpAccessToken: z.string().max(200).optional(),
+    mpPublicKey: z.string().max(200).optional(),
   });
   app.put('/admin/settings', async (request) => {
     const b = settingsBody.parse(request.body);
-    await withTenant(tid(request), (sql) =>
-      sql(
-        `UPDATE tenant_settings SET
-           deposit_percent = COALESCE($1, deposit_percent), require_deposit = COALESCE($2, require_deposit),
-           cancel_window_hours = COALESCE($3, cancel_window_hours), slot_interval_min = COALESCE($4, slot_interval_min),
-           loyalty_points_per_visit = COALESCE($5, loyalty_points_per_visit), updated_at = now()`,
-        [b.depositPercent ?? null, b.requireDeposit ?? null, b.cancelWindowHours ?? null, b.slotIntervalMin ?? null, b.loyaltyPointsPerVisit ?? null],
-      ),
-    );
+    // Mapa campo -> columna; solo se actualiza lo que llega. '' en claves = borrar
+    const cols: Record<string, string> = {
+      depositPercent: 'deposit_percent', requireDeposit: 'require_deposit', cancelWindowHours: 'cancel_window_hours',
+      slotIntervalMin: 'slot_interval_min', loyaltyPointsPerVisit: 'loyalty_points_per_visit',
+      remindersEnabled: 'reminders_enabled', reviewRequestsEnabled: 'review_requests_enabled', rebookDays: 'rebook_days',
+      notifyOwnerEmail: 'notify_owner_email', requireVerification: 'require_verification', allowClientReschedule: 'allow_client_reschedule',
+      referralEnabled: 'referral_enabled', referralDiscountPercent: 'referral_discount_percent', referralRewardPoints: 'referral_reward_points',
+      sunatEnabled: 'sunat_enabled', sunatRuc: 'sunat_ruc', sunatRazonSocial: 'sunat_razon_social', sunatDireccion: 'sunat_direccion',
+      sunatSerieBoleta: 'sunat_serie_boleta', sunatSerieFactura: 'sunat_serie_factura',
+      nubefactUrl: 'nubefact_url', nubefactToken: 'nubefact_token', mpAccessToken: 'mp_access_token', mpPublicKey: 'mp_public_key',
+    };
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    for (const [k, col] of Object.entries(cols)) {
+      const v = (b as Record<string, unknown>)[k];
+      if (v === undefined) continue;
+      vals.push(v === '' ? null : v);
+      sets.push(`${col} = $${vals.length}`);
+    }
+    if (sets.length === 0) return { ok: true };
+    await withTenant(tid(request), (sql) => sql(`UPDATE tenant_settings SET ${sets.join(', ')}, updated_at = now()`, vals));
     return { ok: true };
   });
 
@@ -259,7 +296,7 @@ export const adminExtraRoutes: FastifyPluginAsync = async (app) => {
           [q.days, tz],
         ),
         sql(
-          `SELECT sv.name, count(*)::int AS citas, COALESCE(sum(a.price_cents), 0)::int AS ingresos_cents
+          `SELECT sv.name, count(*)::int AS citas, COALESCE(sum(aps.price_cents), 0)::int AS ingresos_cents
              FROM appointments a JOIN appointment_services aps ON aps.appointment_id = a.id JOIN services sv ON sv.id = aps.service_id
             WHERE a.status IN ('confirmed','completed') AND a.starts_at >= now() - ($1 || ' days')::interval
             GROUP BY sv.name ORDER BY ingresos_cents DESC`,
@@ -268,9 +305,13 @@ export const adminExtraRoutes: FastifyPluginAsync = async (app) => {
         sql(
           `SELECT s.name, count(a.id) FILTER (WHERE a.status IN ('confirmed','completed'))::int AS citas,
                   COALESCE(sum(a.price_cents) FILTER (WHERE a.status IN ('confirmed','completed')), 0)::int AS ingresos_cents,
-                  count(a.id) FILTER (WHERE a.status = 'no_show')::int AS ausencias
+                  count(a.id) FILTER (WHERE a.status = 'no_show')::int AS ausencias,
+                  s.commission_percent,
+                  count(a.id) FILTER (WHERE a.status = 'completed')::int AS completadas,
+                  COALESCE(round(sum(a.price_cents) FILTER (WHERE a.status = 'completed') * s.commission_percent / 100.0), 0)::int AS comision_cents,
+                  COALESCE(sum(a.price_cents) FILTER (WHERE a.status = 'completed'), 0)::int AS completado_cents
              FROM staff s LEFT JOIN appointments a ON a.staff_id = s.id AND a.starts_at >= now() - ($1 || ' days')::interval
-            GROUP BY s.id, s.name ORDER BY ingresos_cents DESC`,
+            GROUP BY s.id, s.name, s.commission_percent ORDER BY ingresos_cents DESC`,
           [q.days],
         ),
         sql(

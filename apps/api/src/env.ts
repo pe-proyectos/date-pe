@@ -59,4 +59,7 @@ export const env = {
   paypalClientId: process.env.PAYPAL_CLIENT_ID ?? '',
   paypalClientSecret: process.env.PAYPAL_CLIENT_SECRET ?? '',
   paypalEnv: process.env.PAYPAL_ENV ?? 'sandbox',
+  // Dominios propios: carpeta del proveedor de archivos de Traefik e IP pública del servidor
+  traefikDynamicDir: process.env.TRAEFIK_DYNAMIC_DIR ?? '/traefik-dynamic',
+  serverIp: process.env.SERVER_IP ?? '75.119.145.29',
 };

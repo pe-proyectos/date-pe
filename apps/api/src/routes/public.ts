@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { withTenant, admin } from '../db.js';
 import { computeSlots } from '../lib/availability.js';
 import { quote } from '../lib/pricing.js';
+import { tenantSlugByDomain } from '../lib/domains.js';
 
 // Datos públicos de un tenant para su sitio, su flujo de reserva y reseñas.
 export const publicRoutes: FastifyPluginAsync = async (app) => {
@@ -13,10 +14,11 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     return withTenant(tenantId, async (sql) => {
       const [branding, settings, locations, staff, services, reviews, ratingAgg, plans, hours] = await Promise.all([
         sql('SELECT logo_url, cover_url, color_primary, color_secondary, tagline, about, instagram, whatsapp FROM tenant_branding'),
-        sql('SELECT timezone, slot_interval_min, deposit_percent, require_deposit, cancel_window_hours FROM tenant_settings'),
+        sql(`SELECT timezone, slot_interval_min, deposit_percent, require_deposit, cancel_window_hours, allow_client_reschedule,
+                    require_verification, referral_enabled, referral_discount_percent FROM tenant_settings`),
         sql('SELECT id, name, address, district, province, lat, lng, phone FROM locations WHERE is_active ORDER BY name'),
-        sql('SELECT id, name, photo_url, bio, specialties, rating_avg, rating_count FROM staff WHERE is_bookable ORDER BY sort_order, name'),
-        sql('SELECT id, category, name, description, photo_url, duration_min, price_cents FROM services WHERE is_active ORDER BY sort_order, name'),
+        sql('SELECT id, location_id, name, photo_url, bio, specialties, rating_avg, rating_count FROM staff WHERE is_bookable ORDER BY sort_order, name'),
+        sql('SELECT id, category, name, description, photo_url, duration_min, price_cents, is_addon FROM services WHERE is_active ORDER BY is_addon, sort_order, name'),
         sql(
           `SELECT r.stars, r.comment, r.reply, r.created_at, s.name AS staff_name, c.name AS client_name
              FROM reviews r
@@ -33,7 +35,13 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
               GROUP BY day_of_week ORDER BY day_of_week`),
       ]);
       return {
-        tenant: { slug: request.tenant!.slug, name: request.tenant!.name, is_demo: demo.rows[0]?.is_demo ?? false },
+        tenant: {
+          slug: request.tenant!.slug,
+          name: request.tenant!.name,
+          is_demo: demo.rows[0]?.is_demo ?? false,
+          // Suscripción vencida: el sitio muestra "no disponible" y no acepta reservas
+          available: !['suspended', 'cancelled'].includes(request.tenant!.status),
+        },
         branding: branding.rows[0] ?? null,
         settings: settings.rows[0] ?? null,
         locations: locations.rows,
@@ -51,12 +59,20 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
+  // Dominio propio -> barbería (lo usa el middleware de la web)
+  app.get('/public/resolve-host', async (request) => {
+    const host = String((request.query as { host?: string }).host ?? '').toLowerCase().split(':')[0];
+    const slug = host ? await tenantSlugByDomain(host) : null;
+    return { slug };
+  });
+
   // Slots disponibles
   const availabilityQuery = z.object({
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     serviceId: z.string().uuid(),
     staffId: z.string().uuid().optional(),
     locationId: z.string().uuid().optional(),
+    addonIds: z.string().optional(), // ids separados por coma
   });
 
   app.get('/public/availability', async (request, reply) => {
@@ -64,6 +80,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     const parsed = availabilityQuery.safeParse(request.query);
     if (!parsed.success) return reply.code(400).send({ error: 'parametros_invalidos', detail: parsed.error.flatten() });
     const { date, serviceId, staffId, locationId } = parsed.data;
+    const addonIds = (parsed.data.addonIds ?? '').split(',').filter((x) => /^[0-9a-f-]{36}$/i.test(x));
     const tenantId = request.tenant.id;
 
     return withTenant(tenantId, async (sql) => {
@@ -72,6 +89,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         [serviceId],
       );
       if (svc.rows.length === 0) return reply.code(404).send({ error: 'servicio_no_encontrado' });
+      const extra = addonIds.length
+        ? (await sql<{ m: number }>('SELECT COALESCE(sum(duration_min), 0)::int AS m FROM services WHERE id = ANY($1) AND is_addon AND is_active', [addonIds])).rows[0].m
+        : 0;
       const settings = await sql<{ timezone: string; slot_interval_min: number }>('SELECT timezone, slot_interval_min FROM tenant_settings');
       const tz = settings.rows[0]?.timezone ?? 'America/Lima';
       const interval = settings.rows[0]?.slot_interval_min ?? 15;
@@ -80,7 +100,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         locationId: locationId ?? null,
         staffId: staffId ?? null,
         date,
-        durationMin: svc.rows[0].duration_min + (svc.rows[0].buffer_min ?? 0),
+        durationMin: svc.rows[0].duration_min + extra + (svc.rows[0].buffer_min ?? 0),
         timezone: tz,
         slotIntervalMin: interval,
       });
@@ -94,12 +114,21 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     staffId: z.string().uuid().optional(),
     promoCode: z.string().max(40).optional(),
     giftCardCode: z.string().max(40).optional(),
+    addonIds: z.array(z.string().uuid()).max(6).optional(),
+    phone: z.string().max(20).optional(),
   });
   app.post('/public/quote', async (request, reply) => {
     if (!request.tenant) return reply.code(404).send({ error: 'tenant_no_encontrado' });
     const b = quoteBody.parse(request.body);
     const q = await withTenant(request.tenant.id, (sql) =>
-      quote(sql, { serviceId: b.serviceId, staffId: b.staffId ?? null, promoCode: b.promoCode || null, giftCardCode: b.giftCardCode || null }),
+      quote(sql, {
+        serviceId: b.serviceId,
+        addonIds: b.addonIds,
+        staffId: b.staffId ?? null,
+        promoCode: b.promoCode || null,
+        giftCardCode: b.giftCardCode || null,
+        phone: b.phone || null,
+      }),
     );
     if (!q) return reply.code(404).send({ error: 'servicio_no_encontrado' });
     return q;
