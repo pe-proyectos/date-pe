@@ -1299,6 +1299,11 @@ function Register({
                     <button key={b} type="button" onClick={() => { haptic.select(); setReceived(String(b / 100)); }} className={`${chipCls(toCents(received) === b)} tnum`}>S/ {b / 100}</button>
                   ))}
                 </div>
+                {f.tips && rows.length === 1 && toCents(received) > 0 && change > 0 && (
+                  <button type="button" onClick={() => { haptic.select(); setTipPreset(null); setTipCustom(centsToInput(tipCents + change)); }} className="mt-3 flex min-h-11 items-center gap-2 rounded-full px-1 text-[15px] font-medium underline underline-offset-4">
+                    <Coins size={16} strokeWidth={1.75} /> Dejar el vuelto de propina ({soles(change)})
+                  </button>
+                )}
               </section>
             )}
 
@@ -1372,8 +1377,10 @@ function ExpressSheet({
   const [info, setInfo] = useState<ExpressInfo | null>(null);
   const [method, setMethod] = useState('cash');
   const [svc, setSvc] = useState<string | null>(null);
-  const [tipPct, setTipPct] = useState(0);
+  const [tipPct, setTipPct] = useState<number | null>(0);
+  const [tipCustom, setTipCustom] = useState('');
   const [received, setReceived] = useState('');
+  const [paid, setPaid] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -1382,7 +1389,9 @@ function ExpressSheet({
     setMethod(target.method);
     setSvc(null);
     setTipPct(0);
+    setTipCustom('');
     setReceived('');
+    setPaid('');
     let alive = true;
     const q = target.kind === 'ticket' ? `ticketId=${target.id}` : `appointmentId=${target.id}`;
     api<ExpressInfo>(`/admin/pos/express?${q}`)
@@ -1407,10 +1416,21 @@ function ExpressSheet({
   const discount = needsService ? 0 : info?.discountCents ?? 0;
   const total = needsService ? subtotal : info?.totalCents ?? 0;
   const deposit = needsService ? 0 : Math.min(info?.depositCents ?? 0, total);
-  const tip = tipsOn ? tipOf(total, tipPct) : 0;
-  const charge = Math.max(0, total - deposit) + tip;
+  const base = Math.max(0, total - deposit);
+  const tip = !tipsOn ? 0 : tipPct !== null ? tipOf(total, tipPct) : toCents(tipCustom);
+  const charge = base + tip;
   const change = method === 'cash' && toCents(received) > 0 ? toCents(received) - charge : 0;
+  // Yape, Plin o tarjeta por un monto exacto: lo que pasa del total es propina; si no alcanza, falta
+  const short = method !== 'cash' && toCents(paid) > 0 && toCents(paid) < base ? base - toCents(paid) : 0;
   const ready = !!info && (!needsService || !!picked);
+  const setCustomTip = (cents: number) => { setTipPct(null); setTipCustom(centsToInput(cents)); };
+  const onPaid = (v: string) => {
+    const clean = cleanAmount(v);
+    setPaid(clean);
+    const c = toCents(clean);
+    if (c >= base) setCustomTip(c - base);
+    else if (!clean) { setTipPct(0); setTipCustom(''); }
+  };
   const label = methodLabel(method);
   const methods = Array.from(new Set([...quickMethods(cfg), ...cfg.methods.filter((m) => EXPRESS_METHODS.includes(m))]));
 
@@ -1461,7 +1481,7 @@ function ExpressSheet({
       footer={
         <button
           type="button"
-          disabled={!ready || busy}
+          disabled={!ready || busy || short > 0}
           onClick={submit}
           className="flex min-h-[52px] w-full items-center justify-between gap-3 rounded-full bg-red px-5 text-[16px] font-semibold text-white transition-colors hover:bg-red-deep active:scale-[0.98] disabled:opacity-40"
         >
@@ -1485,11 +1505,11 @@ function ExpressSheet({
             <p className="mt-1 text-[15px] text-mute">{info.clientName ?? target?.name ?? 'Sin cliente'}</p>
           </div>
 
-          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="radiogroup" aria-label="Medio de pago">
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Medio de pago">
             {methods.map((m) => {
               const Icon = METHOD[m]?.icon ?? Wallet;
               return (
-                <button key={m} type="button" role="radio" aria-checked={method === m} onClick={() => { haptic.select(); setMethod(m); }} className={`${chipCls(method === m)} shrink-0`}>
+                <button key={m} type="button" role="radio" aria-checked={method === m} onClick={() => { haptic.select(); setMethod(m); setPaid(''); }} className={`${chipCls(method === m)} shrink-0`}>
                   <Icon size={16} strokeWidth={1.75} /> {methodLabel(m)}
                 </button>
               );
@@ -1523,10 +1543,40 @@ function ExpressSheet({
               <h3 className="mb-2 text-[15px] font-medium">Propina</h3>
               <div className="flex flex-wrap gap-2">
                 {Array.from(new Set([0, ...cfg.tipPresets])).map((p) => (
-                  <button key={p} type="button" onClick={() => { haptic.select(); setTipPct(p); }} className={chipCls(tipPct === p)}>
+                  <button key={p} type="button" onClick={() => { haptic.select(); setTipPct(p); setTipCustom(''); setPaid(''); }} className={chipCls(tipPct === p)}>
                     {p === 0 ? 'Sin propina' : <>{p}% <span className="tnum opacity-70">{soles(tipOf(total, p))}</span></>}
                   </button>
                 ))}
+                <label className={`${chipCls(tipPct === null)} gap-1 pr-2`}>
+                  <span>Otro S/</span>
+                  <input
+                    inputMode="decimal"
+                    value={tipCustom}
+                    onFocus={() => { if (tipPct !== null) { setTipPct(null); setTipCustom(''); } }}
+                    onChange={(e) => { setTipPct(null); setTipCustom(cleanAmount(e.target.value)); setPaid(''); }}
+                    placeholder="0"
+                    className="tnum w-16 bg-transparent text-[16px] outline-none placeholder:text-current placeholder:opacity-50"
+                    aria-label="Propina en soles"
+                  />
+                </label>
+              </div>
+            </section>
+          )}
+
+          {method !== 'cash' && tipsOn && ready && base > 0 && (
+            <section>
+              <h3 className="mb-1 text-[15px] font-medium">¿Pagó un monto distinto?</h3>
+              <p className="mb-2 text-[13px] text-soft">Escribe lo que llegó por {label}: lo que pase del total queda como propina.</p>
+              <div className="flex items-center gap-3">
+                <div className="relative w-40">
+                  <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[16px] text-mute">S/</span>
+                  <input inputMode="decimal" value={paid} onChange={(e) => onPaid(e.target.value)} placeholder={centsToInput(base)} aria-label={`Monto pagado con ${label}`} className="tnum h-12 w-full rounded-xl border border-line-2 bg-white pl-10 pr-3 text-[17px] outline-none focus:border-ink" />
+                </div>
+                {short > 0 ? (
+                  <span className="tnum text-[15px] font-semibold text-red-deep">Falta {soles(short)}</span>
+                ) : toCents(paid) > 0 ? (
+                  <span className="tnum text-[15px] font-medium text-mute">{tip > 0 ? `Propina ${soles(tip)}` : 'Monto exacto'}</span>
+                ) : null}
               </div>
             </section>
           )}
@@ -1541,10 +1591,26 @@ function ExpressSheet({
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => { haptic.select(); setReceived(''); }} className={chipCls(!received)}>Exacto</button>
-                {[1000, 2000, 5000, 10000, 20000].filter((b) => b > charge && b < charge * 10).slice(0, 4).map((b) => (
+                {[1000, 2000, 5000, 10000, 20000].filter((b) => b > charge && b < charge * 10).slice(0, 3).map((b) => (
                   <button key={b} type="button" onClick={() => { haptic.select(); setReceived(String(b / 100)); }} className={`${chipCls(toCents(received) === b)} tnum`}>S/ {b / 100}</button>
                 ))}
+                <label className={`${chipCls(!!received && ![1000, 2000, 5000, 10000, 20000].includes(toCents(received)))} gap-1 pr-2`}>
+                  <span>Otro S/</span>
+                  <input
+                    inputMode="decimal"
+                    value={[1000, 2000, 5000, 10000, 20000].includes(toCents(received)) ? '' : received}
+                    onChange={(e) => setReceived(cleanAmount(e.target.value))}
+                    placeholder="0"
+                    className="tnum w-16 bg-transparent text-[16px] outline-none placeholder:text-current placeholder:opacity-50"
+                    aria-label="Monto recibido en efectivo"
+                  />
+                </label>
               </div>
+              {tipsOn && change > 0 && (
+                <button type="button" onClick={() => { haptic.select(); setCustomTip(tip + change); }} className="mt-3 flex min-h-11 items-center gap-2 rounded-full px-1 text-[15px] font-medium underline underline-offset-4">
+                  <Coins size={16} strokeWidth={1.75} /> Dejar el vuelto de propina ({soles(change)})
+                </button>
+              )}
             </section>
           )}
         </div>
