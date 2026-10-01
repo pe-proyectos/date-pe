@@ -33,3 +33,32 @@ export async function sendTemplate(phone: string, template: string, params: stri
     return false;
   }
 }
+
+/** Código de acceso por WhatsApp con la plantilla de autenticación (cuerpo y botón "Copiar código"). */
+export async function sendCode(phone: string, code: string): Promise<boolean> {
+  if (!whatsappEnabled()) return false;
+  const to = waNumber(phone);
+  if (!to) return false;
+  try {
+    const res = await fetch(`https://graph.facebook.com/v21.0/${env.whatsappPhoneId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.whatsappToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to,
+        type: 'template',
+        template: {
+          name: env.whatsappOtpTemplate,
+          language: { code: 'es' },
+          components: [
+            { type: 'body', parameters: [{ type: 'text', text: code }] },
+            { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: code }] },
+          ],
+        },
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

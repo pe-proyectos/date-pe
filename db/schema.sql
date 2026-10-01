@@ -810,6 +810,9 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   auth       text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+-- Cliente de la barbería que pidió avisos en su celular (recordatorios, reseña, volver a reservar)
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS client_id uuid REFERENCES clients(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_push_client ON push_subscriptions (client_id) WHERE client_id IS NOT NULL;
 
 
 -- ===========================================================================

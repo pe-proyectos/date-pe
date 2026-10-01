@@ -15,6 +15,8 @@ export interface PushPayload {
   tag?: string;
   /** Vibración y sonido fuertes (turno llamado) */
   urgent?: boolean;
+  /** Ícono de la notificación (logo de la barbería) */
+  icon?: string | null;
 }
 
 async function sendTo(rows: Array<{ id: string; endpoint: string; p256dh: string; auth: string }>, payload: PushPayload) {
@@ -36,6 +38,21 @@ async function sendTo(rows: Array<{ id: string; endpoint: string; p256dh: string
 export async function pushToTicket(ticketId: string, payload: PushPayload) {
   const { rows } = await admin<{ id: string; endpoint: string; p256dh: string; auth: string }>('SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE ticket_id = $1', [ticketId]);
   await sendTo(rows, payload);
+}
+
+export async function pushToClient(clientId: string | null, payload: PushPayload) {
+  if (!clientId) return;
+  const { rows } = await admin<{ id: string; endpoint: string; p256dh: string; auth: string }>('SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE client_id = $1', [clientId]);
+  await sendTo(rows, payload);
+}
+
+/** Este celular recibe los avisos de un cliente (sin borrar si también sigue un turno o es del equipo). */
+export async function saveClientSubscription(p: { tenantId: string; clientId: string; endpoint: string; p256dh: string; auth: string }) {
+  await admin(
+    `INSERT INTO push_subscriptions (tenant_id, client_id, endpoint, p256dh, auth) VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (endpoint) DO UPDATE SET tenant_id = EXCLUDED.tenant_id, client_id = EXCLUDED.client_id, p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth`,
+    [p.tenantId, p.clientId, p.endpoint, p.p256dh, p.auth],
+  );
 }
 
 export async function pushToUsers(tenantId: string, filter: { roles?: string[]; staffId?: string | null }, payload: PushPayload) {

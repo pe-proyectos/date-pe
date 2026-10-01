@@ -7,6 +7,7 @@ import { Clock, Users, CalendarOff, CalendarClock, Loader2, Ticket, ChevronRight
 import { onColor } from '@/lib/color';
 import { soles } from '@/lib/api';
 import { Toaster } from '@/components/Toaster';
+import { PullRefresh } from '@/components/PullRefresh';
 import { toast } from '@/lib/toast';
 import { haptic } from '@/lib/haptics';
 import {
@@ -14,7 +15,7 @@ import {
   type QueueState, type SavedTicket, type TicketState,
 } from '../../tv/_lib/queue';
 
-const FLD = `.fld{width:100%;border:1px solid var(--color-line-2);border-radius:12px;padding:0.85rem 1rem;font-size:16px;background:#fff;outline:none;transition:border-color .2s}.fld:focus{border-color:var(--color-ink)}`;
+const FLD = `.fld{width:100%;border:1px solid var(--color-line-2);border-radius:12px;padding:0.85rem 1rem;font-size:16px;background:var(--color-white);color:var(--color-ink);outline:none;transition:border-color .2s}.fld:focus{border-color:var(--color-ink)}`;
 const initialOf = (name: string) => name.replace(/^Barber[ií]a\s+/i, '').trim().charAt(0).toUpperCase() || 'B';
 
 export function FilaClient({ tenant, logoUrl }: { tenant: string; logoUrl: string | null; coverUrl: string | null }) {
@@ -194,6 +195,7 @@ export function FilaClient({ tenant, logoUrl }: { tenant: string; logoUrl: strin
     <main className="mx-auto min-h-dvh max-w-md pb-[calc(120px+env(safe-area-inset-bottom))]" style={{ ['--accent' as string]: accent }}>
       <style>{FLD}</style>
       <Toaster />
+      <PullRefresh onRefresh={load} />
       <header className="pt-safe sticky top-0 z-30 border-b border-line bg-white/90 backdrop-blur-md">
         <div className="flex h-14 items-center gap-3 px-5">
           <Link href="/" className="flex min-w-0 flex-1 items-center gap-3">
@@ -211,10 +213,16 @@ export function FilaClient({ tenant, logoUrl }: { tenant: string; logoUrl: strin
           {multiSede && (
             <button type="button" onClick={() => chooseSede(null)} className="min-h-10 shrink-0 rounded-full px-3 text-[14px] font-medium text-mute active:bg-field">Cambiar sede</button>
           )}
-          <span className={`inline-flex items-center gap-1.5 text-[13px] ${online ? 'text-mute' : 'text-soft'}`}>
-            {online ? <span className="h-2 w-2 rounded-full bg-ok" aria-hidden /> : <WifiOff size={14} strokeWidth={1.75} />}
-            {online ? 'En vivo' : 'Reconectando'}
-          </span>
+          {closed ? (
+            <span className="inline-flex items-center gap-1.5 text-[13px] text-mute">
+              <span className="h-2 w-2 rounded-full bg-[var(--color-line-2)]" aria-hidden /> Cerrada
+            </span>
+          ) : (
+            <span className={`inline-flex items-center gap-1.5 text-[13px] ${online ? 'text-mute' : 'text-soft'}`}>
+              {online ? <span className="h-2 w-2 rounded-full bg-ok" aria-hidden /> : <WifiOff size={14} strokeWidth={1.75} />}
+              {online ? 'En vivo' : 'Reconectando'}
+            </span>
+          )}
         </div>
       </header>
 

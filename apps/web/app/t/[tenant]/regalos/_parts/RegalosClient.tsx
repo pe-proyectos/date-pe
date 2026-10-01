@@ -79,6 +79,11 @@ export function RegalosClient({ tenant, site, shop }: { tenant: string; site: Te
     } catch { /* */ }
   }, []);
 
+  // Desde "Mi cuenta": ?tipo=paquetes abre directo los paquetes
+  useEffect(() => {
+    if (params.get('tipo') === 'paquetes' && hasPackages) setTab('packages');
+  }, [params, hasPackages]);
+
   // Vuelta del pago: ?pago=ok o ?pago=error
   useEffect(() => {
     const pago = params.get('pago');

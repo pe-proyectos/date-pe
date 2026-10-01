@@ -77,6 +77,8 @@ export const env = {
   vapidSubject: process.env.VAPID_SUBJECT ?? 'mailto:hola@date.pe',
   whatsappToken: process.env.WHATSAPP_TOKEN ?? '',
   whatsappPhoneId: process.env.WHATSAPP_PHONE_ID ?? '',
+  /** Plantilla de autenticación aprobada en Meta para enviar códigos (con botón de copiar) */
+  whatsappOtpTemplate: process.env.WHATSAPP_OTP_TEMPLATE ?? 'codigo_acceso',
   // A quién avisar de nuevas solicitudes de barberías (si está vacío: a los superadmin)
   platformNotifyEmail: process.env.PLATFORM_NOTIFY_EMAIL ?? '',
   // Llave de cifrado de los respaldos (64 caracteres hex). Guardar copia fuera del servidor.

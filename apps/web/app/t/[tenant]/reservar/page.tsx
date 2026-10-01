@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { API_BASE_CLIENT } from '@/lib/config';
 import { onColor } from '@/lib/color';
+import { NotifyMe } from '../_site/NotifyMe';
 import { Toaster } from '@/components/Toaster';
 import { toast } from '@/lib/toast';
 import { haptic } from '@/lib/haptics';
@@ -409,6 +410,7 @@ function ReservarInner() {
       }
       const finish = () => {
         setDone({ id: d.appointmentId, slot, staffName: staffForSlot?.name ?? '', manageToken: d.manageToken ?? null, referralCode: d.referralCode ?? null });
+        localStorage.setItem(`datepe_booked_${tenant}`, '1');
         haptic.success();
         window.scrollTo({ top: 0, behavior: 'smooth' });
       };
@@ -585,6 +587,7 @@ function ReservarInner() {
             <CalendarClock size={17} strokeWidth={1.75} /> Ver o cambiar mi reserva
           </Link>
         )}
+        {done.manageToken && <NotifyMe tenant={tenant} manageToken={done.manageToken} className="mt-3" />}
         {done.referralCode && referralOn && (
           <div className="mt-8">
             <InviteCard
@@ -1184,7 +1187,7 @@ function ReservarInner() {
         </form>
       </Sheet>
 
-      <style>{`.fld{width:100%;border:1px solid var(--color-line-2);border-radius:12px;padding:0.85rem 1rem;font-size:16px;background:#fff;outline:none;transition:border-color .2s}.fld:focus{border-color:var(--color-ink)}`}</style>
+      <style>{`.fld{width:100%;border:1px solid var(--color-line-2);border-radius:12px;padding:0.85rem 1rem;font-size:16px;background:var(--color-white);color:var(--color-ink);outline:none;transition:border-color .2s}.fld:focus{border-color:var(--color-ink)}`}</style>
     </main>
   );
 }

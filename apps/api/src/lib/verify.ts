@@ -1,9 +1,10 @@
 import { createHash, randomInt } from 'node:crypto';
 import { admin } from '../db.js';
 import { sendEmail, layout } from './email.js';
+import { sendCode } from './whatsapp.js';
 
-// Verificación del cliente con un código de 6 dígitos. Hoy por correo; el canal
-// WhatsApp usa la misma tabla cuando se active.
+// Verificación del cliente con un código de 6 dígitos, por correo o por WhatsApp.
+// El destino es un correo o "p:" + los 9 dígitos del celular.
 const hash = (v: string) => createHash('sha256').update(v).digest('hex');
 const keyOf = (tenantId: string, email: string) => `${tenantId}|${email.trim().toLowerCase()}`;
 
@@ -18,6 +19,7 @@ export async function requestCode(tenantId: string, tenantName: string, email: s
      ON CONFLICT (key) DO UPDATE SET code_hash = EXCLUDED.code_hash, attempts = 0, expires_at = EXCLUDED.expires_at, verified_at = NULL`,
     [key, hash(code)],
   );
+  if (email.startsWith('p:')) return (await sendCode(email.slice(2), code)) ? { ok: true } : { ok: false, error: 'no_se_pudo_enviar' };
   const r = await sendEmail({
     to: email,
     fromName: tenantName,

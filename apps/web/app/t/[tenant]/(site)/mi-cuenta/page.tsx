@@ -13,5 +13,5 @@ export default async function MiCuentaPage({ params }: { params: Promise<{ tenan
   const { tenant } = await params;
   const site = await getSite(tenant);
   if (!site) notFound();
-  return <AccountClient tenant={tenant} shop={site.tenant.name} tz={site.settings?.timezone || 'America/Lima'} />;
+  return <AccountClient tenant={tenant} shop={site.tenant.name} tz={site.settings?.timezone || 'America/Lima'} whatsapp={site.branding?.whatsapp ?? null} />;
 }

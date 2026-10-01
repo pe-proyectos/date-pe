@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { NotifyMe } from '../../_site/NotifyMe';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ChevronLeft, ChevronRight, CalendarPlus, Navigation, Loader2, MapPin, Scissors, User, Clock, CalendarClock, CalendarX2,
@@ -165,6 +166,16 @@ export function CitaClient({ site, tenant }: { site: TenantSite; tenant: string 
     setSlots(null);
     setResOpen(true);
   }
+
+  // Desde "Mi cuenta" (?cambiar=1): se abre directo la hoja para elegir otra hora
+  const autoRes = useRef(false);
+  useEffect(() => {
+    if (autoRes.current || !booking?.can_reschedule) return;
+    if (new URLSearchParams(window.location.search).get('cambiar') !== '1') return;
+    autoRes.current = true;
+    openReschedule();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [booking]);
 
   useEffect(() => {
     if (!resOpen || !actionKey) return;
@@ -467,6 +478,8 @@ export function CitaClient({ site, tenant }: { site: TenantSite; tenant: string 
           <ChevronRight size={18} strokeWidth={1.75} className="text-mute" />
         </Link>
       )}
+
+      {upcoming && walletToken && <NotifyMe tenant={tenant} manageToken={walletToken} className="mt-6" />}
 
       {walletToken && <WalletCard tenant={tenant} token={walletToken} accent={accent} />}
 

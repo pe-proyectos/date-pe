@@ -1,4 +1,4 @@
-/* date.pe: service worker de notificaciones push (panel y turno de la fila). */
+/* date.pe: service worker de notificaciones push (panel, turno de la fila y clientes) y de la página sin internet. */
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
@@ -12,7 +12,7 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'date.pe';
   const options = {
     body: data.body || '',
-    icon: '/icons/icon-192.png',
+    icon: data.icon || '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
     tag: data.tag || undefined,
     renotify: !!data.tag,
@@ -47,11 +47,13 @@ self.addEventListener('notificationclick', (event) => {
  */
 const SHELL = 'datepe-shell-v1';
 const STATIC = 'datepe-static-v1';
+const PAGES = 'datepe-pages-v1';
 const MAX_STATIC = 200;
+const MAX_PAGES = 40;
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k.startsWith('datepe-') && k !== SHELL && k !== STATIC).map((k) => caches.delete(k)))),
+    caches.keys().then((keys) => Promise.all(keys.filter((k) => k.startsWith('datepe-') && k !== SHELL && k !== STATIC && k !== PAGES).map((k) => caches.delete(k)))),
   );
 });
 
@@ -111,6 +113,28 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  /*
+   * Página de la barbería: también se pide primero a la red y se guarda la última versión
+   * de cada sección, así la carta, el horario, la cita o el turno se ven aunque no haya señal.
+   */
+  if (req.mode === 'navigate' && !/^\/(api|superadmin|caja|staff|tv)(\/|$)/.test(url.pathname)) {
+    const key = /^\/(cita|turno)$/.test(url.pathname) ? url.pathname + url.search : url.pathname;
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res.ok && res.type === 'basic') {
+            const copy = res.clone();
+            caches.open(PAGES).then((c) => c.put(key, copy).then(() => trim(PAGES, MAX_PAGES)));
+          }
+          return res;
+        })
+        .catch(() =>
+          caches.open(PAGES).then(async (c) => (await c.match(key)) || (await c.match('/')) || offlinePage()),
+        ),
+    );
+    return;
+  }
+
   if (url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/icons/') || url.pathname.startsWith('/fonts/')) {
     event.respondWith(
       caches.open(STATIC).then((cache) =>
@@ -129,3 +153,12 @@ self.addEventListener('fetch', (event) => {
     );
   }
 });
+
+function offlinePage() {
+  const html = '<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sin conexión</title>'
+    + '<body style="margin:0;min-height:100dvh;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;background:#faf9f7;color:#111;text-align:center;padding:24px">'
+    + '<div><p style="font-size:22px;font-weight:600;margin:0 0 8px">Estás sin conexión</p><p style="color:#666;margin:0 0 20px">Cuando vuelva la señal, la página se carga sola.</p>'
+    + '<button onclick="location.reload()" style="font:inherit;padding:12px 22px;border-radius:999px;border:0;background:#111;color:#fff">Reintentar</button></div>'
+    + '<script>addEventListener("online",()=>location.reload())</script></body></html>';
+  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+}

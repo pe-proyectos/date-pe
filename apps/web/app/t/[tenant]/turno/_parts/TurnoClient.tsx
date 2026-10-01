@@ -10,6 +10,7 @@ import {
 import { onColor } from '@/lib/color';
 import { soles } from '@/lib/api';
 import { Toaster } from '@/components/Toaster';
+import { PullRefresh } from '@/components/PullRefresh';
 import { Sheet } from '@/components/Sheet';
 import { toast } from '@/lib/toast';
 import { haptic } from '@/lib/haptics';
@@ -209,6 +210,7 @@ export function TurnoClient({ tenant, whatsapp, reviewUrl, logoUrl }: { tenant: 
   return (
     <main className="mx-auto min-h-dvh max-w-md pb-[calc(40px+env(safe-area-inset-bottom))]">
       <Toaster />
+      <PullRefresh onRefresh={load} />
       <header className="pt-safe sticky top-0 z-30 border-b border-line bg-white/90 backdrop-blur-md">
         <div className="flex h-14 items-center gap-3 px-5">
           <Link href="/" className="flex min-w-0 flex-1 items-center gap-3">

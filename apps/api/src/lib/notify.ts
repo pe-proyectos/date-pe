@@ -1,7 +1,7 @@
 import { admin } from '../db.js';
 import { env } from '../env.js';
 import { sendEmail, layout } from './email.js';
-import { pushToUsers } from './push.js';
+import { pushToUsers, pushToClient } from './push.js';
 
 // Avisos por correo de la operación diaria. Corre con el pool admin (cross-tenant)
 // porque se dispara desde webhooks, el planificador y rutas públicas.
@@ -51,6 +51,7 @@ export interface ApptInfo {
   service_name: string | null;
   whatsapp: string | null;
   address: string | null;
+  logo: string | null;
 }
 
 export async function apptInfo(id: string): Promise<ApptInfo | null> {
@@ -62,7 +63,7 @@ export async function apptInfo(id: string): Promise<ApptInfo | null> {
             (SELECT string_agg(sv.name, ' + ' ORDER BY sv.is_addon, sv.name)
                FROM appointment_services aps JOIN services sv ON sv.id = aps.service_id
               WHERE aps.appointment_id = a.id) AS service_name,
-            b.whatsapp, l.address
+            b.whatsapp, l.address, b.logo_url AS logo
        FROM appointments a
        JOIN tenants t ON t.id = a.tenant_id
        LEFT JOIN clients c ON c.id = a.client_id
@@ -164,7 +165,17 @@ export async function notifyOwnerChange(id: string, kind: 'cancelled' | 'resched
   });
 }
 
+const first = (a: ApptInfo) => (a.client_name ?? '').split(' ')[0];
+const hourText = (d: Date) => new Date(d).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Lima' });
+
 export async function sendReminder(a: ApptInfo, when: '24h' | '2h') {
+  void pushToClient(a.client_id, {
+    title: when === '24h' ? `Mañana tienes cita, ${first(a)}` : `Tu cita es a las ${hourText(a.starts_at)}`,
+    body: `${a.service_name ?? 'Tu servicio'}${a.staff_name ? ` con ${a.staff_name}` : ''} en ${a.tenant_name}. Toca si necesitas cambiar la hora.`,
+    url: `/cita?t=${a.manage_token}`,
+    tag: `cita-${a.id}`,
+    icon: a.logo,
+  });
   if (!a.client_email) return;
   await sendEmail({
     to: a.client_email,
@@ -181,8 +192,16 @@ export async function sendReminder(a: ApptInfo, when: '24h' | '2h') {
 }
 
 export async function sendReviewRequest(a: ApptInfo) {
-  if (!a.client_email || !a.client_phone) return;
+  if (!a.client_phone) return;
   const phone = a.client_phone.replace(/\D/g, '').slice(-9);
+  void pushToClient(a.client_id, {
+    title: `¿Qué tal tu corte, ${first(a)}?`,
+    body: `Cuéntanos cómo te fue con ${a.staff_name ?? 'tu barbero'}. Te toma 30 segundos.`,
+    url: `/resena?cita=${a.id}&tel=${phone}`,
+    tag: `resena-${a.id}`,
+    icon: a.logo,
+  });
+  if (!a.client_email) return;
   await sendEmail({
     to: a.client_email,
     fromName: a.tenant_name,
@@ -197,6 +216,13 @@ export async function sendReviewRequest(a: ApptInfo) {
 }
 
 export async function sendRebookReminder(a: ApptInfo) {
+  void pushToClient(a.client_id, {
+    title: `¿Toca corte, ${first(a)}?`,
+    body: `Ya van unas semanas desde tu último corte${a.staff_name ? ` con ${a.staff_name}` : ''}. Reserva en un minuto.`,
+    url: '/reservar',
+    tag: 'volver',
+    icon: a.logo,
+  });
   if (!a.client_email) return;
   await sendEmail({
     to: a.client_email,
