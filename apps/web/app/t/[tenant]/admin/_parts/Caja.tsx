@@ -7,6 +7,7 @@ import {
   Lock, LockOpen, ArrowDownLeft, ArrowUpRight, Receipt, Clock, TriangleAlert, Ban, Percent, History, Loader2, Ticket as TicketIcon,
   Coins, Check, SplitSquareHorizontal, Printer, MessageCircle, CalendarDays, WifiOff, CloudUpload,
 } from 'lucide-react';
+import { PagosPorConfirmar } from './PagosPorConfirmar';
 import { useAdmin, soles } from './api';
 import { PageHead, Btn, Field, inputCls, Empty, Skeleton } from './ui';
 import { Sheet } from '@/components/Sheet';
@@ -464,6 +465,7 @@ export function Caja() {
       />
 
       <OfflineBar api={api} tenant={tenant} offline={offline} onSynced={refreshAll} />
+      <PagosPorConfirmar />
 
       <div className="mb-6">
         <Segmented value={view} onChange={setView} options={views} label="Vista de la caja" />

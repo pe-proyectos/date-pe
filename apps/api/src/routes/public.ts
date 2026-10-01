@@ -16,7 +16,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       const [branding, settings, locations, staff, services, reviews, ratingAgg, plans, hours, staffHours, locHours] = await Promise.all([
         sql('SELECT logo_url, cover_url, color_primary, color_secondary, tagline, about, instagram, whatsapp, gallery, show_powered_by, site_theme FROM tenant_branding'),
         sql(`SELECT timezone, slot_interval_min, deposit_percent, require_deposit, cancel_window_hours, allow_client_reschedule,
-                    require_verification, referral_enabled, referral_discount_percent FROM tenant_settings`),
+                    require_verification, referral_enabled, referral_discount_percent,
+                    pay_phone, pay_holder, pay_qr_url, pay_apps FROM tenant_settings`),
         sql('SELECT id, name, address, district, province, lat, lng, phone FROM locations WHERE is_active ORDER BY name'),
         sql('SELECT id, location_id, name, photo_url, bio, specialties, rating_avg, rating_count FROM staff WHERE is_bookable ORDER BY sort_order, name'),
         sql('SELECT id, category, name, description, photo_url, duration_min, price_cents, is_addon, location_ids FROM services WHERE is_active ORDER BY is_addon, sort_order, name'),

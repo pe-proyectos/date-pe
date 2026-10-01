@@ -100,8 +100,9 @@ export async function quote(
     }
   }
 
+  // Sin número de Yape o Plin configurado no hay a dónde pagar: no se pide adelanto
   const settings = await sql<{ deposit_percent: number; require_deposit: boolean }>(
-    'SELECT deposit_percent, require_deposit FROM tenant_settings',
+    "SELECT deposit_percent, (require_deposit AND COALESCE(pay_phone, '') <> '') AS require_deposit FROM tenant_settings",
   );
   const pct = settings.rows[0]?.require_deposit ? settings.rows[0].deposit_percent : 0;
   const deposit = Math.round((remaining * pct) / 100);

@@ -961,6 +961,19 @@ CREATE INDEX IF NOT EXISTS idx_reviews_tenant     ON reviews (tenant_id);
 -- tenant_rw  -> filas del tenant en sesión (SET LOCAL app.tenant_id)
 -- public_ro  -> lectura cross-tenant controlada (SET LOCAL app.public_read='on')
 -- ---------------------------------------------------------------------------
+-- Pagos directos a la barbería (Yape o Plin): el cliente sube la captura y la barbería confirma.
+-- date.pe no recibe ni mueve dinero de los clientes.
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS receipt_key text;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS reviewed_at timestamptz;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS review_note text;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS pay_phone text;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS pay_holder text;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS pay_qr_url text;
+ALTER TABLE tenant_settings ADD COLUMN IF NOT EXISTS pay_apps text[] NOT NULL DEFAULT '{yape,plin}';
+-- Documento del cliente (DNI o carné de extranjería) para reservar sin crear cuenta
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS doc_number text;
+CREATE INDEX IF NOT EXISTS idx_clients_doc ON clients (tenant_id, doc_number) WHERE doc_number IS NOT NULL;
+
 -- Visitas a la página de cada barbería (anónimas: sin cookies, id aleatorio del navegador)
 CREATE TABLE IF NOT EXISTS site_events (
   id          bigserial PRIMARY KEY,

@@ -4,12 +4,14 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import Link from 'next/link';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import {
-  ArrowLeft, ChevronLeft, ChevronRight, ChevronUp, Clock, Users, Smartphone, CreditCard, Wallet, Ticket, CalendarPlus, Navigation, Loader2, Star, Info,
+  ArrowLeft, ChevronLeft, ChevronRight, ChevronUp, Clock, Users, Ticket, CalendarPlus, Navigation, Loader2, Star, Info,
   MapPin, Plus, Check, BellRing, CircleCheck, CalendarOff, CalendarClock, MailCheck,
 } from 'lucide-react';
 import { API_BASE_CLIENT } from '@/lib/config';
 import { onColor } from '@/lib/color';
 import { NotifyMe } from '../_site/NotifyMe';
+import { DirectPay } from '../_parts/DirectPay';
+import { uploadReceipt } from '@/lib/upload';
 import { Toaster } from '@/components/Toaster';
 import { toast } from '@/lib/toast';
 import { haptic } from '@/lib/haptics';
@@ -26,6 +28,7 @@ interface Site {
   settings: {
     deposit_percent: number; require_deposit: boolean; cancel_window_hours: number;
     allow_client_reschedule?: boolean; require_verification?: boolean; referral_enabled?: boolean; referral_discount_percent?: number;
+    pay_phone?: string | null; pay_holder?: string | null; pay_qr_url?: string | null; pay_apps?: string[] | null;
   } | null;
   locations: Location[];
   services: Service[];
@@ -40,7 +43,6 @@ interface Quote {
 }
 type Step = 'service' | 'staff' | 'time' | 'you' | 'pay';
 const STEPS: Step[] = ['service', 'staff', 'time', 'you', 'pay'];
-type Method = 'mercadopago' | 'culqi' | 'paypal';
 
 const soles = (c: number) => `S/ ${(c / 100).toFixed(2)}`;
 const limaHour = (iso: string) => Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: TZ }).format(new Date(iso)));
@@ -91,15 +93,16 @@ function ReservarInner() {
   const autoSeek = useRef(true); // busca el próximo día con horarios tras elegir servicio/barbero
   const pinnedDay = useRef(false); // ?fecha= fija el día: no saltamos a otro
   const [skipped, setSkipped] = useState(0);
-  const [you, setYou] = useState({ name: '', phone: '', email: '' });
+  const [you, setYou] = useState({ name: '', phone: '', email: '', doc: '' });
   const [promoCode, setPromoCode] = useState('');
   const [giftCode, setGiftCode] = useState('');
   const [codesOpen, setCodesOpen] = useState(false);
   const [applied, setApplied] = useState<{ promo?: string; gift?: string }>({});
   const [quote, setQuote] = useState<Quote | null>(null);
-  const [method, setMethod] = useState<Method>('mercadopago');
+  const [payApp, setPayApp] = useState('yape');
+  const [receipt, setReceipt] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ id: string; slot: Slot; staffName: string; manageToken: string | null; referralCode: string | null } | null>(null);
+  const [done, setDone] = useState<{ id: string; slot: Slot; staffName: string; manageToken: string | null; referralCode: string | null; pending?: boolean } | null>(null);
 
   // Lista de espera (día sin horarios)
   const [wlOpen, setWlOpen] = useState(false);
@@ -279,8 +282,10 @@ function ReservarInner() {
     setApplied({ promo: promoCode.trim() || undefined, gift: giftCode.trim() || undefined });
   }
 
-  const emailOk = requireVerif ? isEmail(you.email) : !you.email || isEmail(you.email);
-  const youOk = !!you.name.trim() && phoneOk && emailOk;
+  const emailOk = isEmail(you.email);
+  const docClean = you.doc.replace(/[\s.-]/g, '').toUpperCase();
+  const docOk = /^(\d{8}|[A-Z0-9]{9,12})$/.test(docClean);
+  const youOk = !!you.name.trim() && phoneOk && emailOk && docOk;
   const needsDeposit = (quote?.depositCents ?? 0) > 0;
   const totalMin = (service?.duration_min ?? 0) + selectedAddons.reduce((a, x) => a + x.duration_min, 0);
 
@@ -376,9 +381,22 @@ function ReservarInner() {
 
   async function book() {
     if (!service || !slot || !site) return;
+    if (needsDeposit && !receipt) {
+      toast.error('Sube la captura de tu pago para enviar la reserva.');
+      return;
+    }
     setBusy(true);
     try {
       localStorage.setItem('datepe_cliente', JSON.stringify(you));
+      let depositReceiptKey: string | undefined;
+      if (needsDeposit && receipt) {
+        try {
+          depositReceiptKey = await uploadReceipt(receipt, tenant);
+        } catch {
+          toast.error('No pudimos subir la captura. Revisa tu conexión e intenta de nuevo.');
+          return;
+        }
+      }
       const res = await fetch(`${API_BASE_CLIENT}/api/bookings`, {
         method: 'POST',
         headers,
@@ -390,7 +408,9 @@ function ReservarInner() {
           startsAt: slot.start,
           promoCode: quote?.promo?.valid ? quote.promo.code : undefined,
           giftCardCode: quote?.giftCard?.valid ? quote.giftCard.code : undefined,
-          client: { name: you.name.trim(), phone: toPhone(you.phone), email: you.email.trim() || undefined },
+          client: { name: you.name.trim(), phone: toPhone(you.phone), email: you.email.trim(), doc: docClean },
+          depositReceiptKey,
+          depositApp: depositReceiptKey ? payApp : undefined,
         }),
       });
       const d = await res.json();
@@ -405,37 +425,18 @@ function ReservarInner() {
           await requestCode();
         } else if (d.error === 'barberia_no_disponible') {
           toast.error('Esta barbería no está recibiendo reservas por ahora.');
+        } else if (d.error === 'falta_captura') {
+          toast.error('Sube la captura de tu pago para enviar la reserva.');
         } else toast.error('No pudimos crear la reserva. Revisa tus datos.');
         return;
       }
       const finish = () => {
-        setDone({ id: d.appointmentId, slot, staffName: staffForSlot?.name ?? '', manageToken: d.manageToken ?? null, referralCode: d.referralCode ?? null });
+        setDone({ id: d.appointmentId, slot, staffName: staffForSlot?.name ?? '', manageToken: d.manageToken ?? null, referralCode: d.referralCode ?? null, pending: d.status === 'pending' });
         localStorage.setItem(`datepe_booked_${tenant}`, '1');
         haptic.success();
         window.scrollTo({ top: 0, behavior: 'smooth' });
       };
-      if (!d.depositCents) return finish();
-
-      const pay = await fetch(`${API_BASE_CLIENT}/api/payments/intent`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ appointmentId: d.appointmentId, provider: method }),
-      }).then((r) => r.json());
-      if (pay.redirectUrl) {
-        toast.info('Te llevamos a la pasarela de pago');
-        window.location.href = pay.redirectUrl;
-        return;
-      }
-      if (pay.devSimulated) {
-        const ok = await fetch(`${API_BASE_CLIENT}${pay.devConfirmUrl}`, { method: 'POST', headers, body: '{}' }).then((r) => r.ok).catch(() => false);
-        if (!ok) {
-          toast.error('No pudimos confirmar el pago. Intenta de nuevo.');
-          return;
-        }
-        return finish();
-      }
-      if (pay.noDeposit) return finish();
-      toast.error('El pago con tarjeta aún no está activo en esta barbería. Elige otro método.');
+      finish();
     } finally {
       setBusy(false);
     }
@@ -474,7 +475,7 @@ function ReservarInner() {
       setWlDone((cur) => [...cur, day]);
       setWlOpen(false);
       // Recordamos los datos para la próxima vez
-      setYou((y) => ({ name: y.name || wl.name.trim(), phone: y.phone || wl.phone, email: y.email || wl.email.trim() }));
+      setYou((y) => ({ ...y, name: y.name || wl.name.trim(), phone: y.phone || wl.phone, email: y.email || wl.email.trim() }));
     } catch {
       toast.error('Sin conexión. Intenta de nuevo.');
     } finally {
@@ -554,9 +555,11 @@ function ReservarInner() {
           <circle cx="12" cy="12" r="11" fill="currentColor" />
           <path d="M7 12.5l3.2 3.2L17 9" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        <h1 className="mt-6 text-[clamp(2rem,5vw,2.75rem)] font-semibold leading-[1.05] tracking-[-0.035em]">Listo, te esperamos.</h1>
+        <h1 className="mt-6 text-[clamp(2rem,5vw,2.75rem)] font-semibold leading-[1.05] tracking-[-0.035em]">{done.pending ? 'Reserva recibida.' : 'Listo, te esperamos.'}</h1>
         <p className="mt-3 text-[17px] text-mute">
-          {you.email ? `Te enviamos la confirmación a ${you.email}.` : 'Guarda esta pantalla o agrégala a tu calendario.'}
+          {done.pending
+            ? `${site.tenant.name} revisará tu adelanto y te confirmamos por correo a ${you.email}.`
+            : `Te enviamos la confirmación a ${you.email}.`}
         </p>
         <dl className="mt-8 divide-y divide-line border-y border-line text-[16px]">
           {rows.map(([k, v]) => (
@@ -713,7 +716,7 @@ function ReservarInner() {
       </div>
       {site.tenant.is_demo && (
         <p className="mt-4 flex items-center gap-2 text-[13px] text-mute lg:mt-2 lg:text-[14px]">
-          <Info size={15} strokeWidth={1.75} /> Barbería de demostración: puedes probar todo el flujo, el pago es simulado.
+          <Info size={15} strokeWidth={1.75} /> Barbería de demostración: no pagues de verdad, sube cualquier imagen como captura.
         </p>
       )}
 
@@ -1000,10 +1003,11 @@ function ReservarInner() {
                   />
                 </div>
               </Field>
-              <Field
-                label={requireVerif ? 'Correo' : 'Correo (opcional)'}
-                hint={requireVerif ? 'Te enviaremos un código para confirmar que es tuyo.' : 'Te enviamos ahí la confirmación.'}
-              >
+              <Field label="DNI o carné de extranjería" hint="Para identificarte en la barbería, sin crear una cuenta.">
+                <input value={you.doc} onChange={(e) => setYou({ ...you, doc: e.target.value.replace(/[^0-9A-Za-z]/g, '').slice(0, 12) })} inputMode="text" autoComplete="off" enterKeyHint="next" className="fld tnum uppercase" placeholder="12345678" />
+                {you.doc && !docOk && <p className="mt-1 text-[13px] text-red">El DNI tiene 8 dígitos; el carné, de 9 a 12 caracteres.</p>}
+              </Field>
+              <Field label="Correo" hint={requireVerif ? 'Te enviaremos un código para confirmar que es tuyo.' : 'Te enviamos ahí la confirmación.'}>
                 <input value={you.email} onChange={(e) => setYou({ ...you, email: e.target.value })} type="email" autoComplete="email" enterKeyHint="done" onKeyDown={(e) => { if (e.key === 'Enter' && youOk) goStep('pay'); }} className="fld" placeholder="tucorreo@gmail.com" />
                 {you.email && !emailOk && <p className="mt-1 text-[13px] text-red">Revisa el correo.</p>}
               </Field>
@@ -1043,37 +1047,15 @@ function ReservarInner() {
               </div>
             )}
 
-            {needsDeposit && (
-              <fieldset className="mt-6">
-                <legend className="mb-3 text-[15px] font-medium">Paga el adelanto con</legend>
-                <div className="space-y-2">
-                  {([
-                    ['mercadopago', 'Yape o Plin', 'Con MercadoPago', Smartphone],
-                    ['culqi', 'Tarjeta de débito o crédito', 'Con Culqi', CreditCard],
-                    ['paypal', 'PayPal', 'Se cobra en dólares', Wallet],
-                  ] as const).map(([id, label, sub, Icon]) => (
-                    <label
-                      key={id}
-                      className={`flex cursor-pointer items-center gap-4 rounded-xl border p-4 transition-colors ${method === id ? 'border-ink bg-field' : 'border-line hover:border-ink'}`}
-                    >
-                      <input type="radio" name="metodo" value={id} checked={method === id} onChange={() => { haptic.select(); setMethod(id); }} className="sr-only" />
-                      <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${method === id ? 'border-ink' : 'border-line-2'}`}>
-                        {method === id && <span className="h-2.5 w-2.5 rounded-full bg-ink" />}
-                      </span>
-                      <Icon size={20} strokeWidth={1.75} />
-                      <span className="flex-1">
-                        <span className="block text-[15px] font-medium">{label}</span>
-                        <span className="block text-[13px] text-mute">{sub}</span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
+            {needsDeposit && settings && (
+              <div className="mt-6">
+                <DirectPay info={settings} amountCents={quote!.depositCents} shop={site?.tenant.name ?? 'la barbería'} file={receipt} onFile={setReceipt} app={payApp} onApp={setPayApp} />
+              </div>
             )}
 
             <button type="button" onClick={confirm} disabled={busy || verifyBusy} className={`mt-6 flex items-center justify-center gap-2 max-lg:hidden ${primaryBtn}`} style={{ background: accent, color: onAccent }}>
               {(busy || verifyBusy) && <Loader2 size={18} className="animate-spin" />}
-              {needsDeposit ? `Pagar adelanto de ${soles(quote!.depositCents)} y reservar` : 'Confirmar reserva'}
+              {needsDeposit ? 'Enviar reserva' : 'Confirmar reserva'}
             </button>
             {requireVerif && verifiedEmail !== you.email.trim().toLowerCase() && (
               <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-[13px] text-soft">
@@ -1129,7 +1111,7 @@ function ReservarInner() {
           {step === 'pay' && (
             <button type="button" onClick={confirm} disabled={busy || verifyBusy} className="flex items-center gap-2 rounded-xl px-5 py-3.5 text-[16px] font-medium disabled:opacity-40" style={{ background: accent, color: onAccent }}>
               {(busy || verifyBusy) && <Loader2 size={18} className="animate-spin" />}
-              {needsDeposit ? 'Pagar adelanto' : 'Confirmar'}
+              {needsDeposit ? 'Enviar reserva' : 'Confirmar'}
             </button>
           )}
         </div>

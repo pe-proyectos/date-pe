@@ -21,17 +21,15 @@ interface Account {
   packagesForSale?: number;
 }
 
-const STATUS: Record<string, string> = { pending: 'Por confirmar', confirmed: 'Confirmada', completed: 'Atendida', no_show: 'No asistió', cancelled: 'Cancelada' };
+const STATUS: Record<string, string> = { pending: 'Adelanto por confirmar', confirmed: 'Confirmada', completed: 'Atendida', no_show: 'No asistió', cancelled: 'Cancelada' };
 
 /** Cuenta del cliente: entra con un código al correo, sin contraseña. */
 export function AccountClient({ tenant, shop, tz, whatsapp }: { tenant: string; shop: string; tz: string; whatsapp: string | null }) {
   const key = `datepe_cuenta_${tenant}`;
   const [token, setToken] = useState<string | null | undefined>(undefined);
   const [acc, setAcc] = useState<Account | null>(null);
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [wa, setWa] = useState(false);
-  const [via, setVia] = useState<'phone' | 'email'>('email');
+  const [login, setLogin] = useState('');
+  const [sentTo, setSentTo] = useState('');
   const [code, setCode] = useState('');
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [busy, setBusy] = useState(false);
@@ -71,38 +69,35 @@ export function AccountClient({ tenant, shop, tz, whatsapp }: { tenant: string; 
     setToken(t);
     if (t) load(t).catch(() => {});
     try {
-      const c = JSON.parse(localStorage.getItem('datepe_cliente') ?? 'null') as { email?: string; phone?: string } | null;
-      if (c?.email) setEmail(c.email);
-      if (c?.phone) setPhone(c.phone.replace(/\D/g, '').slice(-9));
+      const c = JSON.parse(localStorage.getItem('datepe_cliente') ?? 'null') as { email?: string } | null;
+      if (c?.email) setLogin(c.email);
     } catch { /* sin datos */ }
-    // Con WhatsApp conectado se entra con el celular, que todos tienen a la mano
-    if (!t) {
-      fetch(`${API_BASE_CLIENT}/api/public/account/options`, { headers: { 'X-Tenant-Slug': tenant } })
-        .then((r) => r.json())
-        .then((d) => { if (d.whatsapp) { setWa(true); setVia('phone'); } })
-        .catch(() => {});
-    }
-  }, [key, load, tenant]);
-
-  const who = () => (via === 'phone' ? { phone: phone.replace(/\D/g, '') } : { email: email.trim() });
+  }, [key, load]);
 
   async function sendCode(e: React.FormEvent) {
     e.preventDefault();
-    if (via === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) return toast.error('Revisa tu correo.');
-    if (via === 'phone' && !/^9\d{8}$/.test(phone.replace(/\D/g, ''))) return toast.error('Tu celular tiene 9 dígitos y empieza con 9.');
+    if (!login.trim()) return toast.error('Escribe tu celular, tu correo o tu DNI.');
     setBusy(true);
-    const where = via === 'phone' ? 'tu WhatsApp' : 'tu correo';
     try {
-      const r = await fetch(`${API_BASE_CLIENT}/api/public/account/code`, { method: 'POST', headers, body: JSON.stringify(who()) });
+      const r = await fetch(`${API_BASE_CLIENT}/api/public/account/code`, { method: 'POST', headers, body: JSON.stringify({ login: login.trim() }) });
       const d = await r.json().catch(() => ({}));
       if (d.error === 'demasiados_intentos') {
         toast.error('Pediste muchos códigos. Intenta de nuevo en un rato.');
         return;
       }
-      if (!r.ok && d.error !== 'espera_un_minuto') throw new Error();
+      if (d.error === 'dato_invalido') {
+        toast.error('Revisa el dato: celular de 9 dígitos, correo o DNI.');
+        return;
+      }
+      if (d.error === 'sin_correo') {
+        toast.error('No encontramos una reserva con ese dato. Prueba con el correo con el que reservaste.');
+        return;
+      }
+      if (!r.ok) throw new Error();
       haptic.success();
+      setSentTo(d.sentTo ?? 'tu correo');
       setStep('code');
-      toast.success(d.error === 'espera_un_minuto' ? `Ya te enviamos un código hace un momento. Revisa ${where}.` : `Te enviamos un código de 6 dígitos a ${where}.`);
+      toast.success(d.recent ? `Ya te enviamos un código hace un momento a ${d.sentTo}.` : `Te enviamos un código de 6 dígitos a ${d.sentTo}.`);
     } catch {
       toast.error('No pudimos enviar el código. Intenta de nuevo.');
     } finally {
@@ -115,7 +110,7 @@ export function AccountClient({ tenant, shop, tz, whatsapp }: { tenant: string; 
     if (!/^\d{6}$/.test(code.trim())) return toast.error('El código tiene 6 dígitos.');
     setBusy(true);
     try {
-      const r = await fetch(`${API_BASE_CLIENT}/api/public/account/verify`, { method: 'POST', headers, body: JSON.stringify({ ...who(), code: code.trim() }) });
+      const r = await fetch(`${API_BASE_CLIENT}/api/public/account/verify`, { method: 'POST', headers, body: JSON.stringify({ login: login.trim(), code: code.trim() }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error);
       localStorage.setItem(key, d.token);
@@ -173,43 +168,24 @@ export function AccountClient({ tenant, shop, tz, whatsapp }: { tenant: string; 
       <div className="mx-auto max-w-md">
         <p className="s-eyebrow">{shop}</p>
         <h1 className="s-display mt-4 text-[clamp(3rem,10vw,5rem)]">Mi <em>cuenta</em></h1>
-        <p className="s-mute mt-4 text-[17px] leading-relaxed">Tus citas, tus puntos y tus paquetes en un solo lugar. Entra con {wa ? 'el celular o el correo' : 'el correo'} con el que reservas, sin contraseña.</p>
+        <p className="s-mute mt-4 text-[17px] leading-relaxed">Tus citas, tus puntos y tus paquetes en un solo lugar. Entra con tu celular, tu correo o tu DNI, sin contraseña.</p>
         {step === 'email' ? (
           <form onSubmit={sendCode} className="mt-8">
-            {wa && (
-              <div role="tablist" aria-label="Entrar con" className="s-surface mb-5 grid grid-cols-2 gap-1 rounded-full p-1">
-                {(['phone', 'email'] as const).map((v) => (
-                  <button key={v} type="button" role="tab" aria-selected={via === v} onClick={() => setVia(v)} className={`min-h-11 rounded-full text-[15px] font-semibold transition-colors ${via === v ? 's-bg shadow-sm' : 's-mute'}`}>
-                    {v === 'phone' ? 'Celular' : 'Correo'}
-                  </button>
-                ))}
-              </div>
-            )}
-            {via === 'phone' ? (
-              <label className="block">
-                <span className="mb-2 block text-[15px] font-semibold">Tu celular</span>
-                <span className="s-surface s-line flex h-14 items-center rounded-2xl border px-5 focus-within:border-[var(--s-ink)]">
-                  <span className="s-mute tnum mr-3 text-[17px]">+51</span>
-                  <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d ]/g, '').slice(0, 11))} type="tel" inputMode="numeric" autoComplete="tel-national" required placeholder="987 654 321" className="tnum h-full min-w-0 flex-1 bg-transparent text-[17px] outline-none" />
-                </span>
-                <span className="s-mute mt-2 block text-[14px]">Te llega un código por WhatsApp.</span>
-              </label>
-            ) : (
-              <label className="block">
-                <span className="mb-2 block text-[15px] font-semibold">Tu correo</span>
-                <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" inputMode="email" autoComplete="email" required placeholder="tucorreo@gmail.com" className="s-surface s-line h-14 w-full rounded-2xl border px-5 text-[17px] outline-none focus:border-[var(--s-ink)]" />
-              </label>
-            )}
+            <label className="block">
+              <span className="mb-2 block text-[15px] font-semibold">Tu celular, correo o DNI</span>
+              <input value={login} onChange={(e) => setLogin(e.target.value)} autoComplete="username" autoCapitalize="off" autoCorrect="off" spellCheck={false} required placeholder="987 654 321, tucorreo@gmail.com o DNI" className="s-surface s-line h-14 w-full rounded-2xl border px-5 text-[17px] outline-none focus:border-[var(--s-ink)]" />
+              <span className="s-mute mt-2 block text-[14px]">Te enviamos un código al correo con el que reservaste. Sin contraseña.</span>
+            </label>
             <button disabled={busy} className="s-btn mt-5 w-full">{busy ? <Loader2 size={18} className="animate-spin" /> : <Mail size={18} strokeWidth={1.75} />} Enviarme un código</button>
           </form>
         ) : (
           <form onSubmit={verify} className="mt-8">
             <label className="block">
-              <span className="mb-2 block text-[15px] font-semibold">Código que llegó a {via === 'phone' ? `tu WhatsApp (${phone})` : email}</span>
+              <span className="mb-2 block text-[15px] font-semibold">Código que llegó a {sentTo}</span>
               <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" autoFocus placeholder="000000" className="s-surface s-line tnum h-16 w-full rounded-2xl border px-5 text-center text-[28px] tracking-[0.4em] outline-none focus:border-[var(--s-ink)]" />
             </label>
             <button disabled={busy} className="s-btn mt-5 w-full">{busy && <Loader2 size={18} className="animate-spin" />} Entrar</button>
-            <button type="button" onClick={() => setStep('email')} className="s-mute mt-4 min-h-11 w-full text-[15px] underline underline-offset-4">{via === 'phone' ? 'Usar otro número' : 'Usar otro correo'}</button>
+            <button type="button" onClick={() => setStep('email')} className="s-mute mt-4 min-h-11 w-full text-[15px] underline underline-offset-4">Usar otro dato</button>
           </form>
         )}
       </div>,

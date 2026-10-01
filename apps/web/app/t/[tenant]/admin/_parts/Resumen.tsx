@@ -6,6 +6,7 @@ import { useAdmin, useApi, soles } from './api';
 import { PageHead, Btn, Skeleton } from './ui';
 import { StatTile } from '@/components/charts';
 import { SetupGuide, SedesOverview } from './SetupGuide';
+import { PagosPorConfirmar } from './PagosPorConfirmar';
 import { tenantUrl } from '@/lib/config';
 import { toast } from '@/lib/toast';
 
@@ -46,6 +47,7 @@ export function Resumen({ go }: { go: (s: string) => void }) {
         }
       />
 
+      <PagosPorConfirmar />
       <SetupGuide />
       <SedesOverview />
 
@@ -54,7 +56,7 @@ export function Resumen({ go }: { go: (s: string) => void }) {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatTile label="Citas hoy" value={data.today.citas_hoy} sub={Number(data.today.pendientes_hoy) ? `${data.today.pendientes_hoy} esperando adelanto` : Number(data.today.citas_hoy) ? 'Todas confirmadas' : 'Sin citas hoy'} />
+            <StatTile label="Citas hoy" value={data.today.citas_hoy} sub={Number(data.today.pendientes_hoy) ? `${data.today.pendientes_hoy} con adelanto por confirmar` : Number(data.today.citas_hoy) ? 'Todas confirmadas' : 'Sin citas hoy'} />
             <StatTile label="Ingresos hoy" value={soles(data.today.ingresos_hoy)} />
             <StatTile label="Citas esta semana" value={data.week.citas_semana} />
             <StatTile label="Ingresos esta semana" value={soles(data.week.ingresos_semana)} />

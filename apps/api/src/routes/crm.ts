@@ -3,9 +3,8 @@ import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import { withTenant, admin, type Sql } from '../db.js';
 import { tenantConfig } from '../lib/features.js';
-import { createIntent, type Provider } from '../lib/payments.js';
 import { sendEmail, layout, esc } from '../lib/email.js';
-import { tenantUrl } from '../lib/notify.js';
+import { tenantUrl, notifyOwnerPurchasePending } from '../lib/notify.js';
 
 // Ficha del cliente, paquetes, premios por puntos, membresías, gift cards en
 // línea y campañas de marketing.
@@ -89,6 +88,9 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     if (['suspended', 'cancelled'].includes(request.tenant.status)) return { packages: [], services: [], giftCards: null, available: false };
     return withTenant(request.tenant.id, async (sql) => {
       const cfg = await tenantConfig(sql);
+      // Sin Yape o Plin configurado no hay a dónde pagar: no se vende en línea
+      const pay = await sql<{ pay_phone: string | null }>('SELECT pay_phone FROM tenant_settings');
+      if (!pay.rows[0]?.pay_phone) return { packages: [], services: [], giftCards: null };
       const packages = cfg.features.packages ? (await sql('SELECT id, name, description, price_cents, uses, service_ids, valid_days FROM packages WHERE active AND sell_online ORDER BY sort_order, price_cents')).rows : [];
       const services = (await sql('SELECT id, name, price_cents FROM services WHERE is_active AND NOT is_addon')).rows;
       return { packages, services, giftCards: cfg.features.giftcards_online ? { amounts: [3000, 5000, 8000, 10000, 15000], min: 1000, max: 50000 } : null };
@@ -99,7 +101,9 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     kind: z.enum(['gift_card', 'package']),
     packageId: z.string().uuid().optional(),
     amountCents: z.number().int().min(1000).max(50000).optional(),
-    provider: z.enum(['mercadopago', 'paypal', 'culqi']),
+    // Pago por Yape o Plin directo a la barbería, con la captura
+    receiptKey: z.string().max(200),
+    payApp: z.enum(['yape', 'plin']).optional(),
     buyer: z.object({ name: z.string().min(1).max(80), email: z.string().email(), phone: z.string().min(6).max(20) }),
     recipient: z.object({ name: z.string().min(1).max(80), email: z.string().email().optional(), message: z.string().max(300).optional() }).optional(),
     deliverAt: z.string().optional(),
@@ -108,6 +112,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     if (!request.tenant) return reply.code(404).send({ error: 'tenant_no_encontrado' });
     const b = buyBody.parse(request.body);
     const tenant = request.tenant;
+    if (!b.receiptKey.startsWith(`pagos/${tenant.id}/`)) return reply.code(400).send({ error: 'falta_captura' });
     const prepared = await withTenant(tenant.id, async (sql) => {
       const cfg = await tenantConfig(sql);
       const client = await sql<{ id: string }>(
@@ -137,33 +142,17 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
         purposeRef = p.rows[0].id;
         description = `${p.rows[0].name}, ${tenant.name}`;
       }
-      const mp = await sql<{ mp_access_token: string | null }>('SELECT mp_access_token FROM tenant_settings');
       const pay = await sql<{ id: string }>(
-        `INSERT INTO payments (tenant_id, kind, method, amount_cents, status, provider, purpose, purpose_ref, client_id)
-         VALUES (current_setting('app.tenant_id')::uuid, 'full', $1, $2, 'pending', $3, $4, $5, $6) RETURNING id`,
-        [b.provider === 'mercadopago' ? 'yape' : 'card', amount, b.provider, b.kind, purposeRef, client.rows[0].id],
+        `INSERT INTO payments (tenant_id, kind, method, amount_cents, status, provider, purpose, purpose_ref, client_id, receipt_key)
+         VALUES (current_setting('app.tenant_id')::uuid, 'full', $1, $2, 'pending', 'directo', $3, $4, $5, $6) RETURNING id`,
+        [b.payApp ?? 'yape', amount, b.kind, purposeRef, client.rows[0].id, b.receiptKey],
       );
-      return { paymentId: pay.rows[0].id, amount, description, mpToken: mp.rows[0]?.mp_access_token ?? null };
+      return { paymentId: pay.rows[0].id, amount, description };
     });
     if ('error' in prepared) return reply.code(409).send(prepared);
-    const intent = await createIntent(b.provider as Provider, {
-      amountCents: prepared.amount,
-      description: prepared.description,
-      email: b.buyer.email,
-      externalReference: prepared.paymentId,
-      mpAccessToken: b.provider === 'mercadopago' ? prepared.mpToken : null,
-      tenantSlug: tenant.slug,
-      returnUrls: { success: tenantUrl(tenant.slug, '/regalos?pago=ok'), failure: tenantUrl(tenant.slug, '/regalos?pago=error') },
-    });
-    return {
-      ok: true,
-      paymentId: prepared.paymentId,
-      amountCents: prepared.amount,
-      redirectUrl: intent.redirectUrl,
-      clientConfig: intent.clientConfig,
-      devSimulated: intent.devSimulated ?? false,
-      devConfirmUrl: intent.devSimulated ? `/api/payments/${prepared.paymentId}/dev-confirm` : undefined,
-    };
+    void notifyOwnerPurchasePending(tenant.id, `${b.buyer.name.split(' ')[0]}: ${prepared.description}`, prepared.amount);
+    // La barbería confirma el pago en su panel; recién ahí se activa la gift card o el paquete
+    return { ok: true, pending: true, paymentId: prepared.paymentId, amountCents: prepared.amount };
   });
 
   // Darse de baja de los correos de marketing (enlace en cada campaña)

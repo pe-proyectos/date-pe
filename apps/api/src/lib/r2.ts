@@ -42,6 +42,19 @@ export async function presignUpload(params: {
   return { uploadUrl, publicUrl: `${env.r2PublicBaseUrl}/${key}`, key };
 }
 
+/**
+ * Captura del pago directo (Yape o Plin) que sube el cliente. Va en una carpeta aparte y
+ * con nombre imposible de adivinar; la barbería la ve a través de la API, nunca por un enlace público.
+ */
+export async function presignReceipt(tenantId: string, contentType: string): Promise<{ uploadUrl: string; key: string }> {
+  if (!client) throw new Error('r2_no_configurado');
+  const ext = EXT[contentType];
+  if (!ext || contentType === 'application/pdf') throw new Error('tipo_no_permitido');
+  const key = `pagos/${tenantId}/${randomUUID()}.${ext}`;
+  const cmd = new PutObjectCommand({ Bucket: env.r2Bucket, Key: key, ContentType: contentType });
+  return { uploadUrl: await getSignedUrl(client, cmd, { expiresIn: 600 }), key };
+}
+
 /** Lee un objeto del bucket (para servir archivos mientras r2.date.pe no esté conectado). */
 export async function getObject(key: string) {
   if (!client) throw new Error('r2_no_configurado');

@@ -271,3 +271,76 @@ export async function processWaitlist(tenantId: string, startsAt: Date | string)
     });
   }
 }
+
+/** Reserva con adelanto pagado directo a la barbería: queda por confirmar. */
+export async function sendBookingReceived(id: string) {
+  const a = await apptInfo(id);
+  if (!a?.client_email) return;
+  await sendEmail({
+    to: a.client_email,
+    fromName: a.tenant_name,
+    subject: `Recibimos tu reserva en ${a.tenant_name}`,
+    html: layout({
+      brand: a.tenant_name,
+      title: 'Tu reserva está por confirmar',
+      intro: `Hola ${a.client_name ?? ''}, recibimos tu reserva y la captura de tu adelanto. ${a.tenant_name} revisará el pago y te escribiremos apenas quede confirmada.`,
+      rows: apptRows(a),
+      cta: { label: 'Ver mi reserva', href: manageUrl(a) },
+    }),
+  });
+}
+
+/** Aviso al equipo: hay un adelanto por revisar. */
+export async function notifyOwnerDepositPending(id: string, amountCents: number) {
+  const a = await apptInfo(id);
+  if (!a) return;
+  const staff = await admin<{ staff_id: string | null }>('SELECT staff_id FROM appointments WHERE id = $1', [id]);
+  const amount = `S/ ${(amountCents / 100).toFixed(2)}`;
+  void pushToUsers(a.tenant_id, { roles: ['owner', 'manager', 'cashier'], staffId: staff.rows[0]?.staff_id ?? null }, {
+    title: `Adelanto por confirmar: ${(a.client_name ?? 'Cliente').split(' ')[0]}`,
+    body: `${amount} por ${a.service_name ?? 'su reserva'}, ${whenText(a.starts_at)}. Revisa la captura.`,
+    url: '/admin#resumen',
+    tag: `pago-${id}`,
+  });
+  const to = await ownerEmails(a.tenant_id);
+  if (to.length === 0) return;
+  await sendEmail({
+    to: to.join(','),
+    subject: `Adelanto por confirmar: ${a.client_name ?? 'Cliente'}, ${amount}`,
+    html: layout({
+      brand: 'date.pe',
+      title: 'Tienes un adelanto por confirmar',
+      intro: `${a.client_name ?? 'Un cliente'} reservó y subió la captura de su pago de ${amount}. Revisa que te haya llegado y confírmalo en el panel.`,
+      rows: [...apptRows(a), ['Celular', a.client_phone ?? '']],
+      cta: { label: 'Revisar el pago', href: siteUrl(a, '/admin#resumen') },
+    }),
+  });
+}
+
+/** La barbería no encontró el pago: la reserva se libera y se avisa al cliente. */
+export async function sendDepositRejected(id: string, reason: string | null) {
+  const a = await apptInfo(id);
+  if (!a?.client_email) return;
+  await sendEmail({
+    to: a.client_email,
+    fromName: a.tenant_name,
+    subject: `No pudimos confirmar tu reserva en ${a.tenant_name}`,
+    html: layout({
+      brand: a.tenant_name,
+      title: 'Tu adelanto no se pudo confirmar',
+      intro: `Hola ${a.client_name ?? ''}, ${a.tenant_name} no encontró tu pago, así que la reserva se liberó.${reason ? ` Motivo: ${reason}.` : ''} Si ya pagaste, escríbeles para revisarlo, o vuelve a reservar.`,
+      rows: apptRows(a),
+      cta: { label: 'Reservar de nuevo', href: siteUrl(a, '/reservar') },
+    }),
+  });
+}
+
+/** Compra en línea (gift card o paquete) pagada directo: la barbería la revisa en el panel. */
+export async function notifyOwnerPurchasePending(tenantId: string, what: string, amountCents: number) {
+  void pushToUsers(tenantId, { roles: ['owner', 'manager', 'cashier'] }, {
+    title: 'Pago por confirmar',
+    body: `${what}, S/ ${(amountCents / 100).toFixed(2)}. Revisa la captura.`,
+    url: '/admin#resumen',
+    tag: 'compra',
+  });
+}

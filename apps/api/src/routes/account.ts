@@ -5,7 +5,6 @@ import { withTenant } from '../db.js';
 import { env } from '../env.js';
 import { requestCode, checkCode } from '../lib/verify.js';
 import { pushEnabled, saveClientSubscription } from '../lib/push.js';
-import { whatsappEnabled } from '../lib/whatsapp.js';
 import { tenantConfig } from '../lib/features.js';
 
 // Cuenta del cliente en cada barbería: entra con un código al correo y ve sus citas,
@@ -39,19 +38,35 @@ function readToken(request: FastifyRequest): { tenantId: string; email: string }
 const clientWhere = (id: string): [string, string] =>
   id.startsWith('p:') ? ["right(regexp_replace(phone, '[^0-9]', '', 'g'), 9) = $1", id.slice(2)] : ['lower(email) = $1', id];
 
-const loginSchema = z.union([
-  z.object({ email: z.string().trim().email().max(160) }).transform((b) => b.email.toLowerCase()),
-  z.object({ phone: z.string().trim().max(20) }).transform((b, ctx) => {
-    const d = b.phone.replace(/\D/g, '').slice(-9);
-    if (!/^9\d{8}$/.test(d)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'celular_invalido' });
-      return z.NEVER;
-    }
-    return `p:${d}`;
-  }),
-]);
+/**
+ * El cliente entra con su celular, su correo o su documento (DNI o carné de extranjería).
+ * Por ahora el código siempre va al correo que dejó al reservar; cuando haya SMS o WhatsApp
+ * se le podrá preguntar por dónde lo quiere recibir.
+ */
+type Login = { kind: 'email' | 'phone' | 'doc'; value: string };
+function parseLogin(raw: string): Login | null {
+  const v = raw.trim();
+  if (v.includes('@')) return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v) ? { kind: 'email', value: v.toLowerCase() } : null;
+  const digits = v.replace(/[\s-]/g, '').replace(/^\+?51(?=9\d{8}$)/, '');
+  if (/^9\d{8}$/.test(digits)) return { kind: 'phone', value: digits };
+  const doc = v.replace(/[\s.-]/g, '').toUpperCase();
+  if (/^(\d{8}|[A-Z0-9]{9,12})$/.test(doc)) return { kind: 'doc', value: doc };
+  return null;
+}
+const loginBody = z.object({ login: z.string().max(160) });
 
-// Códigos por IP: máximo 6 por hora (cada WhatsApp de autenticación tiene costo)
+/** Correo al que se manda el código (el del cliente que reservó con ese celular o documento). */
+async function emailFor(tenantId: string, l: Login): Promise<string | null> {
+  if (l.kind === 'email') return l.value;
+  const where = l.kind === 'phone' ? "right(regexp_replace(phone, '[^0-9]', '', 'g'), 9) = $1" : 'upper(doc_number) = $1';
+  const r = await withTenant(tenantId, (sql) =>
+    sql<{ email: string }>(`SELECT lower(email) AS email FROM clients WHERE ${where} AND email IS NOT NULL AND email <> '' ORDER BY created_at DESC LIMIT 1`, [l.value]),
+  );
+  return r.rows[0]?.email ?? null;
+}
+const mask = (e: string) => e.replace(/^(.)(.*)(.@.*)$/, (_m, a: string, mid: string, b: string) => `${a}${'*'.repeat(Math.min(6, Math.max(2, mid.length)))}${b}`);
+
+// Códigos por IP: máximo 6 por hora
 const codeHits = new Map<string, { n: number; t: number }>();
 function tooMany(ip: string): boolean {
   const now = Date.now();
@@ -92,25 +107,28 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
     return { ok: true };
   });
 
-  app.get('/public/account/options', async () => ({ whatsapp: whatsappEnabled() }));
+  // Canales para recibir el código. Hoy solo correo; luego SMS y WhatsApp.
+  app.get('/public/account/options', async () => ({ channels: ['email'] }));
 
   app.post('/public/account/code', async (request, reply) => {
     if (!request.tenant) return reply.code(404).send({ error: 'tenant_no_encontrado' });
-    const id = loginSchema.parse(request.body);
+    const l = parseLogin(loginBody.parse(request.body).login);
+    if (!l) return reply.code(400).send({ error: 'dato_invalido' });
     if (tooMany(String(request.headers['cf-connecting-ip'] ?? '') || String(request.headers['x-forwarded-for'] ?? '').split(',')[0].trim() || request.ip)) return reply.code(429).send({ error: 'demasiados_intentos' });
-    if (id.startsWith('p:') && !whatsappEnabled()) return reply.code(400).send({ error: 'whatsapp_no_disponible' });
-    const r = await requestCode(request.tenant.id, request.tenant.name, id, 'cuenta');
-    if (!r.ok) return reply.code(r.error === 'espera_un_minuto' ? 429 : 502).send({ error: r.error });
-    return { ok: true };
+    const email = await emailFor(request.tenant.id, l);
+    if (!email) return reply.code(404).send({ error: 'sin_correo' });
+    const r = await requestCode(request.tenant.id, request.tenant.name, email, 'cuenta');
+    if (!r.ok && r.error !== 'espera_un_minuto') return reply.code(502).send({ error: r.error });
+    return { ok: true, channel: 'email', sentTo: mask(email), recent: r.error === 'espera_un_minuto' };
   });
 
   app.post('/public/account/verify', async (request, reply) => {
     if (!request.tenant) return reply.code(404).send({ error: 'tenant_no_encontrado' });
-    const body = (request.body ?? {}) as Record<string, unknown>;
-    const id = loginSchema.parse(body);
-    const { code } = z.object({ code: z.string().trim().regex(/^\d{6}$/) }).parse(body);
-    if (!(await checkCode(request.tenant.id, id, code))) return reply.code(400).send({ error: 'codigo_incorrecto' });
-    return { token: issue(request.tenant.id, id) };
+    const b = z.object({ login: z.string().max(160), code: z.string().trim().regex(/^\d{6}$/) }).parse(request.body);
+    const l = parseLogin(b.login);
+    const email = l ? await emailFor(request.tenant.id, l) : null;
+    if (!email || !(await checkCode(request.tenant.id, email, b.code))) return reply.code(400).send({ error: 'codigo_incorrecto' });
+    return { token: issue(request.tenant.id, email) };
   });
 
   app.get('/public/account', async (request, reply) => {

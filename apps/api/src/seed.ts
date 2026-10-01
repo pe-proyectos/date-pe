@@ -245,7 +245,9 @@ async function seed() {
   await q(`INSERT INTO packages (tenant_id, name, description, price_cents, uses, service_ids, valid_days) VALUES ($1, '5 cortes', 'Paga 4 y el quinto va por la casa', 10000, 5, $2, 180)`, [tenantId, [serviceIds[0], serviceIds[1]]]);
   await q(`INSERT INTO rewards (tenant_id, name, points_cost, kind, value, ref_id) VALUES ($1, 'Corte gratis', 100, 'free_service', 0, $2), ($1, 'S/ 10 de descuento', 50, 'discount_fixed', 1000, NULL)`, [tenantId, serviceIds[0]]);
   await q(`UPDATE membership_plans SET discount_percent = 10, included_uses = 2 WHERE tenant_id = $1`, [tenantId]);
-  await q(`UPDATE clients SET birthday = make_date(1995, 3, 14), tags = ARRAY['fade'], email = 'cliente.demo@date.pe' WHERE tenant_id = $1 AND name = 'Luis Ramírez'`, [tenantId]);
+  await q(`UPDATE clients SET birthday = make_date(1995, 3, 14), tags = ARRAY['fade'], email = 'cliente.demo@date.pe', doc_number = '45678912' WHERE tenant_id = $1 AND name = 'Luis Ramírez'`, [tenantId]);
+  // Adelantos por Yape o Plin directo al número de la barbería
+  await q(`UPDATE tenant_settings SET pay_phone = '987654321', pay_holder = 'Juana Pérez', pay_apps = '{yape,plin}' WHERE tenant_id = $1`, [tenantId]);
   await q(`UPDATE clients SET preferences = 'Fade medio, deja volumen arriba. No toca la barba.' WHERE tenant_id = $1 AND name = 'Andrés Quispe'`, [tenantId]);
 
   // Ventas de los últimos días con caja cerrada, para que reportes y liquidación tengan datos

@@ -40,7 +40,7 @@ const FAQ = [
   ['¿Tengo que instalar una app?', 'No. Reservas desde el navegador de tu celular, en la página de cada barbería.'],
   [
     '¿Cómo pago el adelanto?',
-    'Con Yape o Plin a través de MercadoPago, con tarjeta o con PayPal. El adelanto se descuenta del precio y el resto lo pagas en la barbería.',
+    'Por Yape o Plin, directo al número de la barbería: pagas desde tu app, subes la captura y la barbería confirma tu reserva. El adelanto se descuenta del precio y el resto lo pagas en el local.',
   ],
   [
     '¿Y si no puedo ir?',
@@ -241,7 +241,7 @@ export default function HomePage() {
                 {[
                   'Agenda por barbero, con arrastrar y soltar',
                   'Horarios, servicios y precios que cambias en segundos',
-                  'Adelantos con Yape, Plin, tarjeta o PayPal',
+                  'Adelantos por Yape o Plin, directo a tu número',
                   'Reportes de ingresos, ocupación y ausencias',
                 ].map((x) => (
                   <li key={x} className="flex items-start gap-3">

@@ -47,7 +47,7 @@ interface Slot { start: string; end: string; staffId: string }
 type Ref = { t: string } | { id: string; phone: string };
 
 const STATUS: Record<Booking['status'], { label: string; cls: string }> = {
-  pending: { label: 'Por confirmar', cls: 'bg-field text-ink' },
+  pending: { label: 'Adelanto por confirmar', cls: 'bg-field text-ink' },
   confirmed: { label: 'Confirmada', cls: 'bg-ok-tint text-ok' },
   completed: { label: 'Atendida', cls: 'bg-field text-ink' },
   no_show: { label: 'No asististe', cls: 'bg-red-tint text-red' },

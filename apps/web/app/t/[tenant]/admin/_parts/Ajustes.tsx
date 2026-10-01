@@ -25,7 +25,7 @@ interface Settings {
   reminders_enabled: boolean; review_requests_enabled: boolean; rebook_days: number; notify_owner_email: string | null;
   require_verification: boolean; allow_client_reschedule: boolean;
   referral_enabled: boolean; referral_discount_percent: number; referral_reward_points: number;
-  mp_public_key: string | null; mp_access_token_set: boolean;
+  pay_phone: string | null; pay_holder: string | null; pay_qr_url: string | null; pay_apps: string[] | null;
   sunat_razon_social?: string | null; sunat_ruc?: string | null; sunat_direccion?: string | null;
 }
 interface Location { id: string; name: string; address: string | null; district: string | null; province: string | null; phone: string | null; is_active: boolean; barberos: number }
@@ -66,7 +66,7 @@ export function Ajustes() {
   const [s, setS] = useState<Settings | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [uploading, setUploading] = useState<'logo' | 'cover' | null>(null);
-  const [mpToken, setMpToken] = useState('');
+  const [qrUploading, setQrUploading] = useState(false);
   const [active, setActive] = useState<IndexId>('marca');
   const fileRef = useRef<HTMLInputElement>(null);
   const target = useRef<'logo' | 'cover'>('logo');
@@ -177,19 +177,24 @@ export function Ajustes() {
     }, 'Datos legales guardados');
   }
 
-  async function saveMp() {
+  async function savePay() {
     if (!s) return;
-    const body: Record<string, unknown> = { mpPublicKey: (s.mp_public_key ?? '').trim() };
-    if (mpToken.trim()) body.mpAccessToken = mpToken.trim();
-    if (await save('mp', body, 'Datos de MercadoPago guardados')) {
-      if (mpToken.trim()) setS({ ...s, mp_access_token_set: true });
-      setMpToken('');
-    }
+    const phone = (s.pay_phone ?? '').replace(/\D/g, '');
+    if (phone && !/^9\d{8}$/.test(phone)) return toast.error('El número de Yape o Plin tiene 9 dígitos y empieza con 9.');
+    await save('pay', { payPhone: phone, payHolder: (s.pay_holder ?? '').trim(), payQrUrl: s.pay_qr_url ?? '', payApps: s.pay_apps?.length ? s.pay_apps : ['yape'] }, 'Datos de cobro guardados');
   }
 
-  async function clearSecret() {
-    if (!s || !confirm('¿Quitar el token de MercadoPago? Los adelantos dejarán de llegar a tu cuenta.')) return;
-    if (await save('mp', { mpAccessToken: '' }, 'Token quitado')) setS({ ...s, mp_access_token_set: false });
+  async function onQr(file: File) {
+    setQrUploading(true);
+    try {
+      const url = await uploadImage(file, 'branding', { 'Content-Type': 'application/json', 'X-Tenant-Slug': tenant, Authorization: `Bearer ${token}` });
+      setS((prev) => (prev ? { ...prev, pay_qr_url: url } : prev));
+      toast.success('QR cargado. Guarda para publicarlo.');
+    } catch {
+      toast.error('No se pudo subir la imagen.');
+    } finally {
+      setQrUploading(false);
+    }
   }
 
   /** Mostrar u ocultar "Reservas con date.pe" en la página: se guarda al instante. */
@@ -327,7 +332,10 @@ export function Ajustes() {
             {!s ? <Skeleton rows={3} /> : (
               <div className="space-y-6">
                 <div className="divide-y divide-line border-y border-line">
-                  <ToggleRow title="Pedir adelanto para reservar" body="El cliente paga un adelanto con Yape, tarjeta o PayPal. Reduce las ausencias." checked={s.require_deposit} onChange={(v) => setS({ ...s, require_deposit: v })} />
+                  <ToggleRow title="Pedir adelanto para reservar" body="El cliente te yapea o plinea el adelanto directo a tu número y sube la captura; tú lo confirmas. Reduce las ausencias." checked={s.require_deposit} onChange={(v) => setS({ ...s, require_deposit: v })} />
+                  {s.require_deposit && !s.pay_phone && (
+                    <p className="py-4 text-[14px] text-red-deep">Falta tu número de Yape o Plin en Cobro del adelanto. Sin él, la reserva no pide adelanto.</p>
+                  )}
                   {s.require_deposit && (
                     <div className="py-5">
                       <Field label={`Adelanto: ${s.deposit_percent}% del precio`}>
@@ -418,18 +426,51 @@ export function Ajustes() {
           </Section>
 
           {/* ------------------------- Cobro del adelanto ------------------------- */}
-          <Section id="adelanto" title="Cobro directo del adelanto" sub="Conecta tu cuenta de MercadoPago.">
+          <Section id="adelanto" title="Cobro del adelanto" sub="Tus clientes te pagan directo por Yape o Plin. date.pe no toca tu plata.">
             {!s ? <Skeleton rows={2} /> : (
-              <div className="space-y-6">
-                <div className="flex flex-wrap items-center gap-2 rounded-xl bg-field p-4 text-[14px] text-mute">
-                  <span className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-medium ${s.mp_access_token_set ? 'bg-ok-tint text-ok' : 'bg-white text-mute'}`}>{s.mp_access_token_set ? 'Conectado' : 'Sin conectar'}</span>
-                  <span>Con tus credenciales, los adelantos que pagan tus clientes con MercadoPago llegan directo a tu cuenta. Las encuentras en MercadoPago, en Tus integraciones, Credenciales de producción.</span>
-                </div>
-                <SecretField label="Access token" isSet={s.mp_access_token_set} value={mpToken} onChange={setMpToken} onClear={clearSecret} placeholder="APP_USR-..." />
-                <Field label="Public key">
-                  <input value={s.mp_public_key ?? ''} onChange={(e) => setS({ ...s, mp_public_key: e.target.value })} maxLength={200} autoComplete="off" spellCheck={false} className={`font-mono ${inputCls}`} placeholder="APP_USR-..." />
+              <div className="space-y-5">
+                <p className="rounded-xl bg-field p-4 text-[14px] text-mute">
+                  Al reservar o comprar una gift card, el cliente ve tu número y tu QR, te paga desde su app y sube la captura. Tú revisas que te llegó y lo confirmas en el Resumen o en la Caja.
+                </p>
+                <Field label="Número de Yape o Plin">
+                  <input value={s.pay_phone ?? ''} onChange={(e) => setS({ ...s, pay_phone: e.target.value.replace(/[^\d ]/g, '').slice(0, 11) })} inputMode="numeric" className={`tnum ${inputCls}`} placeholder="987 654 321" />
                 </Field>
-                <Btn onClick={saveMp} busy={busy === 'mp'}>Guardar MercadoPago</Btn>
+                <Field label="A nombre de" hint="Como aparece en Yape o Plin, para que el cliente confirme que paga a la persona correcta.">
+                  <input value={s.pay_holder ?? ''} onChange={(e) => setS({ ...s, pay_holder: e.target.value })} maxLength={80} className={inputCls} placeholder="Juana Pérez" />
+                </Field>
+                <div>
+                  <p className="mb-2 text-[14px] font-medium">Aceptas</p>
+                  <div className="flex gap-2">
+                    {(['yape', 'plin'] as const).map((a) => {
+                      const on = (s.pay_apps ?? ['yape']).includes(a);
+                      return (
+                        <button key={a} type="button" aria-pressed={on} onClick={() => { const cur = s.pay_apps ?? ['yape']; const next = on ? cur.filter((x) => x !== a) : [...cur, a]; if (next.length) setS({ ...s, pay_apps: next }); }} className={`min-h-11 rounded-full px-5 text-[15px] font-medium transition-colors ${on ? 'bg-ink text-white' : 'bg-field hover:bg-line'}`}>
+                          {a === 'yape' ? 'Yape' : 'Plin'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 text-[14px] font-medium">QR de cobro (opcional)</p>
+                  <div className="flex items-center gap-4">
+                    {s.pay_qr_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={s.pay_qr_url} alt="Tu QR" className="h-24 w-24 rounded-xl border border-line object-contain p-1" />
+                    ) : (
+                      <span className="flex h-24 w-24 items-center justify-center rounded-xl border border-dashed border-line-2 text-[13px] text-soft">Sin QR</span>
+                    )}
+                    <div className="flex flex-col items-start gap-1">
+                      <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border border-line px-4 text-[14px] font-medium hover:border-ink">
+                        {qrUploading ? <Loader2 size={16} className="animate-spin" /> : null} {s.pay_qr_url ? 'Cambiar QR' : 'Subir QR'}
+                        <input type="file" accept="image/*" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) void onQr(f); e.target.value = ''; }} />
+                      </label>
+                      {s.pay_qr_url && <button type="button" onClick={() => setS({ ...s, pay_qr_url: null })} className="min-h-10 px-1 text-[14px] text-mute underline underline-offset-4">Quitar</button>}
+                      <span className="text-[13px] text-soft">Descárgalo desde tu app de Yape o Plin, en Mi QR.</span>
+                    </div>
+                  </div>
+                </div>
+                <Btn onClick={savePay} busy={busy === 'pay'}>Guardar datos de cobro</Btn>
               </div>
             )}
           </Section>
@@ -492,31 +533,6 @@ function ToggleRow({ title, body, checked, onChange }: { title: string; body: st
 }
 
 /** Campo de clave: nunca vuelve del servidor; si ya existe se muestra "Configurado". */
-function SecretField({ label, isSet, value, onChange, onClear, placeholder }: { label: string; isSet: boolean; value: string; onChange: (v: string) => void; onClear: () => void; placeholder?: string }) {
-  const [show, setShow] = useState(false);
-  return (
-    <Field label={label} hint={isSet ? 'Escribe uno nuevo solo si quieres reemplazarlo.' : undefined}>
-      <div className="flex items-center gap-2">
-        <div className="flex flex-1 items-center rounded-xl border border-line-2 bg-white pr-1 transition-colors focus-within:border-ink">
-          <input
-            type={show ? 'text' : 'password'}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            autoComplete="new-password"
-            spellCheck={false}
-            maxLength={200}
-            placeholder={isSet ? 'Configurado' : placeholder}
-            className="w-full min-w-0 bg-transparent px-3.5 py-2.5 font-mono text-[15px] outline-none"
-          />
-          <button type="button" onClick={() => setShow(!show)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-mute hover:bg-field" aria-label={show ? 'Ocultar' : 'Mostrar'}>
-            {show ? <EyeOff size={17} strokeWidth={1.75} /> : <Eye size={17} strokeWidth={1.75} />}
-          </button>
-        </div>
-        {isSet && <Btn variant="danger" onClick={onClear}>Quitar</Btn>}
-      </div>
-    </Field>
-  );
-}
 
 // ----------------------------------- Galería -----------------------------------
 

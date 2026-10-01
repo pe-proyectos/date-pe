@@ -36,3 +36,23 @@ export async function uploadImage(file: File, folder: UploadFolder, headers: Rec
   if (!put.ok) throw new Error('No se pudo subir el archivo');
   return publicUrl;
 }
+
+/**
+ * Captura del pago por Yape o Plin que sube el cliente al reservar o comprar. Se reduce en el
+ * celular y se guarda en privado: solo la barbería la ve desde su panel. Devuelve la clave.
+ */
+export async function uploadReceipt(file: File, tenant: string): Promise<string> {
+  if (!file.type.startsWith('image/')) throw new Error('Sube una imagen de la captura');
+  const blob = await compress(file);
+  const contentType = blob instanceof File ? (['image/jpeg', 'image/png', 'image/webp'].includes(blob.type) ? blob.type : 'image/jpeg') : 'image/webp';
+  const presign = await fetch(`${API_BASE_CLIENT}/api/public/uploads/receipt`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Tenant-Slug': tenant },
+    body: JSON.stringify({ contentType }),
+  });
+  if (!presign.ok) throw new Error('No se pudo preparar la subida');
+  const { uploadUrl, key } = await presign.json();
+  const put = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': contentType }, body: blob });
+  if (!put.ok) throw new Error('No se pudo subir la captura');
+  return key as string;
+}

@@ -52,12 +52,13 @@ const sections: LegalSection[] = [
     body: (
       <>
         <ul>
-          <li><strong>Identificación y contacto:</strong> nombre, celular y correo electrónico.</li>
+          <li><strong>Identificación y contacto:</strong> nombre, número de DNI o carné de extranjería, celular y correo electrónico.</li>
           <li><strong>Historial de citas:</strong> servicios, barbero, fecha y hora, asistencias, cancelaciones, turnos en la fila y notas de atención que registre la barbería.</li>
           <li><strong>Cumpleaños</strong>, solo si decides darlo, para saludos o beneficios.</li>
           <li>
-            <strong>Pagos:</strong> monto y estado de los adelantos y cobros. Los pagos con tarjeta, Yape u otros medios los procesan proveedores
-            de pago como Culqi, MercadoPago o PayPal. <strong>date.pe nunca guarda los datos completos de tu tarjeta.</strong>
+            <strong>Pagos:</strong> monto y estado de los adelantos y compras, y la captura del pago que subes para que la barbería lo confirme.
+            Los pagos se hacen directo a la barbería por Yape o Plin: <strong>date.pe no recibe ni procesa tu dinero ni ve tus datos bancarios.</strong>
+            La captura solo la ve la barbería desde su panel.
           </li>
           <li><strong>Opiniones</strong> que publiques sobre una barbería.</li>
           <li><strong>Libro de Reclamaciones:</strong> los datos que consignes en una hoja de reclamación, incluido tu documento de identidad.</li>
@@ -101,7 +102,6 @@ const sections: LegalSection[] = [
           <li><strong>Alojamiento:</strong> servidores privados virtuales (VPS) donde funciona la aplicación y la base de datos.</li>
           <li><strong>Cloudflare R2:</strong> almacenamiento de archivos como fotos, logos y copias de seguridad cifradas.</li>
           <li><strong>Resend:</strong> envío de correos electrónicos.</li>
-          <li><strong>Procesadores de pago:</strong> Culqi, MercadoPago y PayPal, según el medio que elijas.</li>
           <li><strong>Meta (WhatsApp):</strong> solo cuando la barbería tiene activos los mensajes por WhatsApp.</li>
         </ul>
         <p>

@@ -61,6 +61,7 @@ export interface TenantSite {
     require_verification?: boolean;
     referral_enabled?: boolean;
     referral_discount_percent?: number;
+    pay_phone?: string | null; pay_holder?: string | null; pay_qr_url?: string | null; pay_apps?: string[] | null;
   } | null;
   locations: Array<{ id: string; name: string; address: string | null; district: string | null; province: string | null; lat: number | null; lng: number | null; phone: string | null }>;
   staff: Array<{ id: string; /** null = atiende en todas las sedes. */ location_id?: string | null; name: string; photo_url: string | null; bio: string | null; specialties: string[] | null; rating_avg: string; rating_count: number }>;

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
-  ArrowLeft, Gift, Package, CalendarHeart, Send, Smartphone, CreditCard, Wallet, Loader2, CircleCheck, CircleAlert, Check, Clock, Scissors, Info,
+  ArrowLeft, Gift, Package, CalendarHeart, Send, Loader2, CircleCheck, CircleAlert, Check, Clock, Scissors, Info,
 } from 'lucide-react';
 import { API_BASE_CLIENT } from '@/lib/config';
 import { onColor } from '@/lib/color';
@@ -14,7 +14,9 @@ import { Sheet } from '@/components/Sheet';
 import { toast } from '@/lib/toast';
 import { haptic } from '@/lib/haptics';
 import { GiftPreview } from './GiftPreview';
-import { packageSavings, type Provider, type Shop, type ShopPackage } from './types';
+import { DirectPay } from '../../_parts/DirectPay';
+import { uploadReceipt } from '@/lib/upload';
+import { packageSavings, type Shop, type ShopPackage } from './types';
 
 type Tab = 'gift' | 'packages';
 interface Buyer { name: string; email: string; phone: string }
@@ -27,12 +29,6 @@ const limaIso = (offsetDays: number) => new Intl.DateTimeFormat('en-CA', { timeZ
 const longDate = (iso: string) => new Date(`${iso}T12:00:00-05:00`).toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long', timeZone: TZ });
 
 const fld = 'w-full rounded-xl border border-line-2 bg-white px-4 py-3.5 text-[16px] outline-none transition-colors focus:border-ink';
-
-const METHODS: Array<[Provider, string, string, typeof Smartphone]> = [
-  ['mercadopago', 'Yape o Plin', 'Con MercadoPago', Smartphone],
-  ['culqi', 'Tarjeta de débito o crédito', 'Con Culqi', CreditCard],
-  ['paypal', 'PayPal', 'Se cobra en dólares', Wallet],
-];
 
 const ERRORS: Record<string, string> = {
   no_disponible: 'Esta opción ya no está disponible en la barbería.',
@@ -56,7 +52,8 @@ export function RegalosClient({ tenant, site, shop }: { tenant: string; site: Te
 
   // Datos del comprador (se recuerdan como en la reserva)
   const [buyer, setBuyer] = useState<Buyer>({ name: '', email: '', phone: '' });
-  const [method, setMethod] = useState<Provider>('mercadopago');
+  const [payApp, setPayApp] = useState('yape');
+  const [receipt, setReceipt] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
 
   // Gift card
@@ -107,13 +104,24 @@ export function RegalosClient({ tenant, site, shop }: { tenant: string; site: Te
   const dateOk = !schedule || (!!deliverOn && deliverOn >= minDate && deliverOn <= maxDate);
 
   async function buy(body: Record<string, unknown>, success: Done) {
+    if (!receipt) {
+      toast.error('Sube la captura de tu pago.');
+      return;
+    }
     setBusy(true);
     haptic.tap();
     try {
+      let receiptKey: string;
+      try {
+        receiptKey = await uploadReceipt(receipt, tenant);
+      } catch {
+        toast.error('No pudimos subir la captura. Revisa tu conexión e intenta de nuevo.');
+        return;
+      }
       const res = await fetch(`${API_BASE_CLIENT}/api/public/shop/buy`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ ...body, provider: method, buyer: { name: buyer.name.trim(), email: buyer.email.trim(), phone: toPhone(buyer.phone) } }),
+        body: JSON.stringify({ ...body, receiptKey, payApp, buyer: { name: buyer.name.trim(), email: buyer.email.trim(), phone: toPhone(buyer.phone) } }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -123,23 +131,11 @@ export function RegalosClient({ tenant, site, shop }: { tenant: string; site: Te
       try {
         localStorage.setItem('datepe_cliente', JSON.stringify({ name: buyer.name.trim(), phone: buyer.phone, email: buyer.email.trim() }));
       } catch { /* */ }
-      if (d.redirectUrl) {
-        window.location.href = d.redirectUrl as string;
-        return;
-      }
-      if (d.devSimulated && d.devConfirmUrl) {
-        const ok = await fetch(`${API_BASE_CLIENT}${d.devConfirmUrl}`, { method: 'POST', headers, body: '{}' }).then((r) => r.ok).catch(() => false);
-        if (!ok) {
-          toast.error('No pudimos confirmar el pago. Intenta de nuevo.');
-          return;
-        }
-        setPkg(null);
-        setDone(success);
-        haptic.success();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        return;
-      }
-      toast.error('No pudimos iniciar el pago. Intenta con otro medio.');
+      setPkg(null);
+      setReceipt(null);
+      setDone(success);
+      haptic.success();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch {
       toast.error('Sin conexión. Intenta de nuevo.');
     } finally {
@@ -164,8 +160,8 @@ export function RegalosClient({ tenant, site, shop }: { tenant: string; site: Te
       },
       {
         kind: 'gift_card',
-        title: 'Tu regalo está listo.',
-        body: `La gift card de ${soles(giftCents)} para ${to.name.trim()} llega a ${recipientEmail} ${when}. Te enviamos el comprobante a ${buyer.email.trim()}.`,
+        title: 'Recibimos tu compra.',
+        body: `${site.tenant.name} revisará tu pago. Apenas lo confirme, la gift card de ${soles(giftCents)} para ${to.name.trim()} llega a ${recipientEmail} ${when}.`,
       },
     );
   }
@@ -177,8 +173,8 @@ export function RegalosClient({ tenant, site, shop }: { tenant: string; site: Te
       { kind: 'package', packageId: pkg.id },
       {
         kind: 'package',
-        title: 'Tu paquete está listo.',
-        body: `${pkg.name} quedó a tu nombre con el celular ${buyer.phone.replace(/\D/g, '').slice(-9)}. Úsalo al reservar o al pagar en el local. Te enviamos el comprobante a ${buyer.email.trim()}.`,
+        title: 'Recibimos tu compra.',
+        body: `${site.tenant.name} revisará tu pago. Apenas lo confirme, ${pkg.name} queda a tu nombre con el celular ${buyer.phone.replace(/\D/g, '').slice(-9)} y lo usas al reservar o en el local.`,
       },
     );
   }
@@ -403,7 +399,7 @@ export function RegalosClient({ tenant, site, shop }: { tenant: string; site: Te
                   </fieldset>
 
                   <BuyerFields buyer={buyer} setBuyer={setBuyer} />
-                  <MethodPicker method={method} setMethod={setMethod} />
+                  {giftOk && <DirectPay info={site.settings ?? {}} amountCents={giftCents} shop={site.tenant.name} file={receipt} onFile={setReceipt} app={payApp} onApp={setPayApp} title="Paga la gift card" />}
 
                   <button
                     type="submit"
@@ -411,7 +407,7 @@ export function RegalosClient({ tenant, site, shop }: { tenant: string; site: Te
                     className="hidden min-h-[52px] w-full items-center justify-center gap-2 rounded-lg text-[16px] font-medium transition-opacity hover:opacity-90 disabled:opacity-40 lg:flex"
                     style={{ background: accent, color: onAccent }}
                   >
-                    {busy && <Loader2 size={18} className="animate-spin" />} Pagar {giftOk ? soles(giftCents) : ''}
+                    {busy && <Loader2 size={18} className="animate-spin" />} Enviar compra
                   </button>
                 </form>
 
@@ -504,7 +500,7 @@ export function RegalosClient({ tenant, site, shop }: { tenant: string; site: Te
             className="flex min-h-[48px] shrink-0 items-center gap-2 rounded-lg px-6 text-[16px] font-medium disabled:opacity-40"
             style={{ background: accent, color: onAccent }}
           >
-            {busy && <Loader2 size={18} className="animate-spin" />} Pagar
+            {busy && <Loader2 size={18} className="animate-spin" />} Enviar compra
           </button>
         </div>
       )}
@@ -521,7 +517,7 @@ export function RegalosClient({ tenant, site, shop }: { tenant: string; site: Te
             className="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-lg text-[16px] font-medium disabled:opacity-40"
             style={{ background: accent, color: onAccent }}
           >
-            {busy && <Loader2 size={18} className="animate-spin" />} Pagar {pkg ? soles(pkg.price_cents) : ''}
+            {busy && <Loader2 size={18} className="animate-spin" />} Enviar compra
           </button>
         }
       >
@@ -532,7 +528,7 @@ export function RegalosClient({ tenant, site, shop }: { tenant: string; site: Te
               <span className="tnum font-semibold">{soles(pkg.price_cents)}</span>
             </div>
             <BuyerFields buyer={buyer} setBuyer={setBuyer} />
-            <MethodPicker method={method} setMethod={setMethod} />
+            <DirectPay info={site.settings ?? {}} amountCents={pkg.price_cents} shop={site.tenant.name} file={receipt} onFile={setReceipt} app={payApp} onApp={setPayApp} title="Paga el paquete" />
           </div>
         )}
       </Sheet>
@@ -559,35 +555,6 @@ function BuyerFields({ buyer, setBuyer }: { buyer: Buyer; setBuyer: (b: Buyer) =
           <input value={buyer.phone} onChange={(e) => setBuyer({ ...buyer, phone: e.target.value })} inputMode="tel" autoComplete="tel-national" className="tnum w-full bg-transparent px-3 py-3.5 text-[16px] outline-none" placeholder="987 654 321" />
         </div>
       </label>
-    </fieldset>
-  );
-}
-
-function MethodPicker({ method, setMethod }: { method: Provider; setMethod: (m: Provider) => void }) {
-  return (
-    <fieldset className="min-w-0">
-      <legend className="text-[21px] font-semibold tracking-[-0.025em]">Cómo pagas</legend>
-      <div className="mt-4 space-y-2" role="radiogroup">
-        {METHODS.map(([id, label, hint, Icon]) => (
-          <button
-            key={id}
-            type="button"
-            role="radio"
-            aria-checked={method === id}
-            onClick={() => { haptic.select(); setMethod(id); }}
-            className={`flex min-h-[60px] w-full items-center gap-3 rounded-xl border p-4 text-left transition-colors ${method === id ? 'border-ink bg-field' : 'border-line hover:border-ink'}`}
-          >
-            <Icon size={20} strokeWidth={1.75} className="shrink-0" />
-            <span className="min-w-0 flex-1">
-              <span className="block text-[15px] font-medium">{label}</span>
-              <span className="block text-[13px] text-mute">{hint}</span>
-            </span>
-            <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${method === id ? 'border-ink bg-ink' : 'border-line-2'}`} aria-hidden>
-              {method === id && <span className="h-2 w-2 rounded-full bg-white" />}
-            </span>
-          </button>
-        ))}
-      </div>
     </fieldset>
   );
 }

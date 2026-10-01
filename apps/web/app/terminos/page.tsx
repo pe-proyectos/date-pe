@@ -81,8 +81,9 @@ const sections: LegalSection[] = [
     body: (
       <>
         <p>
-          Cuando reservas, la cita queda registrada con la barbería que elegiste. Si la barbería pide un adelanto, el pago lo procesa un proveedor
-          de pago como Culqi, MercadoPago o PayPal, y se rige por la política de adelantos de esa barbería, que se muestra al reservar.
+          Cuando reservas, la cita queda registrada con la barbería que elegiste. Si la barbería pide un adelanto, se lo pagas directo por Yape
+          o Plin y subes la captura; la reserva queda confirmada cuando la barbería verifica el pago. date.pe no recibe ni administra ese dinero:
+          cualquier devolución se coordina con la barbería, según su política de adelantos, que se muestra al reservar.
         </p>
         <p>
           Para cambios, cancelaciones, devoluciones o reclamos sobre la atención, comunícate con la barbería o usa su Libro de Reclamaciones, que

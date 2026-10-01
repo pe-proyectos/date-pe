@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { DateTime } from 'luxon';
 import { withTenant } from '../db.js';
 import { emitAvailabilityChange } from '../lib/realtime.js';
-import { sendBookingConfirmation, notifyOwnerNewBooking, notifyOwnerChange, processWaitlist } from '../lib/notify.js';
+import { sendBookingConfirmation, notifyOwnerNewBooking, sendBookingReceived, notifyOwnerDepositPending, notifyOwnerChange, processWaitlist } from '../lib/notify.js';
 import { isVerified } from '../lib/verify.js';
 import { quote } from '../lib/pricing.js';
 
@@ -18,9 +18,14 @@ const createSchema = z.object({
   client: z.object({
     phone: z.string().min(6),
     name: z.string().min(1),
-    email: z.string().email().optional(),
+    email: z.string().trim().email().max(160),
+    // DNI (8 dígitos) o carné de extranjería / pasaporte (9 a 12 letras o números)
+    doc: z.string().trim().toUpperCase().regex(/^(\d{8}|[A-Z0-9]{9,12})$/),
   }),
   note: z.string().max(500).optional(),
+  // Captura del adelanto pagado por Yape o Plin directo a la barbería
+  depositReceiptKey: z.string().max(200).optional(),
+  depositApp: z.enum(['yape', 'plin']).optional(),
 });
 
 class HttpError extends Error {
@@ -94,14 +99,16 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
         if (q.promo && !q.promo.valid) throw new HttpError(400, 'promo_invalida');
         if (q.giftCard && !q.giftCard.valid) throw new HttpError(400, 'gift_card_invalida');
 
+        if (q.depositCents > 0 && !b.depositReceiptKey?.startsWith(`pagos/${tenantId}/`)) throw new HttpError(400, 'falta_captura');
         const client = await sql<{ id: string; referral_code: string | null }>(
-          `INSERT INTO clients (tenant_id, phone, name, email)
-             VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3)
+          `INSERT INTO clients (tenant_id, phone, name, email, doc_number)
+             VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4)
            ON CONFLICT (tenant_id, phone)
              DO UPDATE SET name = COALESCE(EXCLUDED.name, clients.name),
-                           email = COALESCE(EXCLUDED.email, clients.email)
+                           email = COALESCE(EXCLUDED.email, clients.email),
+                           doc_number = COALESCE(EXCLUDED.doc_number, clients.doc_number)
            RETURNING id, referral_code`,
-          [b.client.phone, b.client.name, b.client.email ?? null],
+          [b.client.phone, b.client.name, b.client.email.toLowerCase(), b.client.doc],
         );
         // Código para invitar amigos: nombre + 4 dígitos (LUIS4821)
         if (!client.rows[0].referral_code) {
@@ -174,6 +181,15 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
           ]);
         }
 
+        // Adelanto pagado directo a la barbería: queda por confirmar con su captura
+        if (q.depositCents > 0) {
+          await sql(
+            `INSERT INTO payments (tenant_id, appointment_id, client_id, kind, method, amount_cents, status, provider, purpose, receipt_key)
+             VALUES (current_setting('app.tenant_id')::uuid, $1, $2, 'deposit', $3, $4, 'pending', 'directo', 'deposit', $5)`,
+            [appointmentId, client.rows[0].id, b.depositApp ?? 'yape', q.depositCents, b.depositReceiptKey],
+          );
+        }
+
         const extra = await sql<{ manage_token: string; referral_code: string | null }>(
           'SELECT a.manage_token, c.referral_code FROM appointments a JOIN clients c ON c.id = a.client_id WHERE a.id = $1',
           [appointmentId],
@@ -189,10 +205,13 @@ export const bookingRoutes: FastifyPluginAsync = async (app) => {
       });
 
       await emitAvailabilityChange(tenantId, result.locationId);
-      // Con adelanto, los avisos salen cuando se confirma el pago
+      // Con adelanto, la barbería revisa la captura; la confirmación al cliente sale cuando la aprueba
       if (result.status === 'confirmed') {
         void sendBookingConfirmation(result.appointmentId);
         void notifyOwnerNewBooking(result.appointmentId);
+      } else {
+        void sendBookingReceived(result.appointmentId);
+        void notifyOwnerDepositPending(result.appointmentId, result.quote.depositCents);
       }
 
       return reply.code(201).send({

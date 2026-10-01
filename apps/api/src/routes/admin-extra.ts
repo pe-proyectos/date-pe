@@ -251,8 +251,11 @@ export const adminExtraRoutes: FastifyPluginAsync = async (app) => {
     sunatSerieFactura: z.string().regex(/^F[A-Z0-9]{3}$/).optional(),
     nubefactUrl: z.string().url().or(z.literal('')).optional(),
     nubefactToken: z.string().max(200).optional(),
-    mpAccessToken: z.string().max(200).optional(),
-    mpPublicKey: z.string().max(200).optional(),
+    // Yape o Plin de la barbería para recibir adelantos y compras directo
+    payPhone: z.string().trim().regex(/^(9\d{8})?$/).optional(),
+    payHolder: z.string().trim().max(80).optional(),
+    payQrUrl: z.string().url().max(500).or(z.literal('')).optional(),
+    payApps: z.array(z.enum(['yape', 'plin'])).min(1).max(2).optional(),
   });
   app.put('/admin/settings', async (request) => {
     const b = settingsBody.parse(request.body);
@@ -265,7 +268,8 @@ export const adminExtraRoutes: FastifyPluginAsync = async (app) => {
       referralEnabled: 'referral_enabled', referralDiscountPercent: 'referral_discount_percent', referralRewardPoints: 'referral_reward_points',
       sunatEnabled: 'sunat_enabled', sunatRuc: 'sunat_ruc', sunatRazonSocial: 'sunat_razon_social', sunatDireccion: 'sunat_direccion',
       sunatSerieBoleta: 'sunat_serie_boleta', sunatSerieFactura: 'sunat_serie_factura',
-      nubefactUrl: 'nubefact_url', nubefactToken: 'nubefact_token', mpAccessToken: 'mp_access_token', mpPublicKey: 'mp_public_key',
+      nubefactUrl: 'nubefact_url', nubefactToken: 'nubefact_token',
+      payPhone: 'pay_phone', payHolder: 'pay_holder', payQrUrl: 'pay_qr_url', payApps: 'pay_apps',
     };
     const sets: string[] = [];
     const vals: unknown[] = [];
