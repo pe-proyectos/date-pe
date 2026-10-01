@@ -17,7 +17,7 @@ const worksIn = (b: Staff, sede: string | null) => !sede || !b.location_id || b.
  * Equipo: grilla limpia para equipos chicos; carrusel con "Ver todo el equipo"
  * (buscador y filtro por sede) cuando son muchos.
  */
-export function TeamSection({ staff, available }: { staff: Staff[]; available: boolean }) {
+export function TeamSection({ staff, available, profiles = false }: { staff: Staff[]; available: boolean; profiles?: boolean }) {
   const { locations, multi, sede, setSede } = useSede();
   const [sheet, setSheet] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -59,13 +59,13 @@ export function TeamSection({ staff, available }: { staff: Staff[]; available: b
           </button>
         </div>
       ) : solo ? (
-        <Solo b={solo} available={available} sede={sede} />
+        <Solo b={solo} available={available} sede={sede} profiles={profiles} />
       ) : big ? (
         <>
           <div ref={scroller} className="s-no-scrollbar -mx-5 mt-8 flex snap-x snap-mandatory scroll-px-5 gap-4 overflow-x-auto px-5 pb-2 md:mx-0 md:scroll-px-0 md:px-0">
             {shown.map((b) => (
               <div key={b.id} className="w-[62%] min-w-[180px] max-w-[280px] shrink-0 snap-start sm:w-[32%] lg:w-[23%]">
-                <Card b={b} available={available} sede={sede} locations={multi ? locations : null} chips={2} />
+                <Card b={b} available={available} sede={sede} locations={multi ? locations : null} chips={2} profiles={profiles} />
               </div>
             ))}
           </div>
@@ -76,7 +76,7 @@ export function TeamSection({ staff, available }: { staff: Staff[]; available: b
       ) : (
         <div className={`mt-8 grid grid-cols-2 gap-x-4 gap-y-8 md:gap-x-6 ${shown.length === 3 ? 'md:grid-cols-3' : shown.length >= 4 ? 'md:grid-cols-4' : ''}`}>
           {shown.map((b) => (
-            <Card key={b.id} b={b} available={available} sede={sede} locations={multi ? locations : null} chips={3} large={shown.length === 2} />
+            <Card key={b.id} b={b} available={available} sede={sede} locations={multi ? locations : null} chips={3} large={shown.length === 2} profiles={profiles} />
           ))}
         </div>
       )}
@@ -87,7 +87,7 @@ export function TeamSection({ staff, available }: { staff: Staff[]; available: b
 }
 
 /** Una barbería de un solo barbero: su retrato y su historia, como protagonista. */
-function Solo({ b, available, sede }: { b: Staff; available: boolean; sede: string | null }) {
+function Solo({ b, available, sede, profiles }: { b: Staff; available: boolean; sede: string | null; profiles?: boolean }) {
   const specialties = (b.specialties ?? []).filter(Boolean);
   return (
     <div className="mt-8 grid items-center gap-8 md:grid-cols-2 md:gap-14">
@@ -113,11 +113,14 @@ function Solo({ b, available, sede }: { b: Staff; available: boolean; sede: stri
             {specialties.map((t) => <span key={t} className="s-chip !min-h-9 !text-[14px]">{t}</span>)}
           </div>
         )}
-        {available && (
-          <Link href={reservarHref({ barbero: b.id, sede: b.location_id ?? sede })} className="s-btn mt-8">
-            Reservar con {b.name.split(' ')[0]}
-          </Link>
-        )}
+        <div className="mt-8 flex flex-wrap gap-3">
+          {available && (
+            <Link href={reservarHref({ barbero: b.id, sede: b.location_id ?? sede })} className="s-btn">
+              Reservar con {b.name.split(' ')[0]}
+            </Link>
+          )}
+          {profiles && <Link href={`/equipo/${b.id}`} className="s-btn-ghost">Ver su perfil</Link>}
+        </div>
       </div>
     </div>
   );
@@ -193,9 +196,10 @@ function TeamSheet({ open, onClose, staff, available }: { open: boolean; onClose
   );
 }
 
-function Card({ b, available, sede, locations, chips, large }: { b: Staff; available: boolean; sede: string | null; locations: PublicLocation[] | null; chips: number; large?: boolean }) {
+export function Card({ b, available, sede, locations, chips, large, profiles }: { b: Staff; available: boolean; sede: string | null; locations: PublicLocation[] | null; chips: number; large?: boolean; profiles?: boolean }) {
   const where = locations ? (b.location_id ? locations.find((l) => l.id === b.location_id)?.name : 'Todas las sedes') : null;
-  const href = reservarHref({ barbero: b.id, sede: b.location_id ?? sede });
+  // En el sitio con varias páginas la tarjeta lleva al perfil del barbero
+  const href = profiles ? `/equipo/${b.id}` : reservarHref({ barbero: b.id, sede: b.location_id ?? sede });
   const specialties = (b.specialties ?? []).filter(Boolean);
   const inner = (
     <>
@@ -206,7 +210,12 @@ function Card({ b, available, sede, locations, chips, large }: { b: Staff; avail
         ) : (
           <div className="s-display s-mute flex h-full items-center justify-center text-[72px]">{b.name.charAt(0)}</div>
         )}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/75 via-black/25 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/75 via-black/25 to-transparent transition-[height] duration-500 md:group-hover:h-full md:group-hover:from-black/85" />
+        {b.bio && (
+          <p className="pointer-events-none absolute inset-x-0 bottom-16 hidden translate-y-3 px-4 text-[15px] leading-snug text-white/90 opacity-0 transition-all duration-500 md:block md:group-hover:translate-y-0 md:group-hover:opacity-100">
+            {b.bio}
+          </p>
+        )}
         <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-4 text-white">
           <span className={`s-display min-w-0 truncate ${large ? 'text-[34px] md:text-[44px]' : 'text-[26px] md:text-[30px]'}`}>{b.name}</span>
           {b.rating_count > 0 && (
@@ -217,7 +226,7 @@ function Card({ b, available, sede, locations, chips, large }: { b: Staff; avail
         </div>
         {available && (
           <span className="absolute right-3 top-3 rounded-full bg-white/90 px-3 py-1.5 text-[13px] font-semibold text-black opacity-0 transition-opacity duration-300 group-hover:opacity-100">
-            Reservar
+            {profiles ? 'Ver perfil' : 'Reservar'}
           </span>
         )}
       </div>
@@ -236,8 +245,8 @@ function Card({ b, available, sede, locations, chips, large }: { b: Staff; avail
       )}
     </>
   );
-  return available ? (
-    <Link href={href} className="group block min-w-0" aria-label={`Reservar con ${b.name}`}>
+  return available || profiles ? (
+    <Link href={href} className="group block min-w-0" aria-label={profiles ? `Perfil de ${b.name}` : `Reservar con ${b.name}`}>
       {inner}
     </Link>
   ) : (

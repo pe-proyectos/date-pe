@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Clock, Plus, Search, X, ChevronDown } from 'lucide-react';
+import { Clock, Plus, Search, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { soles, type TenantSite } from '@/lib/api';
 import { ReservarLink } from './sede';
+import { SiteSheet } from '../_site/SiteSheet';
+import { NextSlot } from '../_site/NextSlot';
 
 type Service = TenantSite['services'][number];
 
@@ -16,7 +18,7 @@ const slugify = (s: string) => norm(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-
  * Carta de servicios que escala: categorías con barra fija que sigue el scroll,
  * buscador cuando hay muchos, y "Ver los N servicios" en categorías largas.
  */
-export function ServiceMenu({ services, available, leader = false }: { services: Service[]; available: boolean; leader?: boolean }) {
+export function ServiceMenu({ services, available, leader = false, limit, tenant, tz = 'America/Lima' }: { services: Service[]; available: boolean; leader?: boolean; limit?: number; tenant?: string; tz?: string }) {
   const main = useMemo(() => services.filter((s) => !s.is_addon), [services]);
   const addons = useMemo(() => services.filter((s) => s.is_addon), [services]);
 
@@ -31,6 +33,46 @@ export function ServiceMenu({ services, available, leader = false }: { services:
     // "Otros" siempre al final
     return [...list.filter((g) => g.name !== 'Otros'), ...list.filter((g) => g.name === 'Otros')];
   }, [main]);
+
+  // En el celular, tocar un servicio abre su detalle en una hoja (como en una app)
+  const [detail, setDetail] = useState<Service | null>(null);
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const on = () => setMobile(mq.matches);
+    on();
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  const openDetail = mobile ? (sv: Service) => setDetail(sv) : undefined;
+  const sheet = (
+    <SiteSheet open={!!detail} onClose={() => setDetail(null)} title={detail?.category ?? 'Servicio'} footer={detail && available ? <ReservarLink servicio={detail.id} className="s-btn w-full">Reservar este servicio</ReservarLink> : undefined}>
+      {detail && (
+        <div className="pb-2">
+          {detail.photo_url && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={detail.photo_url} alt="" className="s-radius mb-5 aspect-[16/10] w-full object-cover" />
+          )}
+          <p className="s-display text-[40px]">{detail.name}</p>
+          {detail.description && <p className="s-mute mt-3 text-[17px] leading-relaxed">{detail.description}.</p>}
+          <dl className="s-surface s-radius mt-6 grid grid-cols-2">
+            <div className="p-4">
+              <dt className="s-mute text-[13px]">Precio</dt>
+              <dd className="s-display tnum mt-1 text-[30px]">{soles(detail.price_cents).replace('.00', '')}</dd>
+            </div>
+            <div className="s-line border-l p-4">
+              <dt className="s-mute text-[13px]">Duración</dt>
+              <dd className="s-display tnum mt-1 text-[30px]">{detail.duration_min} min</dd>
+            </div>
+          </dl>
+          {addons.length > 0 && <p className="s-mute mt-4 text-[14px]">Puedes sumar {addons.slice(0, 2).map((a) => a.name.toLowerCase()).join(' o ')} al reservar.</p>}
+          {available && tenant && (
+            <p className="mt-5 text-[15px]"><NextSlot tenant={tenant} serviceId={detail.id} tz={tz} /></p>
+          )}
+        </div>
+      )}
+    </SiteSheet>
+  );
 
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -96,6 +138,20 @@ export function ServiceMenu({ services, available, leader = false }: { services:
       return next;
     });
 
+  // Adelanto en el inicio: los primeros servicios, sin buscador ni categorías
+  if (limit) {
+    return (
+      <>
+        <ul className="mt-2">
+          {main.slice(0, limit).map((s) => (
+            <Row key={s.id} s={s} available={available} leader={leader} onOpen={openDetail} />
+          ))}
+        </ul>
+        {sheet}
+      </>
+    );
+  }
+
   return (
     <div>
       {showSearch && (
@@ -141,7 +197,7 @@ export function ServiceMenu({ services, available, leader = false }: { services:
           </p>
           <ul className="mt-2">
             {results.map((s) => (
-              <Row key={s.id} s={s} available={available} leader={leader} showCategory={groups.length > 1} />
+              <Row key={s.id} s={s} available={available} leader={leader} showCategory={groups.length > 1} onOpen={openDetail} />
             ))}
           </ul>
         </div>
@@ -160,7 +216,7 @@ export function ServiceMenu({ services, available, leader = false }: { services:
                 )}
                 <ul className={`${groups.length > 1 ? 'mt-3' : ''} ${tabs ? 'lg:grid lg:grid-cols-2 lg:gap-x-12 [&>li:last-child]:border-b lg:[&>li:nth-last-child(2):nth-child(odd)]:border-0' : ''}`}>
                   {items.map((s) => (
-                    <Row key={s.id} s={s} available={available} leader={leader} />
+                    <Row key={s.id} s={s} available={available} leader={leader} onOpen={openDetail} />
                   ))}
                 </ul>
                 {!tabs && g.items.length > PREVIEW && (
@@ -182,9 +238,9 @@ export function ServiceMenu({ services, available, leader = false }: { services:
           <ul className="mt-4 grid gap-x-10 md:grid-cols-2">
             {addons.map((x) => (
               <li key={x.id} className="s-line flex items-baseline justify-between gap-3 border-b py-3 text-[15px] last:border-0 md:[&:nth-last-child(2)]:border-0">
-                <span className="flex min-w-0 items-center gap-2">
-                  <Plus size={15} strokeWidth={1.75} className="s-mute shrink-0" />
-                  <span className="truncate">{x.name}</span>
+                <span className="flex min-w-0 items-start gap-2">
+                  <Plus size={15} strokeWidth={1.75} className="s-mute mt-0.5 shrink-0" />
+                  <span>{x.name}</span>
                 </span>
                 <span className="tnum s-mute shrink-0">
                   +{soles(x.price_cents)}, {x.duration_min} min
@@ -194,11 +250,12 @@ export function ServiceMenu({ services, available, leader = false }: { services:
           </ul>
         </div>
       )}
+      {sheet}
     </div>
   );
 }
 
-function Row({ s, available, leader, showCategory }: { s: Service; available: boolean; leader: boolean; showCategory?: boolean }) {
+function Row({ s, available, leader, showCategory, onOpen }: { s: Service; available: boolean; leader: boolean; showCategory?: boolean; onOpen?: (s: Service) => void }) {
   const body = (
     <>
       {s.photo_url && (
@@ -221,10 +278,11 @@ function Row({ s, available, leader, showCategory }: { s: Service; available: bo
             </span>
           </p>
           {available && (
-            <span className="s-line shrink-0 rounded-full border px-4 py-2 text-[14px] font-semibold transition-colors group-hover:border-transparent group-hover:bg-[var(--accent)] group-hover:text-[var(--on-accent)]">
+            <span className="s-line hidden shrink-0 rounded-full border px-4 py-2 text-[14px] font-semibold transition-colors group-hover:border-transparent group-hover:bg-[var(--accent)] group-hover:text-[var(--on-accent)] lg:inline-flex">
               Reservar
             </span>
           )}
+          <ChevronRight size={18} strokeWidth={1.6} className="s-mute mt-0.5 shrink-0 lg:hidden" aria-hidden />
         </div>
       </div>
     </>
@@ -232,11 +290,15 @@ function Row({ s, available, leader, showCategory }: { s: Service; available: bo
   return (
     <li className="s-line border-b last:border-0">
       {available ? (
-        <ReservarLink servicio={s.id} className="group flex items-start gap-4 py-5">
+        <ReservarLink
+          servicio={s.id}
+          className="s-cell group -mx-3 flex items-start gap-4 rounded-xl px-3 py-5 lg:mx-0 lg:px-0"
+          onClick={onOpen ? (e) => { e.preventDefault(); onOpen(s); } : undefined}
+        >
           {body}
         </ReservarLink>
       ) : (
-        <div className="flex items-start gap-4 py-5">{body}</div>
+        <button type="button" onClick={() => onOpen?.(s)} className="flex w-full items-start gap-4 py-5 text-left">{body}</button>
       )}
     </li>
   );

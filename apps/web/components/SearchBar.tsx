@@ -89,8 +89,20 @@ export function SearchBar({
 
   function submit(e?: React.FormEvent) {
     e?.preventDefault();
+    const url = buildUrl();
+    // Sin nada elegido: abrimos "dónde" para que el botón siempre haga algo útil
+    if (!district && !service && !date) {
+      setPanel('where');
+      return;
+    }
     setPanel(null);
-    router.push(buildUrl());
+    if (`${window.location.pathname}${window.location.search}` === url) {
+      // Misma búsqueda: actualizamos resultados y bajamos a verlos
+      router.refresh();
+      document.querySelector('main')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    router.push(url);
   }
 
   /** Desde la hoja móvil: la entrada del historial de la hoja pasa a ser la de resultados. */

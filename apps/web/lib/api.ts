@@ -27,7 +27,7 @@ export async function apiFetch<T = unknown>(path: string, opts: Opts = {}): Prom
 }
 
 export type SiteMood = 'clasica' | 'urbana' | 'minimal' | 'lujo' | 'vintage';
-export interface SiteTheme { mood?: SiteMood; hero?: 'imagen' | 'tipografia'; headline?: string; marquee?: boolean; since?: number | null }
+export interface SiteTheme { mood?: SiteMood; hero?: 'imagen' | 'tipografia'; headline?: string; marquee?: boolean; since?: number | null; /** Punto de foco horizontal de la portada (0 a 100) */ focus?: number; /** Servicio estrella y su foto */ signature?: { serviceId?: string; image?: string } }
 
 export interface TenantSite {
   tenant: { slug: string; name: string; is_demo?: boolean; /** false = suscripción vencida: no acepta reservas. */ available?: boolean };

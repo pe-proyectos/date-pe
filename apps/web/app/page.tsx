@@ -381,9 +381,9 @@ export default function HomePage() {
 /** Tarjeta de agenda superpuesta a la foto: muestra el panel real de la barbería. */
 function AgendaCard() {
   const cols = [
-    { name: 'Carlos', img: '/img/staff-carlos.webp', blocks: [{ t: '10:00', c: 'Luis R.', h: 2, top: 0, dark: true }, { t: '11:30', c: 'Andrés', h: 1, top: 3 }] },
-    { name: 'María', img: '/img/staff-maria.webp', blocks: [{ t: '10:30', c: 'Diego P.', h: 1, top: 1 }, { t: '11:00', c: 'Kevin', h: 2, top: 2, dark: true }] },
-    { name: 'Diego', img: '/img/staff-diego.webp', blocks: [{ t: '10:00', c: 'Jorge', h: 1, top: 0 }, { t: '12:00', c: 'Sin cita', h: 1, top: 4 }] },
+    { name: 'Carlos', img: '/img/juana-carlos.webp', blocks: [{ t: '10:00', c: 'Luis R.', h: 2, top: 0, dark: true }, { t: '11:30', c: 'Andrés', h: 1, top: 3 }] },
+    { name: 'Juana', img: '/img/staff-juana.webp', blocks: [{ t: '10:30', c: 'Diego P.', h: 1, top: 1 }, { t: '11:00', c: 'Kevin', h: 2, top: 2, dark: true }] },
+    { name: 'Diego', img: '/img/juana-diego.webp', blocks: [{ t: '10:00', c: 'Jorge', h: 1, top: 0 }, { t: '12:00', c: 'Sin cita', h: 1, top: 4 }] },
   ];
   return (
     <div className="relative mx-auto -mt-20 w-[min(420px,92%)] rounded-xl bg-white p-4 shadow-pop lg:absolute lg:-bottom-10 lg:-left-10 lg:mt-0">

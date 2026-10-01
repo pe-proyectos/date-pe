@@ -168,7 +168,7 @@ export function Finanzas() {
 
       <div className="mb-8 flex flex-wrap items-center gap-2">
         {([['mes', 'Este mes'], ['pasado', 'Mes pasado'], ['custom', 'Otras fechas']] as const).map(([id, label]) => (
-          <button key={id} type="button" onClick={() => { haptic.select(); setKind(id); }} className={`${chipCls(kind === id)} min-h-10 text-[14px]`}>{label}</button>
+          <button key={id} type="button" aria-pressed={kind === id} onClick={() => { haptic.select(); setKind(id); }} className={`${chipCls(kind === id)} min-h-11 text-[14px]`}>{label}</button>
         ))}
         {kind === 'custom' ? (
           <div className="flex w-full items-center gap-2 sm:w-auto">

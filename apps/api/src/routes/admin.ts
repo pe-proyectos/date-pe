@@ -356,6 +356,8 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         headline: z.string().trim().max(80).optional(),
         marquee: z.boolean().optional(),
         since: z.number().int().min(1900).max(2100).nullable().optional(),
+        focus: z.number().int().min(0).max(100).optional(),
+        signature: z.object({ serviceId: z.string().uuid().optional(), image: z.string().max(500).optional() }).optional(),
       })
       .optional(),
     gallery: z.array(z.object({ url: z.string().max(500), caption: z.string().max(120).optional(), staffId: z.string().uuid().nullable().optional() })).max(60).optional(),

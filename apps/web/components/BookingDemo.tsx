@@ -4,9 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { MapPin, Smartphone } from 'lucide-react';
 
 const BARBERS = [
-  { name: 'Carlos', img: '/img/staff-carlos.webp' },
-  { name: 'María', img: '/img/staff-maria.webp' },
-  { name: 'Diego', img: '/img/staff-diego.webp' },
+  { name: 'Carlos', img: '/img/juana-carlos.webp' },
+  { name: 'Juana', img: '/img/staff-juana.webp' },
+  { name: 'Diego', img: '/img/juana-diego.webp' },
 ];
 const SLOTS = ['10:00', '10:30', '11:00', '11:30', '12:00', '12:30'];
 const PICK_BARBER = 1;
@@ -155,7 +155,7 @@ export function BookingDemo() {
             <div className="leading-tight">
               <div className="text-[14px] font-medium">Reserva confirmada</div>
               <div className="text-[12px] opacity-80">
-                {day.long}, 11:00 con María
+                {day.long}, 11:00 con Juana
               </div>
             </div>
           </div>

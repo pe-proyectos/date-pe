@@ -67,7 +67,7 @@ export function Horarios() {
         <>
           <div className="mb-6 flex flex-wrap gap-2">
             {staff.map((s) => (
-              <button key={s.id} type="button" onClick={() => setSel(s.id)} className={`flex items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-4 text-[14px] transition-colors ${sel === s.id ? 'border-ink bg-ink text-white' : 'border-line hover:border-ink'}`}>
+              <button key={s.id} type="button" aria-pressed={sel === s.id} onClick={() => setSel(s.id)} className={`flex min-h-11 items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-4 text-[14px] transition-colors ${sel === s.id ? 'border-ink bg-ink text-white' : 'border-line hover:border-ink'}`}>
                 {s.photo_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={s.photo_url} alt="" className="h-7 w-7 rounded-full object-cover" />

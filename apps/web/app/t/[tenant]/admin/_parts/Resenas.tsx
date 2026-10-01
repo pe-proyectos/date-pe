@@ -67,7 +67,7 @@ export function Resenas() {
                     <div className="flex gap-2"><Btn onClick={() => saveReply(r.id)} disabled={!text.trim()}>Publicar respuesta</Btn><Btn variant="ghost" onClick={() => setReplying(null)}>Cancelar</Btn></div>
                   </div>
                 ) : (
-                  <button type="button" onClick={() => { setReplying(r.id); setText(r.reply ?? ''); }} className="mt-2 text-[14px] font-medium underline underline-offset-4">
+                  <button type="button" onClick={() => { setReplying(r.id); setText(r.reply ?? ''); }} className="-ml-1 mt-1 inline-flex min-h-11 items-center px-1 text-[14px] font-medium underline underline-offset-4">
                     {r.reply ? 'Editar respuesta' : 'Responder'}
                   </button>
                 )}

@@ -52,6 +52,16 @@ export const MOODS: Record<SiteMood, Mood> = {
 
 export const MOOD_LIST = Object.values(MOODS);
 
+/** Colores del mapa por ambiente: el mapa se pinta con la paleta de la página. */
+export interface MapPalette { land: string; water: string; park: string; building: string; road: string; roadMajor: string; casing: string; label: string; halo: string }
+export const MAP_PALETTES: Record<SiteMood, MapPalette> = {
+  clasica: { land: '#efe6d8', water: '#c9d6cf', park: '#dfe3cc', building: '#e6dac7', road: '#fbf7f1', roadMajor: '#ffffff', casing: '#e2d5c1', label: '#6e6358', halo: '#f4ede3' },
+  urbana: { land: '#141414', water: '#0b0b0b', park: '#181a18', building: '#1c1c1c', road: '#262626', roadMajor: '#333333', casing: '#1b1b1b', label: '#8a867f', halo: '#0b0b0b' },
+  minimal: { land: '#f4f4f3', water: '#dfe5ea', park: '#e8ede6', building: '#ebebea', road: '#ffffff', roadMajor: '#ffffff', casing: '#e2e2e1', label: '#7a7a7a', halo: '#ffffff' },
+  lujo: { land: '#161a17', water: '#0e1210', park: '#1a201b', building: '#1d221e', road: '#262c27', roadMajor: '#323a33', casing: '#1a1f1b', label: '#9d9483', halo: '#0f1210' },
+  vintage: { land: '#e6d8bc', water: '#c3c7b4', park: '#d7d2b1', building: '#dccca9', road: '#f3e9d4', roadMajor: '#f7efdc', casing: '#d3c19c', label: '#77604c', halo: '#ece0c8' },
+};
+
 function lum(hex: string) {
   const h = hex.replace('#', '');
   const f = h.length === 3 ? h.split('').map((c) => c + c).join('') : h.padEnd(6, '0');
@@ -80,6 +90,7 @@ export function resolveTheme(t: SiteTheme | null | undefined, accentRaw: string 
     headline: t?.headline?.trim() || null,
     marquee: t?.marquee !== false,
     since: t?.since ?? null,
+    focus: typeof t?.focus === 'number' ? Math.min(100, Math.max(0, t.focus)) : 50,
   };
 }
 

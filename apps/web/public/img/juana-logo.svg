@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <defs>
+    <path id="top" d="M 40 120 A 80 80 0 0 1 200 120" />
+    <path id="bottom" d="M 34 120 A 86 86 0 0 0 206 120" />
+  </defs>
+  <circle cx="120" cy="120" r="118" fill="#1f4d3a" />
+  <circle cx="120" cy="120" r="106" fill="none" stroke="#efe4cf" stroke-width="1.5" />
+  <circle cx="120" cy="120" r="62" fill="none" stroke="#efe4cf" stroke-width="1" opacity="0.6" />
+  <text font-family="Georgia, 'Times New Roman', serif" font-size="17" letter-spacing="5" fill="#efe4cf" font-weight="700">
+    <textPath href="#top" startOffset="50%" text-anchor="middle">BARBERÍA JUANA</textPath>
+  </text>
+  <text font-family="Georgia, 'Times New Roman', serif" font-size="13" letter-spacing="4.5" fill="#efe4cf" opacity="0.85">
+    <textPath href="#bottom" startOffset="50%" text-anchor="middle">MIRAFLORES  2016</textPath>
+  </text>
+  <text x="120" y="143" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="70" font-style="italic" font-weight="700" fill="#efe4cf">J</text>
+  <g stroke="#c9a96e" stroke-width="1.6" fill="none" transform="translate(120 172)">
+    <line x1="-14" y1="0" x2="14" y2="0" />
+  </g>
+  <g fill="#c9a96e">
+    <circle cx="28" cy="126" r="2.4" />
+    <circle cx="212" cy="126" r="2.4" />
+  </g>
+</svg>

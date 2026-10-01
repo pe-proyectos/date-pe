@@ -797,6 +797,15 @@ function Register({
       if (t) loadTicket(t);
     }
     if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) setSheet(true);
+    else {
+      // En escritorio la venta se arma en el panel de la derecha: lo llevamos a la vista y lo resaltamos
+      requestAnimationFrame(() => {
+        const el = document.getElementById('caja-venta');
+        if (!el) return;
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.animate([{ boxShadow: '0 0 0 0 rgba(10,10,10,0)' }, { boxShadow: '0 0 0 4px rgba(10,10,10,0.18)' }, { boxShadow: '0 0 0 0 rgba(10,10,10,0)' }], { duration: 1200, easing: 'ease-out' });
+      });
+    }
   }
 
   // Enlace directo desde la Fila (#caja?ticket=) o la Agenda (#caja?cita=)
@@ -1066,7 +1075,7 @@ function Register({
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
         <CatalogPanel catalog={catalog} features={f} lines={lines} onAdd={add} mainStaff={mainStaff} overrides={overrides} />
 
-        <aside className="hidden lg:block">
+        <aside id="caja-venta" className="hidden scroll-mt-6 lg:block">
           <div className="sticky top-6 rounded-xl border border-line">
             <div className="max-h-[calc(100dvh-180px)] overflow-y-auto p-5">{cart}</div>
             <div className="border-t border-line p-4">

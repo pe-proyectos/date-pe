@@ -16,7 +16,7 @@ const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
 const LIMA: [number, number] = [-77.03, -12.08];
 
 const PILL_BASE =
-  'tnum cursor-pointer whitespace-nowrap rounded-full border px-2.5 py-1 text-[13px] font-semibold leading-none shadow-[0_2px_8px_rgb(10_10_10/0.16)] transition-[scale,background-color,color] duration-200 hover:scale-105';
+  'tnum cursor-pointer whitespace-nowrap rounded-full border px-3 py-2 min-h-8 text-[14px] font-semibold leading-none shadow-[0_2px_8px_rgb(10_10_10/0.16)] transition-[scale,background-color,color] duration-200 hover:scale-105';
 const PILL_IDLE = 'border-ink bg-white text-ink';
 const PILL_ON = 'border-ink bg-ink text-white scale-110';
 

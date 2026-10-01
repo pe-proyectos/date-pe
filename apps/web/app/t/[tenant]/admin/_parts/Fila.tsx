@@ -457,6 +457,8 @@ function QuickAdd({ pub, api, reload }: { pub: QueueState | null; api: Api; relo
     e.preventDefault();
     const n = name.trim();
     if (!n) {
+      haptic.error();
+      toast.info('Escribe el nombre de quien llegó y toca Anotar.');
       inputRef.current?.focus();
       return;
     }

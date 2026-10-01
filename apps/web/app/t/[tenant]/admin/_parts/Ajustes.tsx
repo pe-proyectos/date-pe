@@ -262,7 +262,7 @@ export function Ajustes() {
                 <div className="flex flex-wrap gap-6">
                   <div>
                     <span className="mb-1.5 block text-[14px] font-medium">Logo</span>
-                    <button type="button" onClick={() => { target.current = 'logo'; fileRef.current?.click(); }} className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-dashed border-line-2 bg-field hover:border-ink">
+                    <button type="button" aria-label={b.logo_url ? 'Cambiar logo' : 'Subir logo'} onClick={() => { target.current = 'logo'; fileRef.current?.click(); }} className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-dashed border-line-2 bg-field hover:border-ink">
                       {uploading === 'logo' ? <Loader2 className="animate-spin text-mute" size={20} /> : b.logo_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={b.logo_url} alt="" className="h-full w-full object-cover" />
@@ -271,7 +271,7 @@ export function Ajustes() {
                   </div>
                   <div className="min-w-[240px] flex-1">
                     <span className="mb-1.5 block text-[14px] font-medium">Portada</span>
-                    <button type="button" onClick={() => { target.current = 'cover'; fileRef.current?.click(); }} className="flex aspect-[21/9] w-full items-center justify-center overflow-hidden rounded-xl border border-dashed border-line-2 bg-field hover:border-ink">
+                    <button type="button" aria-label={b.cover_url ? 'Cambiar portada' : 'Subir portada'} onClick={() => { target.current = 'cover'; fileRef.current?.click(); }} className="flex aspect-[21/9] w-full items-center justify-center overflow-hidden rounded-xl border border-dashed border-line-2 bg-field hover:border-ink">
                       {uploading === 'cover' ? <Loader2 className="animate-spin text-mute" size={20} /> : b.cover_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={b.cover_url} alt="" className="h-full w-full object-cover" />

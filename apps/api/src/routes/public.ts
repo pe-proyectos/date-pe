@@ -65,6 +65,44 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // Dominio propio -> barbería (lo usa el middleware de la web)
+  // Todas las opiniones publicadas (paginadas), con filtro por barbero y reparto por estrellas
+  app.get('/public/reviews', async (request, reply) => {
+    if (!request.tenant) return reply.code(404).send({ error: 'tenant_no_encontrado' });
+    const q = z
+      .object({ staffId: z.string().uuid().optional(), limit: z.coerce.number().int().min(1).max(50).default(24), offset: z.coerce.number().int().min(0).default(0) })
+      .parse(request.query);
+    return withTenant(request.tenant.id, async (sql) => {
+      const [list, dist] = await Promise.all([
+        sql(
+          `SELECT r.stars, r.comment, r.reply, r.created_at, s.id AS staff_id, s.name AS staff_name, c.name AS client_name
+             FROM reviews r LEFT JOIN staff s ON s.id = r.staff_id
+             LEFT JOIN appointments a ON a.id = r.appointment_id LEFT JOIN clients c ON c.id = a.client_id
+            WHERE r.is_published AND r.comment IS NOT NULL AND ($1::uuid IS NULL OR r.staff_id = $1)
+            ORDER BY r.created_at DESC LIMIT $2 OFFSET $3`,
+          [q.staffId ?? null, q.limit, q.offset],
+        ),
+        sql<{ stars: number; n: number }>(
+          `SELECT stars, count(*)::int AS n FROM reviews WHERE is_published AND ($1::uuid IS NULL OR staff_id = $1) GROUP BY stars`,
+          [q.staffId ?? null],
+        ),
+      ]);
+      const distribution: Record<string, number> = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+      for (const d of dist.rows) distribution[d.stars] = d.n;
+      const total = Object.values(distribution).reduce((a, b) => a + b, 0);
+      const avg = total ? Object.entries(distribution).reduce((a, [k, v]) => a + Number(k) * v, 0) / total : null;
+      return {
+        total,
+        avg: avg ? Math.round(avg * 10) / 10 : null,
+        distribution,
+        reviews: list.rows.map((r: Record<string, unknown>) => {
+          // Nombre de pila e inicial del apellido
+          const parts = typeof r.client_name === 'string' ? r.client_name.trim().split(/\s+/) : [];
+          return { ...r, client_name: parts.length ? `${parts[0]}${parts[1] ? ` ${parts[1][0]}.` : ''}` : null };
+        }),
+      };
+    });
+  });
+
   app.get('/public/resolve-host', async (request) => {
     const host = String((request.query as { host?: string }).host ?? '').toLowerCase().split(':')[0];
     const slug = host ? await tenantSlugByDomain(host) : null;

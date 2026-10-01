@@ -278,7 +278,9 @@ export default function JoinPage() {
                 key={s.id}
                 type="button"
                 onClick={() => (i < step || valid.slice(0, i).every(Boolean) ? go(i) : toast.error(`Falta ${missing[valid.findIndex((v) => !v)]}.`))}
-                className="group flex-1 text-left"
+                aria-label={`Paso ${i + 1}: ${s.title}`}
+                aria-current={i === step ? 'step' : undefined}
+                className="group min-h-11 flex-1 py-2 text-left"
               >
                 <span className={`block h-1.5 rounded-full transition-colors ${i <= step ? 'bg-ink' : 'bg-line'}`} />
                 <span className={`mt-2 hidden text-[13px] sm:block ${i === step ? 'font-medium text-ink' : 'text-soft'}`}>{s.title}</span>

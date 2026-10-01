@@ -50,10 +50,11 @@ async function seed() {
     [tenantId],
   );
   await q(
-    `INSERT INTO tenant_branding (tenant_id, cover_url, color_primary, color_secondary, tagline, about)
-     VALUES ($1, '/img/tenant-cover.webp', '#0f4c5c', '#f4f4f5',
-             'Cortes clásicos, fades y barba en Miraflores',
-             'Tres sillones, café pasado y música bajita. Reserva tu hora y llega directo al sillón.')`,
+    `INSERT INTO tenant_branding (tenant_id, logo_url, cover_url, color_primary, color_secondary, tagline, about, site_theme)
+     VALUES ($1, '/img/juana-logo.svg', '/img/juana-cover.webp', '#1f4d3a', '#efe4cf',
+             'Oficio de barbería en el corazón de Miraflores',
+             'Juana abrió su primer sillón en 2016, a media cuadra del Parque Kennedy. Hoy somos cuatro barberos, café pasado de Chanchamayo y la misma regla de siempre: nadie se va sin mirarse dos veces al espejo.',
+             '{"mood":"clasica","since":2016,"marquee":true,"focus":70}'::jsonb)`,
     [tenantId],
   );
 
@@ -67,14 +68,16 @@ async function seed() {
   const distr = await one<{ id: number }>(`SELECT id FROM geo_districts WHERE slug = 'lima/miraflores'`);
   const { id: locationId } = await one(
     `INSERT INTO locations (tenant_id, name, address, district_id, district, province, lat, lng)
-     VALUES ($1, 'Sede Miraflores', 'Av. José Larco, Miraflores', $2, 'Miraflores', 'Lima', -12.1211, -77.0297) RETURNING id`,
+     VALUES ($1, 'Sede Miraflores', 'Calle Berlín 245', $2, 'Miraflores', 'Lima', -12.1214, -77.0312) RETURNING id`,
     [tenantId, distr?.id ?? null],
   );
 
+  // days: días que atiende (0 = domingo); todos de 9 a 21, domingo de 10 a 16
   const barbers = [
-    { name: 'Carlos', photo: '/img/staff-carlos.webp', bio: 'Fades y diseños a navaja.', spec: ['Fade', 'Barba'] },
-    { name: 'María', photo: '/img/staff-maria.webp', bio: 'Cortes clásicos y con tijera.', spec: ['Clásico', 'Tijera'] },
-    { name: 'Diego', photo: '/img/staff-diego.webp', bio: 'Afeitado con toalla caliente.', spec: ['Navaja', 'Barba'] },
+    { name: 'Juana', photo: '/img/staff-juana.webp', bio: 'Fundadora. Tijera clásica y cortes a la medida de cada cara.', spec: ['Tijera', 'Clásico', 'Texturizado'], days: [0, 2, 3, 4, 5, 6] },
+    { name: 'Carlos', photo: '/img/juana-carlos.webp', bio: 'Fades a piel limpios y perfilados que duran.', spec: ['Fade', 'Barba'], days: [1, 2, 3, 4, 5, 6] },
+    { name: 'Diego', photo: '/img/juana-diego.webp', bio: 'Veinte años de navaja. El afeitado con toalla caliente es suyo.', spec: ['Navaja', 'Barba'], days: [1, 2, 3, 4, 5, 6] },
+    { name: 'Mateo', photo: '/img/juana-mateo.webp', bio: 'Diseños, líneas y fades con estilo urbano.', spec: ['Diseños', 'Fade', 'Color'], days: [0, 1, 3, 4, 5, 6] },
   ];
   const staffIds: string[] = [];
   for (const [i, b] of barbers.entries()) {
@@ -84,35 +87,47 @@ async function seed() {
       [tenantId, locationId, b.name, b.photo, b.bio, b.spec, i],
     );
     staffIds.push(s.id);
-    for (let dow = 1; dow <= 6; dow++) {
+    for (const dow of b.days) {
       await q(
-        `INSERT INTO staff_schedules (tenant_id, staff_id, location_id, day_of_week, start_time, end_time) VALUES ($1, $2, $3, $4, '10:00', '20:00')`,
-        [tenantId, s.id, locationId, dow],
+        `INSERT INTO staff_schedules (tenant_id, staff_id, location_id, day_of_week, start_time, end_time) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [tenantId, s.id, locationId, dow, dow === 0 ? '10:00' : '09:00', dow === 0 ? '16:00' : '21:00'],
       );
     }
   }
 
+  // Los 5 primeros se usan en el historial, la agenda y la caja del demo
   const services: Array<[string, string, number, number]> = [
-    ['Corte', 'Tijera y máquina, lavado incluido', 30, 2500],
-    ['Fade', 'Degradado a piel o bajo, con perfilado', 40, 3000],
-    ['Barba', 'Perfilado, arreglo y aceite', 20, 1500],
-    ['Corte y barba', 'El combo completo', 50, 4000],
-    ['Afeitado con navaja', 'Toalla caliente, espuma y navaja', 30, 2500],
+    ['Corte clásico', 'Tijera y máquina, lavado y peinado incluidos', 40, 3500],
+    ['Fade a piel', 'Degradado a piel con perfilado a navaja', 45, 4000],
+    ['Perfilado de barba', 'Forma, contornos a navaja y aceite', 25, 2500],
+    ['Corte y barba', 'El combo de la casa, con toalla caliente', 60, 5500],
+    ['Afeitado tradicional', 'Toalla caliente, espuma a brocha y navaja', 35, 3500],
+    ['Corte con diseño', 'Fade más líneas o figura a navaja', 55, 4500],
+    ['Corte niño', 'Hasta 12 años, con paciencia y dulce al final', 30, 2800],
+    ['Ritual Juana', 'Corte, barba, lavado, mascarilla y masaje de cuello', 90, 8500],
+    ['Camuflaje de canas', 'Tinte suave que se ve natural, en 20 minutos', 30, 4500],
   ];
+  const categories = ['Cortes', 'Cortes', 'Barba', 'Rituales', 'Barba', 'Cortes', 'Cortes', 'Rituales', 'Color'];
   const serviceIds: string[] = [];
   for (const [i, [name, desc, dur, price]] of services.entries()) {
     const s = await one(
       `INSERT INTO services (tenant_id, category, name, description, duration_min, buffer_min, price_cents, is_active, sort_order)
-       VALUES ($1, 'Barbería', $2, $3, $4, 5, $5, true, $6) RETURNING id`,
-      [tenantId, name, desc, dur, price, i],
+       VALUES ($1, $2, $3, $4, $5, 5, $6, true, $7) RETURNING id`,
+      [tenantId, categories[i], name, desc, dur, price, i],
     );
     serviceIds.push(s.id);
   }
+  // Servicio estrella de la casa en la página pública
+  await q(`UPDATE tenant_branding SET site_theme = site_theme || $2::jsonb WHERE tenant_id = $1`, [
+    tenantId,
+    JSON.stringify({ signature: { serviceId: serviceIds[7], image: '/img/juana-toalla.webp' } }),
+  ]);
   // Extras que se suman a cualquier servicio
   const addons: Array<[string, string, number, number]> = [
-    ['Lavado y masaje', 'Champú, acondicionador y masaje capilar', 10, 800],
-    ['Diseño o líneas', 'Rayas o figura a navaja', 10, 500],
-    ['Perfilado de cejas', 'Con navaja o pinza', 10, 700],
+    ['Lavado y masaje capilar', 'Champú, acondicionador y masaje', 10, 1000],
+    ['Líneas a navaja', 'Una o dos rayas al costado', 10, 800],
+    ['Perfilado de cejas', 'Con navaja, discreto', 10, 800],
+    ['Mascarilla negra', 'Limpieza de puntos negros', 15, 1500],
   ];
   for (const [i, [name, desc, dur, price]] of addons.entries()) {
     await q(
@@ -124,22 +139,31 @@ async function seed() {
 
   await q(
     `INSERT INTO membership_plans (tenant_id, name, description, price_cents, period, perks, sort_order) VALUES
-       ($1, 'Club mensual', 'Para los que se cortan cada dos semanas', 7900, 'month', '2 cortes al mes|10% en productos', 0),
-       ($1, 'Club barba', 'Corte y barba sin pensarlo', 9900, 'month', '2 cortes y barba al mes|Prioridad en sábados', 1)`,
+       ($1, 'Club Corte', 'Para los que se cortan cada dos semanas', 6500, 'month', '2 cortes al mes|10% en productos|Reserva con prioridad', 0),
+       ($1, 'Club Caballero', 'Corte y barba sin pensarlo', 9900, 'month', '2 cortes y barba al mes|Toalla caliente siempre|Prioridad en sábados', 1)`,
     [tenantId],
   );
   await q(`INSERT INTO promotions (tenant_id, code, kind, value) VALUES ($1, 'BIENVENIDO', 'percent', 15)`, [tenantId]);
   await q(`INSERT INTO gift_cards (tenant_id, code, initial_cents, balance_cents) VALUES ($1, 'GIFT-DEMO01', 5000, 5000)`, [tenantId]);
 
   // Historial de ejemplo: citas completadas con reseña
-  const history: Array<[string, string, number, number, number, string]> = [
-    ['Luis Ramírez', '+51911000001', 0, 1, 5, 'Me hizo el fade igual a la foto que le enseñé. Llegué a mi hora y me atendieron al toque.'],
-    ['Andrés Quispe', '+51911000002', 1, 0, 5, 'María tiene mano con la tijera. Primera vez que no me dejan el cerquillo chueco.'],
-    ['Kevin Torres', '+51911000003', 2, 4, 4, 'El afeitado con toalla caliente vale cada sol. El local es chico, mejor reservar.'],
-    ['Jorge Salazar', '+51911000004', 0, 3, 5, 'Reservé a las 9 de la noche para el día siguiente y pagué el adelanto con Yape. Cero llamadas.'],
+  // [cliente, celular, barbero, servicio, estrellas, comentario, respuesta de Juana]
+  const history: Array<[string, string, number, number, number, string, string | null]> = [
+    ['Luis Ramírez', '+51911000001', 1, 1, 5, 'Carlos me hizo el fade igual a la foto que le enseñé. Llegué a mi hora y me atendieron al toque.', null],
+    ['Andrés Quispe', '+51911000002', 0, 0, 5, 'Juana tiene una mano con la tijera que no he visto en otro lado. Primera vez que no me dejan el cerquillo chueco.', 'Gracias, Andrés. Te esperamos en tres semanas para el retoque.'],
+    ['Kevin Torres', '+51911000003', 2, 4, 5, 'El afeitado con toalla caliente de Diego vale cada sol. Salí nuevo.', null],
+    ['Jorge Salazar', '+51911000004', 3, 5, 5, 'Mateo me hizo un diseño al costado que todos en la oficina me preguntaron dónde fui.', null],
+    ['Rodrigo Paredes', '+51911000005', 0, 3, 5, 'Reservé a las 11 de la noche para el día siguiente y pagué el adelanto con Yape. Cero llamadas, cero espera.', null],
+    ['Sebastián Chávez', '+51911000006', 1, 1, 4, 'Muy buen fade. Un sábado había bastante gente, así que mejor reservar con tiempo.', 'Tienes razón, Sebastián. Los sábados vuelan: te recomendamos reservar desde el jueves.'],
+    ['Marcelo Díaz', '+51911000007', 2, 3, 5, 'El combo de corte y barba con toalla caliente es otro nivel. El café también suma.', null],
+    ['Renato Flores', '+51911000008', 0, 7, 5, 'Me regalaron el Ritual Juana por mi cumpleaños. Una hora y media de puro relajo, lo voy a repetir.', null],
+    ['Gonzalo Vargas', '+51911000009', 3, 6, 5, 'Llevé a mi hijo de seis años y Mateo lo tuvo feliz todo el corte. Ya quiere volver.', 'Qué alegría, Gonzalo. Tomás ya es cliente de la casa.'],
+    ['Álvaro Mendoza', '+51911000010', 1, 0, 5, 'Puntuales, limpios y te explican qué te queda mejor según tu cara. Recomendado.', null],
+    ['Diego Castillo', '+51911000011', 2, 2, 4, 'Buen perfilado de barba. El local es chico pero muy bonito.', null],
+    ['Martín Rojas', '+51911000012', 0, 8, 5, 'Probé el camuflaje de canas por curiosidad y quedó natural, nadie se dio cuenta. Juana sabe.', null],
   ];
   const clientIds: string[] = [];
-  for (const [i, [name, phone, staffIdx, svcIdx, stars, comment]] of history.entries()) {
+  for (const [i, [name, phone, staffIdx, svcIdx, stars, comment, reply]] of history.entries()) {
     const c = await one(
       `INSERT INTO clients (tenant_id, phone, name, loyalty_points, referral_code, email) VALUES ($1, $2, $3, 10, $4, $5) RETURNING id`,
       [tenantId, phone, name, `${name.split(' ')[0].normalize('NFD').replace(/[^A-Za-z]/g, '').toUpperCase()}${1000 + i * 1111}`, null],
@@ -157,9 +181,9 @@ async function seed() {
       [a.id, tenantId, serviceIds[svcIdx], price, services[svcIdx][2]],
     );
     await q(
-      `INSERT INTO reviews (tenant_id, appointment_id, staff_id, stars, comment, is_published, created_at)
-       VALUES ($1, $2, $3, $4, $5, true, now() - ($6 || ' days')::interval)`,
-      [tenantId, a.id, staffIds[staffIdx], stars, comment, String(3 + i * 4)],
+      `INSERT INTO reviews (tenant_id, appointment_id, staff_id, stars, comment, reply, is_published, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, true, now() - ($7 || ' days')::interval)`,
+      [tenantId, a.id, staffIds[staffIdx], stars, comment, reply, String(3 + i * 4)],
     );
   }
   // Próximas citas para que la agenda del demo tenga movimiento (hora de Lima)
@@ -189,15 +213,19 @@ async function seed() {
   // ---------------- Caja, productos, paquetes, premios, gastos y fila (demo) ----------------
   await q(`UPDATE tenant_settings SET tv_config = tv_config || $2::jsonb WHERE tenant_id = $1`, [
     tenantId,
-    JSON.stringify({ message: 'Martes y miércoles: corte + barba a S/ 35', promos: [{ title: 'Paquete 5 cortes', text: 'Paga 4 y el quinto va por la casa' }, { title: 'Invita a un amigo', text: 'Él tiene 10% y tú sumas puntos' }] }),
+    JSON.stringify({ message: 'Martes y miércoles: corte y barba a S/ 45', promos: [{ title: 'Paquete 5 cortes', text: 'Paga 4 y el quinto va por la casa' }, { title: 'Invita a un amigo', text: 'Él tiene 10% y tú sumas puntos' }] }),
   ]);
   await q(`UPDATE tenant_branding SET gallery = $2::jsonb WHERE tenant_id = $1`, [
     tenantId,
     JSON.stringify([
-      { url: '/img/svc-fade.webp', caption: 'Fade bajo con diseño' },
-      { url: '/img/svc-barba.webp', caption: 'Perfilado de barba' },
-      { url: '/img/svc-corte.webp', caption: 'Corte clásico a tijera' },
-      { url: '/img/svc-navaja.webp', caption: 'Afeitado con navaja' },
+      { url: '/img/juana-local.webp', caption: 'Nuestra casa en la calle Berlín' },
+      { url: '/img/svc-fade.webp', caption: 'Fade a piel de Carlos', staffId: staffIds[1] },
+      { url: '/img/juana-toalla.webp', caption: 'Toalla caliente, el ritual de Diego', staffId: staffIds[2] },
+      { url: '/img/svc-corte.webp', caption: 'Corte clásico a tijera de Juana', staffId: staffIds[0] },
+      { url: '/img/juana-nino.webp', caption: 'Los más chicos también son de la casa', staffId: staffIds[3] },
+      { url: '/img/juana-herramientas.webp', caption: 'Las herramientas de siempre' },
+      { url: '/img/juana-fachada.webp', caption: 'Abiertos hasta las 9 de la noche' },
+      { url: '/img/svc-barba.webp', caption: 'Perfilado de barba de Mateo', staffId: staffIds[3] },
     ]),
   ]);
   const productDefs: Array<[string, string, number, number, number, number]> = [

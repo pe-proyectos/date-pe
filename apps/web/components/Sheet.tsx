@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { useRouter } from 'next/navigation';
 import { useBackClose } from '@/lib/useBackClose';
 import { useLayerInert } from '@/lib/useLayerInert';
 
@@ -27,6 +28,7 @@ export function Sheet({
   full?: boolean;
 }) {
   const close = useBackClose(open, onClose);
+  const router = useRouter();
   useLayerInert(open);
   const [dragY, setDragY] = useState(0);
   const start = useRef<{ y: number; t: number } | null>(null);
@@ -67,9 +69,21 @@ export function Sheet({
     else setDragY(0);
   };
 
+  // Enlace interno dentro de la hoja: se cierra primero (vuelve atrás en el historial)
+  // y luego se navega, para que ese "atrás" no cancele la navegación.
+  const onClickCapture = (e: React.MouseEvent) => {
+    const a = (e.target as HTMLElement).closest('a');
+    const href = a?.getAttribute('href');
+    if (!a || !href || !href.startsWith('/') || a.target === '_blank' || e.metaKey || e.ctrlKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+    setTimeout(() => router.push(href), 180);
+  };
+
   // Se monta en <body> para quedar por encima de cabeceras y barras fijas, sin importar dónde se use.
   return createPortal(
-    <div data-layer className="fixed inset-0 z-[60]" role="dialog" aria-modal aria-label={title}>
+    <div data-layer className="fixed inset-0 z-[60]" role="dialog" aria-modal aria-label={title} onClickCapture={onClickCapture}>
       <div className="fade-in absolute inset-0 bg-ink/30" onClick={close} style={{ opacity: dragY ? Math.max(0.2, 1 - dragY / 400) : undefined }} />
       <div
         className={`sheet-up absolute inset-x-0 bottom-0 flex flex-col bg-white shadow-pop md:inset-y-0 md:left-auto md:right-0 md:w-full md:max-w-md md:max-h-none md:rounded-none ${
