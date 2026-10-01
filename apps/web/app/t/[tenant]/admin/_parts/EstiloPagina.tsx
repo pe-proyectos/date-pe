@@ -21,12 +21,23 @@ export function EstiloPagina({ initial, accent, tenant, pageUrl }: { initial: Si
   const [headline, setHeadline] = useState(initial?.headline ?? '');
   const [since, setSince] = useState(initial?.since ? String(initial.since) : '');
   const [shopName, setShopName] = useState('Tu barbería');
+  const [services, setServices] = useState<Array<{ id: string; name: string; price_cents: number; is_addon?: boolean }>>([]);
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [cover, setCover] = useState<string | null>(null);
+  const [focus, setFocus] = useState<number>(initial?.focus ?? 50);
   useEffect(() => {
     fetch(`${API_BASE_CLIENT}/api/public/site`, { headers: { 'X-Tenant-Slug': tenant } })
       .then((r) => r.json())
-      .then((d) => d?.tenant?.name && setShopName(d.tenant.name))
+      .then((d) => {
+        if (d?.tenant?.name) setShopName(d.tenant.name);
+        setServices((d?.services ?? []).filter((x: { is_addon?: boolean }) => !x.is_addon));
+        setPhotos(((d?.branding?.gallery ?? []) as Array<{ url: string }>).map((g) => g.url).filter(Boolean));
+        setCover(d?.branding?.cover_url ?? null);
+      })
       .catch(() => {});
   }, [tenant]);
+  const sig = t.signature ?? {};
+  const autoSig = [...services].sort((a, b) => b.price_cents - a.price_cents)[0];
   const main = shopName.replace(/^(barber[ií]a|barbershop|barber shop)\s+/i, '') || shopName;
 
   async function save(patch: Partial<SiteTheme>, msg = 'Estilo guardado') {
@@ -136,6 +147,67 @@ export function EstiloPagina({ initial, accent, tenant, pageUrl }: { initial: Si
           />
         </Field>
       </div>
+
+      {cover && t.hero !== 'tipografia' && (
+        <Field label="Encuadre de la portada" hint="Mueve el punto para que en el celular se vea lo importante de tu foto (por ejemplo, el barbero).">
+          <div className="grid gap-4 sm:grid-cols-[120px_minmax(0,1fr)]">
+            <div className="relative mx-auto aspect-[9/16] w-[120px] overflow-hidden rounded-xl border border-line bg-field" aria-label="Vista en celular">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={cover} alt="" className="h-full w-full object-cover" style={{ objectPosition: `${focus}% 50%` }} />
+              <span className="absolute inset-x-0 bottom-1 text-center text-[10px] font-semibold text-white drop-shadow">Celular</span>
+            </div>
+            <div className="min-w-0">
+              <div className="relative aspect-[16/9] w-full overflow-hidden rounded-xl border border-line bg-field">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={cover} alt="" className="h-full w-full object-cover" style={{ objectPosition: `${focus}% 50%` }} />
+                <span className="absolute bottom-1 right-2 text-[10px] font-semibold text-white drop-shadow">Computadora</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={focus}
+                onChange={(e) => setFocus(Number(e.target.value))}
+                onPointerUp={() => focus !== (t.focus ?? 50) && save({ focus }, 'Encuadre guardado')}
+                onKeyUp={() => focus !== (t.focus ?? 50) && save({ focus }, 'Encuadre guardado')}
+                aria-label="Encuadre horizontal de la portada"
+                className="mt-4 w-full accent-[#0a0a0a]"
+              />
+              <div className="flex justify-between text-[12px] text-mute"><span>Izquierda</span><span>Centro</span><span>Derecha</span></div>
+            </div>
+          </div>
+        </Field>
+      )}
+
+      {services.length >= 4 && (
+        <Field label="Servicio estrella" hint="Sale destacado en tu página con foto, precio y botón de reservar. Elige tu servicio insignia.">
+          <select
+            value={sig.serviceId ?? ''}
+            onChange={(e) => save({ signature: { ...sig, serviceId: e.target.value || undefined } }, 'Servicio estrella guardado')}
+            className={inputCls}
+          >
+            <option value="">Automático{autoSig ? ` (${autoSig.name}, el de mayor precio)` : ''}</option>
+            {services.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+          </select>
+          {photos.length > 0 && (
+            <div className="mt-3">
+              <p className="mb-2 text-[13px] text-mute">Foto del servicio estrella</p>
+              <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
+                {photos.map((u) => {
+                  const on = (sig.image ?? '') === u;
+                  return (
+                    <button key={u} type="button" aria-pressed={on} aria-label="Usar esta foto" onClick={() => save({ signature: { ...sig, image: on ? undefined : u } }, on ? 'Foto automática' : 'Foto elegida')} className={`relative h-20 w-20 shrink-0 overflow-hidden rounded-lg ${on ? 'ring-2 ring-ink ring-offset-2' : 'opacity-80 hover:opacity-100'}`}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={u} alt="" className="h-full w-full object-cover" />
+                      {on && <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-ink text-white"><Check size={12} strokeWidth={2.5} /></span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </Field>
+      )}
 
       <div className="flex items-center justify-between gap-6 border-y border-line py-4">
         <div className="min-w-0">

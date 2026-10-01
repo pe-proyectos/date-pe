@@ -64,11 +64,15 @@ export interface TenantSite {
   } | null;
   locations: Array<{ id: string; name: string; address: string | null; district: string | null; province: string | null; lat: number | null; lng: number | null; phone: string | null }>;
   staff: Array<{ id: string; /** null = atiende en todas las sedes. */ location_id?: string | null; name: string; photo_url: string | null; bio: string | null; specialties: string[] | null; rating_avg: string; rating_count: number }>;
-  services: Array<{ id: string; category: string | null; name: string; description: string | null; photo_url: string | null; duration_min: number; price_cents: number; /** Extra que se suma a un servicio principal; no se reserva solo. */ is_addon?: boolean }>;
+  services: Array<{ id: string; category: string | null; name: string; description: string | null; photo_url: string | null; duration_min: number; price_cents: number; /** Extra que se suma a un servicio principal; no se reserva solo. */ is_addon?: boolean; /** Sedes donde se ofrece (vacío = todas) */ location_ids?: string[] }>;
   reviews?: Array<{ stars: number; comment: string | null; reply: string | null; created_at: string; staff_name: string | null; client_name: string | null }>;
   rating?: { avg: string | null; count: string };
   memberships?: Array<{ id: string; name: string; description: string | null; price_cents: number; period: 'month' | 'year'; perks: string | null }>;
   hours?: Array<{ day_of_week: number; open: string; close: string }>;
+  /** Días y horas de cada barbero */
+  staffHours?: Array<{ staff_id: string; day_of_week: number; open: string; close: string }>;
+  /** Horario de cada sede */
+  locationHours?: Array<{ location_id: string; day_of_week: number; open: string; close: string }>;
 }
 
 export interface SearchResult {

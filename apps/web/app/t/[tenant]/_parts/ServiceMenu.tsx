@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Clock, Plus, Search, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { soles, type TenantSite } from '@/lib/api';
-import { ReservarLink } from './sede';
+import { ReservarLink, useSede } from './sede';
 import { SiteSheet } from '../_site/SiteSheet';
 import { NextSlot } from '../_site/NextSlot';
 
@@ -19,8 +19,11 @@ const slugify = (s: string) => norm(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-
  * buscador cuando hay muchos, y "Ver los N servicios" en categorías largas.
  */
 export function ServiceMenu({ services, available, leader = false, limit, tenant, tz = 'America/Lima' }: { services: Service[]; available: boolean; leader?: boolean; limit?: number; tenant?: string; tz?: string }) {
-  const main = useMemo(() => services.filter((s) => !s.is_addon), [services]);
-  const addons = useMemo(() => services.filter((s) => s.is_addon), [services]);
+  // Con varias sedes y una elegida: solo lo que se ofrece ahí
+  const { sede } = useSede();
+  const here = useCallback((s: Service) => !sede || !s.location_ids?.length || s.location_ids.includes(sede), [sede]);
+  const main = useMemo(() => services.filter((s) => !s.is_addon && here(s)), [services, here]);
+  const addons = useMemo(() => services.filter((s) => s.is_addon && here(s)), [services, here]);
 
   const groups = useMemo(() => {
     const map = new Map<string, Service[]>();

@@ -1,10 +1,33 @@
 import type { MetadataRoute } from 'next';
 import { DISTRICTS } from '@/lib/districts';
+import { headers } from 'next/headers';
 import { API_BASE_SERVER } from '@/lib/config';
+import { tenantFromHost, slugFromCustomHost } from '@/lib/host';
+import { getSite, derive } from './t/[tenant]/_site/data';
 
 export const revalidate = 3600;
 
+/** Sitio de una barbería (subdominio o dominio propio): sus secciones y cada perfil. */
+async function tenantSitemap(slug: string, base: string): Promise<MetadataRoute.Sitemap> {
+  const site = await getSite(slug);
+  if (!site || site.tenant.is_demo) return [];
+  const d = derive(site, slug);
+  const now = new Date();
+  const paths = [
+    { p: '', f: 'weekly' as const, pr: 1 },
+    ...d.nav.map((n) => ({ p: n.href, f: 'weekly' as const, pr: 0.8 })),
+    ...(d.solo ? [] : site.staff.map((b) => ({ p: `/equipo/${b.id}`, f: 'monthly' as const, pr: 0.6 }))),
+    ...(d.available ? [{ p: '/reservar', f: 'daily' as const, pr: 0.9 }] : []),
+    ...(d.showGifts ? [{ p: '/regalos', f: 'monthly' as const, pr: 0.4 }] : []),
+  ];
+  return paths.map((x) => ({ url: `${base}${x.p}`, lastModified: now, changeFrequency: x.f, priority: x.pr }));
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const host = (await headers()).get('host') ?? '';
+  const slug = tenantFromHost(host) ?? (await slugFromCustomHost(host));
+  if (slug) return tenantSitemap(slug, `https://${host.split(':')[0]}`);
+
   const base = 'https://date.pe';
   const now = new Date();
   const staticRoutes: MetadataRoute.Sitemap = [

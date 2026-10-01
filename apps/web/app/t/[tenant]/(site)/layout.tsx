@@ -5,6 +5,7 @@ import { SiteHeader } from '../_site/SiteHeader';
 import { SiteFooter } from '../_site/blocks';
 import { AppTabBar } from '../_site/AppTabBar';
 import { PageTransition } from '../_site/PageTransition';
+import { Track } from '../_site/Track';
 import { getSite, derive } from '../_site/data';
 import { fontVars } from '../_site/fonts';
 import { themeVars, resolveTheme } from '../_site/theme';
@@ -42,9 +43,11 @@ export default async function SiteLayout({ children, params }: { children: React
     ...(d.available ? [{ href: '/reservar', label: 'Reservar' }] : []),
     ...(d.showQueue ? [{ href: '/fila', label: 'Fila virtual' }] : []),
     ...(d.showGifts ? [{ href: '/regalos', label: 'Regalos' }] : []),
+    { href: '/mi-cuenta', label: 'Mi cuenta' },
   ];
   return (
     <div className={`site min-h-screen ${fontVars}`} data-mood={d.mood.id} style={themeVars(d.theme) as React.CSSProperties}>
+      <Track slug={tenant} />
       <SedeProvider slug={tenant} locations={d.publicLocations}>
         <SiteHeader name={site.tenant.name} logo={site.branding?.logo_url ?? null} initial={d.initial} nav={d.nav} available={d.available} photoHero={d.photoHero} slug={tenant} />
         <PageTransition>

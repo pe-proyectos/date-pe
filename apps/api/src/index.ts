@@ -30,6 +30,8 @@ import { crmRoutes } from './routes/crm.js';
 import { complaintRoutes } from './routes/complaints.js';
 import { statusRoutes } from './routes/status.js';
 import { setupRoutes } from './routes/setup.js';
+import { analyticsRoutes } from './routes/analytics.js';
+import { accountRoutes } from './routes/account.js';
 import { tenantSlugByDomain } from './lib/domains.js';
 import { startScheduler } from './lib/scheduler.js';
 import { ZodError } from 'zod';
@@ -120,6 +122,8 @@ async function main() {
       await api.register(complaintRoutes);
       await api.register(statusRoutes);
       await api.register(setupRoutes);
+      await api.register(analyticsRoutes);
+      await api.register(accountRoutes);
     },
     { prefix: '/api' },
   );

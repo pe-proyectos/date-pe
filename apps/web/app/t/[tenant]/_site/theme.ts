@@ -113,3 +113,24 @@ export function themeVars(r: ReturnType<typeof resolveTheme>): Record<string, st
     '--accent-text': r.accentText,
   };
 }
+
+/**
+ * Páginas de flujo (reservar, fila, turno, regalos) usan los colores base del sistema
+ * (ink, field, line...). Aquí se reemplazan por los del ambiente para que conserven la
+ * identidad de la barbería sin reescribirlas.
+ */
+export function flowVars(r: ReturnType<typeof resolveTheme>): Record<string, string> {
+  const m = r.mood;
+  return {
+    ...themeVars(r),
+    '--color-ink': m.ink,
+    '--color-ink-2': m.ink,
+    '--color-mute': m.mute,
+    '--color-soft': m.mute,
+    '--color-line': m.line,
+    '--color-line-2': m.dark ? 'rgba(255,255,255,0.24)' : 'rgba(0,0,0,0.22)',
+    '--color-field': m.surface,
+    '--color-canvas': m.bg,
+    '--color-white': m.bg,
+  };
+}

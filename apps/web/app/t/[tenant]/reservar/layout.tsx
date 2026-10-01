@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { apiFetch, type TenantSite } from '@/lib/api';
+import { FlowShell } from '../_site/FlowShell';
 
 // La página de reserva es de cliente: el título se arma aquí con el nombre de la barbería.
 export async function generateMetadata({ params }: { params: Promise<{ tenant: string }> }): Promise<Metadata> {
@@ -19,6 +20,7 @@ export async function generateMetadata({ params }: { params: Promise<{ tenant: s
   }
 }
 
-export default function ReservarLayout({ children }: { children: React.ReactNode }) {
-  return children;
+export default async function ReservarLayout({ children, params }: { children: React.ReactNode; params: Promise<{ tenant: string }> }) {
+  const { tenant } = await params;
+  return <FlowShell tenant={tenant} start>{children}</FlowShell>;
 }

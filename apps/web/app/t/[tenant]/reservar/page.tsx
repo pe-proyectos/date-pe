@@ -15,7 +15,7 @@ import { haptic } from '@/lib/haptics';
 import { Sheet } from '@/components/Sheet';
 import { InviteCard, WhatsAppIcon, buildDays, fmtDayLong, fmtTime, icsFor, waLink, TZ } from '../cita/_parts/shared';
 
-interface Service { id: string; name: string; description: string | null; duration_min: number; price_cents: number; is_addon?: boolean }
+interface Service { id: string; name: string; description: string | null; duration_min: number; price_cents: number; is_addon?: boolean; location_ids?: string[] }
 interface Staff { id: string; location_id?: string | null; name: string; photo_url: string | null; bio: string | null; rating_avg: string; rating_count: number }
 interface Location { id: string; name: string; address: string | null; district: string | null; lat: number | null; lng: number | null }
 interface Slot { start: string; end: string; staffId: string }
@@ -168,8 +168,10 @@ function ReservarInner() {
   const accent = site?.branding?.color_primary ?? '#0a0a0a';
   const onAccent = onColor(accent);
   const multiLoc = (site?.locations.length ?? 0) >= 2;
-  const mainServices = useMemo(() => site?.services.filter((s) => !s.is_addon) ?? [], [site]);
-  const extras = useMemo(() => site?.services.filter((s) => s.is_addon) ?? [], [site]);
+  // Con varias sedes, solo lo que se ofrece en la sede elegida
+  const atSede = useCallback((s: { location_ids?: string[] }) => !multiLoc || !locationId || !s.location_ids?.length || s.location_ids.includes(locationId), [multiLoc, locationId]);
+  const mainServices = useMemo(() => site?.services.filter((s) => !s.is_addon && atSede(s)) ?? [], [site, atSede]);
+  const extras = useMemo(() => site?.services.filter((s) => s.is_addon && atSede(s)) ?? [], [site, atSede]);
   const selectedAddons = extras.filter((x) => addonIds.includes(x.id));
   const staffList = useMemo(
     () => (site?.staff ?? []).filter((s) => !multiLoc || !locationId || !s.location_id || s.location_id === locationId),

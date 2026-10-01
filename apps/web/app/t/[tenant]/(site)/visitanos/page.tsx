@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Navigation, Phone, MessageCircle, Clock, UsersRound } from 'lucide-react';
 import { OpenStatus } from '../../_parts/OpenStatus';
-import { PageIntro, HoursTable, Closing } from '../../_site/blocks';
+import { PageIntro, HoursTable, Closing, WeekHours } from '../../_site/blocks';
 import { SiteMap } from '../../_site/SiteMap';
 import { getSite, derive } from '../../_site/data';
 import { pageMeta } from '../../_site/meta';
@@ -46,6 +46,9 @@ export default async function VisitanosPage({ params }: { params: Promise<{ tena
                   <p className="s-display text-[clamp(2.2rem,4.4vw,3.4rem)] !leading-[1.05]">{l.address ?? l.name}</p>
                   <p className="s-mute mt-2 text-[18px]">{[l.district, l.province ?? 'Lima'].filter(Boolean).join(', ')}</p>
                   {multiLoc && n > 0 && <p className="s-mute mt-3 flex items-center gap-2 text-[15px]"><UsersRound size={16} strokeWidth={1.75} /> {n} {n === 1 ? 'barbero' : 'barberos'}</p>}
+                  {multiLoc && (site.locationHours ?? []).some((h) => h.location_id === l.id) && (
+                    <div className="mt-5 max-w-md"><WeekHours rows={(site.locationHours ?? []).filter((h) => h.location_id === l.id)} tz={d.tz} compact /></div>
+                  )}
                   <div className="mt-6 flex flex-wrap gap-3">
                     <a href={d.mapsFor(l)} target="_blank" rel="noopener noreferrer" className="s-btn"><Navigation size={18} strokeWidth={1.75} /> Abrir en Google Maps</a>
                     {l.lat != null && l.lng != null && (
@@ -73,7 +76,7 @@ export default async function VisitanosPage({ params }: { params: Promise<{ tena
             </div>
           </div>
           <aside className="md:col-span-5">
-            <p className="s-eyebrow">Horario</p>
+            <p className="s-eyebrow">{multiLoc ? 'Horario general' : 'Horario'}</p>
             <div className="mt-4"><HoursTable d={d} /></div>
           </aside>
         </div>

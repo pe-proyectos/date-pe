@@ -958,6 +958,18 @@ CREATE INDEX IF NOT EXISTS idx_reviews_tenant     ON reviews (tenant_id);
 -- tenant_rw  -> filas del tenant en sesión (SET LOCAL app.tenant_id)
 -- public_ro  -> lectura cross-tenant controlada (SET LOCAL app.public_read='on')
 -- ---------------------------------------------------------------------------
+-- Visitas a la página de cada barbería (anónimas: sin cookies, id aleatorio del navegador)
+CREATE TABLE IF NOT EXISTS site_events (
+  id          bigserial PRIMARY KEY,
+  tenant_id   uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  kind        text NOT NULL CHECK (kind IN ('view','book_click','book_start')),
+  path        text,
+  source      text,
+  visitor     text,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_site_events_tenant ON site_events (tenant_id, created_at DESC);
+
 DO $$
 DECLARE
   t text;
@@ -969,7 +981,7 @@ DECLARE
     'cash_sessions','cash_movements','sales','sale_items','sale_payments','products','stock_movements',
     'expenses','staff_payouts','staff_advances','queue_tickets',
     'client_photos','packages','client_packages','rewards','reward_redemptions','client_memberships',
-    'campaigns','campaign_sends','push_subscriptions','complaints'
+    'campaigns','campaign_sends','push_subscriptions','complaints','site_events'
   ];
   public_tables text[] := ARRAY['locations','staff','services','service_staff','reviews','tenant_branding','tenant_settings','membership_plans'];
 BEGIN
@@ -1000,6 +1012,10 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON users, memberships TO datepe_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO datepe_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO datepe_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO datepe_app;
+
+-- Servicios por sede: vacío = se ofrece en todas
+ALTER TABLE services ADD COLUMN IF NOT EXISTS location_ids uuid[] NOT NULL DEFAULT '{}';
+
 
 -- Tablas de operación de la plataforma: nunca visibles para el rol de la app
 REVOKE ALL ON platform_backups, platform_alerts, platform_state FROM datepe_app;

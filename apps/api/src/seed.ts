@@ -245,7 +245,7 @@ async function seed() {
   await q(`INSERT INTO packages (tenant_id, name, description, price_cents, uses, service_ids, valid_days) VALUES ($1, '5 cortes', 'Paga 4 y el quinto va por la casa', 10000, 5, $2, 180)`, [tenantId, [serviceIds[0], serviceIds[1]]]);
   await q(`INSERT INTO rewards (tenant_id, name, points_cost, kind, value, ref_id) VALUES ($1, 'Corte gratis', 100, 'free_service', 0, $2), ($1, 'S/ 10 de descuento', 50, 'discount_fixed', 1000, NULL)`, [tenantId, serviceIds[0]]);
   await q(`UPDATE membership_plans SET discount_percent = 10, included_uses = 2 WHERE tenant_id = $1`, [tenantId]);
-  await q(`UPDATE clients SET birthday = make_date(1995, 3, 14), tags = ARRAY['fade'] WHERE tenant_id = $1 AND name = 'Luis Ramírez'`, [tenantId]);
+  await q(`UPDATE clients SET birthday = make_date(1995, 3, 14), tags = ARRAY['fade'], email = 'cliente.demo@date.pe' WHERE tenant_id = $1 AND name = 'Luis Ramírez'`, [tenantId]);
   await q(`UPDATE clients SET preferences = 'Fade medio, deja volumen arriba. No toca la barba.' WHERE tenant_id = $1 AND name = 'Andrés Quispe'`, [tenantId]);
 
   // Ventas de los últimos días con caja cerrada, para que reportes y liquidación tengan datos
@@ -305,6 +305,44 @@ async function seed() {
       `INSERT INTO queue_tickets (tenant_id, day, number, name, service_id, staff_id, status, served_by, called_at, started_at, sort_at, created_at)
        VALUES ($1, (now() AT TIME ZONE 'America/Lima')::date, $2, $3, $4, $5, $6, $7, $8, $8, now() - make_interval(mins => $9), now() - make_interval(mins => $9))`,
       [tenantId, i + 1, name, serviceIds[i % 2], staffIdx === null ? null : staffIds[staffIdx], status, status === 'serving' ? staffIds[0] : null, status === 'serving' ? new Date(Date.now() - 12 * 60000) : null, 30 - i * 8],
+    );
+  }
+
+  // Visitas a la página de los últimos 30 días, para que "Tu página" muestre datos
+  {
+    const pick = <T,>(xs: Array<[T, number]>): T => {
+      let r = Math.random() * xs.reduce((a, [, w]) => a + w, 0);
+      for (const [x, w] of xs) if ((r -= w) <= 0) return x;
+      return xs[0][0];
+    };
+    const sources: Array<[string | null, number]> = [['instagram', 38], ['directo', 22], ['google', 16], ['whatsapp', 12], ['date.pe', 6], ['facebook', 4], ['tiktok', 2]];
+    const pages: Array<[string, number]> = [['/servicios', 30], ['/equipo', 18], ['/trabajos', 16], ['/opiniones', 10], ['/visitanos', 12], [`/equipo/${staffIds[0]}`, 6], [`/equipo/${staffIds[1]}`, 5], [`/equipo/${staffIds[2]}`, 3]];
+    const ev: { kind: string[]; path: string[]; source: (string | null)[]; visitor: string[]; at: string[] } = { kind: [], path: [], source: [], visitor: [], at: [] };
+    const push = (kind: string, path: string, source: string | null, visitor: string, at: Date) => {
+      ev.kind.push(kind); ev.path.push(path); ev.source.push(source); ev.visitor.push(visitor); ev.at.push(at.toISOString());
+    };
+    for (let day = 29; day >= 0; day--) {
+      const base = new Date(Date.now() - day * 86400000);
+      const dow = base.getUTCDay();
+      const n = Math.round(22 + (29 - day) * 0.6 + (dow === 5 || dow === 6 ? 14 : 0) + Math.random() * 10);
+      for (let v = 0; v < n; v++) {
+        const visitor = Math.random().toString(36).slice(2, 14);
+        const source = pick(sources);
+        let at = new Date(base.getTime() - Math.random() * 13 * 3600000);
+        if (at > new Date()) at = new Date(Date.now() - Math.random() * 3600000);
+        push('view', '/', source, visitor, at);
+        const more = Math.floor(Math.random() * 3.2);
+        for (let k = 0; k < more; k++) push('view', pick(pages), null, visitor, new Date(at.getTime() + (k + 1) * 40000));
+        if (Math.random() < 0.34) {
+          push('book_click', '/servicios', null, visitor, new Date(at.getTime() + 150000));
+          if (Math.random() < 0.72) push('book_start', '/reservar', null, visitor, new Date(at.getTime() + 160000));
+        }
+      }
+    }
+    await q(
+      `INSERT INTO site_events (tenant_id, kind, path, source, visitor, created_at)
+       SELECT $1, k, p, s, v, a::timestamptz FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[]) AS t(k, p, s, v, a)`,
+      [tenantId, ev.kind, ev.path, ev.source, ev.visitor, ev.at],
     );
   }
 

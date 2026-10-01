@@ -525,6 +525,12 @@ function Gallery({ initial }: { initial: GalleryItem[] }) {
   const { tenant, token } = useAdmin();
   const api = useApi();
   const [items, setItems] = useState<GalleryItem[]>(initial);
+  // Etiquetar cada foto con el barbero que la hizo: aparece en su perfil ("Hecho por...")
+  const [team, setTeam] = useState<Array<{ id: string; name: string }>>([]);
+  useEffect(() => {
+    api<{ staff: Array<{ id: string; name: string }> }>('/admin/staff').then((d) => setTeam(d.staff)).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [saved, setSaved] = useState(JSON.stringify(initial));
   const [uploading, setUploading] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -579,7 +585,7 @@ function Gallery({ initial }: { initial: GalleryItem[] }) {
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="flex items-center gap-2 text-[15px] font-medium"><Images size={17} strokeWidth={1.75} /> Galería de trabajos</p>
-          <p className="text-[14px] text-mute">Tus mejores cortes. La primera foto es la que más se ve. Arrastra o usa las flechas para ordenar.</p>
+          <p className="text-[14px] text-mute">Tus mejores cortes. La primera foto es la que más se ve. Arrastra o usa las flechas para ordenar. Si eliges el barbero, la foto sale en su perfil.</p>
         </div>
         <Btn variant="secondary" onClick={() => fileRef.current?.click()} busy={uploading > 0}><ImagePlus size={16} strokeWidth={1.75} /> Agregar fotos</Btn>
       </div>
@@ -599,7 +605,7 @@ function Gallery({ initial }: { initial: GalleryItem[] }) {
               onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
               onDrop={(e) => { e.preventDefault(); if (dragFrom !== null) move(dragFrom, i); setDragFrom(null); }}
               onDragEnd={() => setDragFrom(null)}
-              className={`flex items-center gap-3 py-3 ${dragFrom === i ? 'opacity-40' : ''}`}
+              className={`flex flex-wrap items-center gap-3 py-3 sm:flex-nowrap ${dragFrom === i ? 'opacity-40' : ''}`}
             >
               <GripVertical size={18} strokeWidth={1.75} className="hidden shrink-0 cursor-grab text-soft md:block" aria-hidden />
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -612,6 +618,17 @@ function Gallery({ initial }: { initial: GalleryItem[] }) {
                 aria-label={`Texto de la foto ${i + 1}`}
                 className={`min-w-0 flex-1 ${inputCls}`}
               />
+              {team.length > 1 && (
+                <select
+                  value={g.staffId ?? ''}
+                  onChange={(e) => setItems((p) => p.map((x, j) => (j === i ? { ...x, staffId: e.target.value || undefined } : x)))}
+                  aria-label={`Barbero de la foto ${i + 1}`}
+                  className={`order-last basis-full sm:order-none sm:w-40 sm:basis-auto sm:shrink-0 ${inputCls}`}
+                >
+                  <option value="">Sin barbero</option>
+                  {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              )}
               <div className="flex shrink-0 items-center">
                 <button type="button" onClick={() => move(i, i - 1)} disabled={i === 0} className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-field disabled:opacity-30" aria-label="Subir"><ArrowUp size={16} strokeWidth={1.75} /></button>
                 <button type="button" onClick={() => move(i, i + 1)} disabled={i === items.length - 1} className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-field disabled:opacity-30" aria-label="Bajar"><ArrowDown size={16} strokeWidth={1.75} /></button>

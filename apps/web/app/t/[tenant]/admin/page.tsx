@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {
   LayoutDashboard, CalendarDays, Users, Clock, Scissors, Contact, TicketPercent, Star, ChartColumn, Settings, LogOut, ExternalLink, Loader2, Eye, EyeOff, House, Menu, ChevronRight, CreditCard, CirclePause, CalendarClock, MailCheck, ArrowLeft,
-  Sun, ListOrdered, Wallet, Package, Megaphone, Landmark, ToggleRight, KeyRound, Radio, BellRing, X, BookOpenText,
+  Sun, ListOrdered, Wallet, Package, Megaphone, Landmark, ToggleRight, KeyRound, Radio, BellRing, X, BookOpenText, Globe,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { API_BASE_CLIENT, tenantUrl } from '@/lib/config';
@@ -37,6 +37,7 @@ import { Accesos } from './_parts/Accesos';
 import { Difusion } from './_parts/Difusion';
 import { Ajustes } from './_parts/Ajustes';
 import { Reclamos } from './_parts/Reclamos';
+import { Visitas } from './_parts/Visitas';
 import { Facturacion, BILLING_EVENT, diasTexto, type Billing } from './_parts/Facturacion';
 
 type GroupId = 'hoy' | 'clientes' | 'negocio' | 'config';
@@ -58,6 +59,7 @@ const SECTIONS = [
   { id: 'horarios', label: 'Horarios', icon: Clock, group: 'negocio' },
   { id: 'finanzas', label: 'Finanzas', icon: Landmark, group: 'negocio' },
   { id: 'reportes', label: 'Reportes', icon: ChartColumn, group: 'negocio' },
+  { id: 'visitas', label: 'Tu página', icon: Globe, group: 'negocio' },
   { id: 'funciones', label: 'Funciones', icon: ToggleRight, group: 'config' },
   { id: 'accesos', label: 'Accesos', icon: KeyRound, group: 'config' },
   { id: 'difusion', label: 'Difusión', icon: Radio, group: 'config' },
@@ -259,7 +261,7 @@ function Panel({ shopName }: { shopName: string }) {
 
   const Views: Record<Exclude<SectionId, 'resumen'>, React.ComponentType> = {
     'mi-dia': MiDia, agenda: Agenda, fila: Fila, caja: Caja, clientes: Clientes, promociones: Promociones, marketing: Marketing, resenas: Resenas,
-    servicios: Servicios, productos: Productos, equipo: Equipo, horarios: Horarios, finanzas: Finanzas, reportes: Reportes,
+    servicios: Servicios, productos: Productos, equipo: Equipo, horarios: Horarios, finanzas: Finanzas, reportes: Reportes, visitas: Visitas,
     funciones: Funciones, accesos: Accesos, difusion: Difusion, ajustes: Ajustes, reclamos: Reclamos, facturacion: Facturacion,
   };
   const View = current === 'resumen' ? null : Views[current];

@@ -7,7 +7,7 @@ import { sendEmail, layout } from './email.js';
 const hash = (v: string) => createHash('sha256').update(v).digest('hex');
 const keyOf = (tenantId: string, email: string) => `${tenantId}|${email.trim().toLowerCase()}`;
 
-export async function requestCode(tenantId: string, tenantName: string, email: string): Promise<{ ok: boolean; error?: string }> {
+export async function requestCode(tenantId: string, tenantName: string, email: string, purpose: 'reservar' | 'cuenta' = 'reservar'): Promise<{ ok: boolean; error?: string }> {
   const key = keyOf(tenantId, email);
   // Máximo un código por minuto por correo
   const recent = await admin("SELECT 1 FROM otp_codes WHERE key = $1 AND expires_at > now() + interval '9 minutes'", [key]);
@@ -21,11 +21,11 @@ export async function requestCode(tenantId: string, tenantName: string, email: s
   const r = await sendEmail({
     to: email,
     fromName: tenantName,
-    subject: `${code} es tu código para reservar en ${tenantName}`,
+    subject: purpose === 'cuenta' ? `${code} es tu código para entrar a tu cuenta en ${tenantName}` : `${code} es tu código para reservar en ${tenantName}`,
     html: layout({
       brand: tenantName,
       title: `Tu código: ${code}`,
-      intro: 'Escríbelo en la página de reserva para confirmar que este correo es tuyo. Vence en 10 minutos.',
+      intro: purpose === 'cuenta' ? 'Escríbelo para ver tus citas, tus puntos y tus paquetes. Vence en 10 minutos.' : 'Escríbelo en la página de reserva para confirmar que este correo es tuyo. Vence en 10 minutos.',
       foot: 'Si no fuiste tú, ignora este correo.',
     }),
   });

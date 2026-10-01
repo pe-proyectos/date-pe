@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Share } from 'lucide-react';
+import { Share, CircleUserRound } from 'lucide-react';
 import { haptic } from '@/lib/haptics';
 import { toast } from '@/lib/toast';
 import { ReservarLink } from '../_parts/sede';
@@ -85,6 +85,9 @@ export function SiteHeader({ name, logo, initial, nav, available, photoHero, slu
             ))}
           </nav>
           <div className="flex shrink-0 items-center gap-2">
+            <Link href="/mi-cuenta" aria-label="Mi cuenta" title="Mi cuenta" className={`hidden h-11 w-11 items-center justify-center rounded-full transition-opacity hover:opacity-70 lg:flex`}>
+              <CircleUserRound size={22} strokeWidth={1.6} />
+            </Link>
             {available && <ReservarLink className="s-btn !hidden !min-h-[42px] !px-5 !text-[15px] lg:!inline-flex">Reservar</ReservarLink>}
             <button
               type="button"

@@ -224,3 +224,8 @@
 @media (max-width: 1023px) {
   .site:has(.s-sticky-cta) footer > div { padding-bottom: calc(196px + env(safe-area-inset-bottom)); }
 }
+
+/* Páginas de flujo con el ambiente: títulos con la letra de la barbería */
+.s-flow h1, .s-flow h2 { font-family: var(--s-display); font-weight: var(--s-display-weight); letter-spacing: var(--s-display-tracking); }
+.s-flow[data-mood='urbana'] h1, .s-flow[data-mood='urbana'] h2 { text-transform: uppercase; }
+.s-flow ::selection { background: var(--accent); color: var(--on-accent); }

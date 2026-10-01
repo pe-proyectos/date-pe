@@ -125,7 +125,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   app.get('/admin/services', async (request) =>
     withTenant(tid(request), async (sql) => {
       const { rows } = await sql(
-        'SELECT id, category, name, description, photo_url, duration_min, buffer_min, price_cents, is_active, sort_order, is_addon FROM services ORDER BY is_addon, sort_order, name',
+        'SELECT id, category, name, description, photo_url, duration_min, buffer_min, price_cents, is_active, sort_order, is_addon, location_ids FROM services ORDER BY is_addon, sort_order, name',
       );
       return { services: rows };
     }),
@@ -142,15 +142,16 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     isActive: z.boolean().optional(),
     sortOrder: z.number().int().optional(),
     isAddon: z.boolean().optional(),
+    locationIds: z.array(z.string().uuid()).max(50).optional(),
   });
 
   app.post('/admin/services', async (request, reply) => {
     const b = serviceBody.parse(request.body);
     const out = await withTenant(tid(request), async (sql) => {
       const { rows } = await sql<{ id: string }>(
-        `INSERT INTO services (tenant_id, category, name, description, photo_url, duration_min, buffer_min, price_cents, is_active, sort_order, is_addon)
-         VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-        [b.category ?? null, b.name, b.description ?? null, b.photoUrl ?? null, b.durationMin, b.bufferMin ?? 0, b.priceCents, b.isActive ?? true, b.sortOrder ?? 0, b.isAddon ?? false],
+        `INSERT INTO services (tenant_id, category, name, description, photo_url, duration_min, buffer_min, price_cents, is_active, sort_order, is_addon, location_ids)
+         VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+        [b.category ?? null, b.name, b.description ?? null, b.photoUrl ?? null, b.durationMin, b.bufferMin ?? 0, b.priceCents, b.isActive ?? true, b.sortOrder ?? 0, b.isAddon ?? false, b.locationIds ?? []],
       );
       return rows[0];
     });
@@ -167,9 +168,10 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
            description = COALESCE($4, description), photo_url = COALESCE($5, photo_url),
            duration_min = COALESCE($6, duration_min), buffer_min = COALESCE($7, buffer_min),
            price_cents = COALESCE($8, price_cents), is_active = COALESCE($9, is_active),
-           sort_order = COALESCE($10, sort_order), is_addon = COALESCE($11, is_addon)
+           sort_order = COALESCE($10, sort_order), is_addon = COALESCE($11, is_addon),
+           location_ids = COALESCE($12::uuid[], location_ids)
          WHERE id = $1 RETURNING id`,
-        [id, b.name ?? null, b.category ?? null, b.description ?? null, b.photoUrl ?? null, b.durationMin ?? null, b.bufferMin ?? null, b.priceCents ?? null, b.isActive ?? null, b.sortOrder ?? null, b.isAddon ?? null],
+        [id, b.name ?? null, b.category ?? null, b.description ?? null, b.photoUrl ?? null, b.durationMin ?? null, b.bufferMin ?? null, b.priceCents ?? null, b.isActive ?? null, b.sortOrder ?? null, b.isAddon ?? null, b.locationIds ?? null],
       );
       return rows[0] ?? { error: 'no_encontrado' };
     });

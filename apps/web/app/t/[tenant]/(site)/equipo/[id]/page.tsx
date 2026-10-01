@@ -6,7 +6,7 @@ import { GalleryGrid } from '../../../_parts/GalleryGrid';
 import { Card } from '../../../_parts/TeamSection';
 import { NextSlot } from '../../../_site/NextSlot';
 import { ReviewsBoard } from '../../../_site/StaffReviews';
-import { Head, Closing } from '../../../_site/blocks';
+import { Head, Closing, WeekHours } from '../../../_site/blocks';
 import { getSite, derive } from '../../../_site/data';
 import { pageMeta } from '../../../_site/meta';
 
@@ -29,6 +29,11 @@ export default async function BarberoPage({ params }: { params: Promise<{ tenant
   const others = site.staff.filter((s) => s.id !== b.id);
   const sede = b.location_id ? site.locations.find((l) => l.id === b.location_id) : null;
   const specialties = (b.specialties ?? []).filter(Boolean);
+  const myHours = (site.staffHours ?? []).filter((h) => h.staff_id === b.id);
+  const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  const worked = [1, 2, 3, 4, 5, 6, 0].filter((dw) => myHours.some((h) => h.day_of_week === dw));
+  const off = [1, 2, 3, 4, 5, 6, 0].filter((dw) => !worked.includes(dw));
+  const daysText = !worked.length ? '' : off.length === 0 ? 'Atiende todos los días' : off.length === 1 ? `Atiende todos los días menos el ${DAYS[off[0]]}` : `Atiende ${worked.map((dw) => DAYS[dw]).join(', ').replace(/, ([^,]*)$/, ' y $1')}`;
 
   return (
     <>
@@ -73,6 +78,16 @@ export default async function BarberoPage({ params }: { params: Promise<{ tenant
       </section>
 
       <main className="mx-auto max-w-[1240px] px-5 md:px-10">
+        {myHours.length > 0 && (
+          <section className="s-reveal s-line border-t py-20 md:py-24">
+            <div className="grid gap-10 md:grid-cols-12">
+              <div className="md:col-span-5">
+                <Head eyebrow="Cuándo atiende" title={`Encuentra a *${first}*`} sub={`${daysText}. Reserva con anticipación los fines de semana.`} />
+              </div>
+              <div className="md:col-span-6 md:col-start-7"><WeekHours rows={myHours} tz={d.tz} /></div>
+            </div>
+          </section>
+        )}
         {works.length > 0 && (
           <section className="s-reveal s-line border-t py-20 md:py-24">
             <Head eyebrow="Su trabajo" title={`Hecho por *${first}*`} />

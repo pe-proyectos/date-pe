@@ -6,8 +6,8 @@ import { useApi, soles } from './api';
 import { PageHead, Btn, Switch, Drawer, Field, inputCls, Empty, Skeleton } from './ui';
 import { toast } from '@/lib/toast';
 
-interface Service { id: string; name: string; description: string | null; duration_min: number; buffer_min: number; price_cents: number; is_active: boolean; is_addon?: boolean }
-interface Draft { id?: string; name: string; description: string; duration: string; buffer: string; price: string; isAddon: boolean }
+interface Service { id: string; name: string; description: string | null; duration_min: number; buffer_min: number; price_cents: number; is_active: boolean; is_addon?: boolean; location_ids?: string[] }
+interface Draft { id?: string; name: string; description: string; duration: string; buffer: string; price: string; isAddon: boolean; locationIds: string[] }
 interface Override { staff_id: string; name: string; price_cents: number | null; duration_min: number | null; custom: boolean }
 /** Fila editable de precio y duración por barbero (vacío = usa el del servicio). */
 interface OverrideDraft { staffId: string; name: string; price: string; duration: string }
@@ -20,6 +20,7 @@ const toDraft = (s?: Service, isAddon = false): Draft => ({
   buffer: String(s?.buffer_min ?? 5),
   price: s ? (s.price_cents / 100).toFixed(2) : '',
   isAddon: s ? !!s.is_addon : isAddon,
+  locationIds: s?.location_ids ?? [],
 });
 
 export function Servicios() {
@@ -28,6 +29,12 @@ export function Servicios() {
   const [edit, setEdit] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const [overrides, setOverrides] = useState<OverrideDraft[] | null>(null);
+  // Con varias sedes, cada servicio puede ofrecerse en todas o solo en algunas
+  const [sedes, setSedes] = useState<Array<{ id: string; name: string }>>([]);
+  useEffect(() => {
+    api<{ locations: Array<{ id: string; name: string; is_active: boolean }> }>('/admin/locations').then((d) => setSedes(d.locations.filter((l) => l.is_active))).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [initialOv, setInitialOv] = useState('');
 
   const load = useCallback(() => api<{ services: Service[] }>('/admin/services').then((d) => setList(d.services)).catch(() => {}), []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -63,7 +70,7 @@ export function Servicios() {
   async function save() {
     if (!edit || !valid) return;
     setBusy(true);
-    const body = { name: edit.name.trim(), description: edit.description.trim() || null, durationMin: Number(edit.duration), bufferMin: Number(edit.buffer) || 0, priceCents, isAddon: edit.isAddon };
+    const body = { name: edit.name.trim(), description: edit.description.trim() || null, durationMin: Number(edit.duration), bufferMin: Number(edit.buffer) || 0, priceCents, isAddon: edit.isAddon, ...(sedes.length > 1 ? { locationIds: edit.locationIds } : {}) };
     try {
       if (edit.id) {
         await api(`/admin/services/${edit.id}`, { method: 'PATCH', body });
@@ -184,6 +191,23 @@ export function Servicios() {
               </div>
               <Switch checked={edit.isAddon} onChange={(v) => setEdit({ ...edit, isAddon: v })} label="Es un extra" states={['Sí', 'No']} />
             </div>
+
+            {sedes.length > 1 && (
+              <div className="border-t border-line pt-4">
+                <span className="block text-[15px] font-medium">Dónde se ofrece</span>
+                <span className="mt-0.5 block text-[13px] text-soft">Sin ninguna marcada, se ofrece en todas las sedes.</span>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {sedes.map((l) => {
+                    const on = edit.locationIds.includes(l.id);
+                    return (
+                      <button key={l.id} type="button" aria-pressed={on} onClick={() => setEdit({ ...edit, locationIds: on ? edit.locationIds.filter((x) => x !== l.id) : [...edit.locationIds, l.id] })} className={`min-h-11 rounded-full px-4 text-[14px] font-medium transition-colors ${on ? 'bg-ink text-white' : 'bg-field hover:bg-line'}`}>
+                        {l.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="border-t border-line pt-4">
               <span className="flex items-center gap-2 text-[15px] font-medium"><Users size={16} strokeWidth={1.75} /> Precio y duración por barbero</span>

@@ -5,6 +5,7 @@ import { ReservarLink } from '../_parts/sede';
 import { OpenStatus } from '../_parts/OpenStatus';
 import { NextSlot } from './NextSlot';
 import type { SiteData } from './data';
+import { weekTable, nowIn, type HourRow } from '../_parts/hours';
 
 /** Frase con una palabra resaltada entre asteriscos: "La *carta*". */
 export function Accent({ text }: { text: string }) {
@@ -67,6 +68,30 @@ export function PageIntro({ eyebrow, title, sub, children }: { eyebrow: string; 
       {sub && <p className="s-mute s-rise s-rise-2 mt-6 max-w-[56ch] text-[18px] leading-relaxed">{sub}</p>}
       {children}
     </section>
+  );
+}
+
+/** Semana de horarios a partir de filas sueltas (de un barbero o de una sede). */
+export function WeekHours({ rows, tz, compact = false }: { rows: HourRow[]; tz: string; compact?: boolean }) {
+  if (!rows.length) return null;
+  const week = weekTable(rows);
+  const todayDow = nowIn(tz).dow;
+  return (
+    <dl className={`s-divide ${compact ? 'text-[15px]' : 'text-[16px]'}`}>
+      {week.map((w) => {
+        const today = w.dow === todayDow;
+        return (
+          <div key={w.dow} className={`flex items-center justify-between gap-4 ${compact ? 'py-2.5' : 'py-3'} ${today ? 'font-semibold' : ''}`}>
+            <dt className={`flex items-center gap-2.5 ${today ? '' : 's-mute'}`}>
+              {today && <span className="h-2 w-2 rounded-full" style={{ background: 'var(--accent-text)' }} aria-hidden />}
+              {w.day}
+              {today && <span className="s-mute text-[13px] font-normal">hoy</span>}
+            </dt>
+            <dd className={`tnum text-right ${w.time ? '' : 's-mute'}`}>{w.time ?? 'Descansa'}</dd>
+          </div>
+        );
+      })}
+    </dl>
   );
 }
 
@@ -171,6 +196,7 @@ export function SiteFooter({ d }: { d: SiteData }) {
               {d.available && <li><Link href="/reservar" className="inline-flex min-h-11 items-center hover:underline md:min-h-0">Reservar cita</Link></li>}
               {d.showQueue && <li><Link href="/fila" className="inline-flex min-h-11 items-center hover:underline md:min-h-0">Fila virtual</Link></li>}
               {d.showGifts && <li><Link href="/regalos" className="inline-flex min-h-11 items-center hover:underline md:min-h-0">Regalos y gift cards</Link></li>}
+              <li><Link href="/mi-cuenta" className="inline-flex min-h-11 items-center hover:underline md:min-h-0">Mi cuenta</Link></li>
               {d.instagram && <li><a href={d.instagram} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center hover:underline md:min-h-0">Instagram</a></li>}
               {d.whatsapp && <li><a href={d.whatsapp} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center hover:underline md:min-h-0">WhatsApp</a></li>}
             </ul>

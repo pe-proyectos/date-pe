@@ -13,13 +13,13 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     const tenantId = request.tenant.id;
     const demo = await admin<{ is_demo: boolean }>('SELECT is_demo FROM tenants WHERE id = $1', [tenantId]);
     return withTenant(tenantId, async (sql) => {
-      const [branding, settings, locations, staff, services, reviews, ratingAgg, plans, hours] = await Promise.all([
+      const [branding, settings, locations, staff, services, reviews, ratingAgg, plans, hours, staffHours, locHours] = await Promise.all([
         sql('SELECT logo_url, cover_url, color_primary, color_secondary, tagline, about, instagram, whatsapp, gallery, show_powered_by, site_theme FROM tenant_branding'),
         sql(`SELECT timezone, slot_interval_min, deposit_percent, require_deposit, cancel_window_hours, allow_client_reschedule,
                     require_verification, referral_enabled, referral_discount_percent FROM tenant_settings`),
         sql('SELECT id, name, address, district, province, lat, lng, phone FROM locations WHERE is_active ORDER BY name'),
         sql('SELECT id, location_id, name, photo_url, bio, specialties, rating_avg, rating_count FROM staff WHERE is_bookable ORDER BY sort_order, name'),
-        sql('SELECT id, category, name, description, photo_url, duration_min, price_cents, is_addon FROM services WHERE is_active ORDER BY is_addon, sort_order, name'),
+        sql('SELECT id, category, name, description, photo_url, duration_min, price_cents, is_addon, location_ids FROM services WHERE is_active ORDER BY is_addon, sort_order, name'),
         sql(
           `SELECT r.stars, r.comment, r.reply, r.created_at, s.name AS staff_name, c.name AS client_name
              FROM reviews r
@@ -34,6 +34,14 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         sql(`SELECT day_of_week, to_char(min(start_time), 'HH24:MI') AS open, to_char(max(end_time), 'HH24:MI') AS close
                FROM staff_schedules ss JOIN staff s ON s.id = ss.staff_id WHERE s.is_bookable
               GROUP BY day_of_week ORDER BY day_of_week`),
+        // Días y horas de cada barbero (para su perfil)
+        sql(`SELECT ss.staff_id, ss.day_of_week, to_char(min(ss.start_time), 'HH24:MI') AS open, to_char(max(ss.end_time), 'HH24:MI') AS close
+               FROM staff_schedules ss JOIN staff s ON s.id = ss.staff_id WHERE s.is_bookable
+              GROUP BY ss.staff_id, ss.day_of_week ORDER BY ss.day_of_week`),
+        // Horario de cada sede según quién atiende ahí
+        sql(`SELECT COALESCE(ss.location_id, s.location_id) AS location_id, ss.day_of_week, to_char(min(ss.start_time), 'HH24:MI') AS open, to_char(max(ss.end_time), 'HH24:MI') AS close
+               FROM staff_schedules ss JOIN staff s ON s.id = ss.staff_id WHERE s.is_bookable AND COALESCE(ss.location_id, s.location_id) IS NOT NULL
+              GROUP BY 1, ss.day_of_week ORDER BY ss.day_of_week`),
       ]);
       const cfg = await tenantConfig(sql);
       const review = await sql<{ google_review_url: string | null }>('SELECT google_review_url FROM tenant_settings');
@@ -60,6 +68,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         rating: ratingAgg.rows[0] ?? { avg: null, count: '0' },
         memberships: plans.rows,
         hours: hours.rows,
+        staffHours: staffHours.rows,
+        locationHours: locHours.rows,
       };
     });
   });

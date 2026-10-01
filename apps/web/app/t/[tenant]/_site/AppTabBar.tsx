@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { House, Scissors, CalendarPlus, UsersRound, Menu, ChevronRight, Images, Star, MapPin, Ticket, Gift, BookOpen, MessageCircle, Navigation } from 'lucide-react';
+import { House, Scissors, CalendarPlus, UsersRound, Menu, ChevronRight, Images, Star, MapPin, Ticket, Gift, BookOpen, MessageCircle, Navigation, CircleUserRound } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ReservarLink } from '../_parts/sede';
 import { SiteSheet } from './SiteSheet';
@@ -18,6 +18,7 @@ const ICONS: Record<string, LucideIcon> = {
   '/fila': Ticket,
   '/regalos': Gift,
   '/reclamaciones': BookOpen,
+  '/mi-cuenta': CircleUserRound,
 };
 
 /**
